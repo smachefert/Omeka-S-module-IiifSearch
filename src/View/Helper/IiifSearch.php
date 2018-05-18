@@ -86,12 +86,12 @@ class IiifSearch extends AbstractHelper
      *  Return resources that match query for IIIF Search API
      * [
      *      [
-     *          '@id' => '',
-     *          '@type' => '',
-     *          'motivation' => '',
+     *          '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
+     *          '@type' => 'oa:Annotation',
+     *          'motivation' => 'sc:painting',
      *          [
-     *              '@type' => '',
-     *              'chars' => '',
+     *              '@type' => 'cnt:ContentAsText',
+     *              'chars' =>  corresponding match char list ,
      *          ]
      *          'on' => canvas url with coordonate for IIIF Server module,
      *      ]

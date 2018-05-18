@@ -32,7 +32,7 @@ class PdfController extends AbstractActionController
         'text/pdf',
         'applications/vnd.pdf',
     );
-    
+
 
     public function __construct($store, $basePath)
     {
