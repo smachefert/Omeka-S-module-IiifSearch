@@ -23,6 +23,13 @@ class PdfController extends AbstractActionController
      */
     protected $basePath;
 
+    /**
+     * Uri to access the file.
+     *
+     * @var string
+     */
+    protected $baseUri;
+
 
     protected $pdfMimeTypes = array(
         'application/pdf',
@@ -34,10 +41,11 @@ class PdfController extends AbstractActionController
     );
 
 
-    public function __construct($store, $basePath)
+    public function __construct($store, $basePath, $baseUri)
     {
         $this->store = $store;
         $this->basePath = $basePath;
+        $this->baseUri = $baseUri;
     }
 
     /**
@@ -120,7 +128,7 @@ class PdfController extends AbstractActionController
         foreach ($medias as $media) {
             $mediaType = $media->mediaType();
 
-            if ($mediaType == 'application/xml')
+            if ( ($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')  )
                 $result['xmlMedia'] = $media;
 
             if ( in_array($mediaType, $this->pdfMimeTypes) )
@@ -132,30 +140,20 @@ class PdfController extends AbstractActionController
 
 
     protected function addMediaOcrFromPdf($item, $pdfMedia) {
-        $xmlFilePath = $this->extractOcr($pdfMedia);
-
-        //TODO attach file to item
-      /*  //see Documentation Attach a file :
-        //https://omeka.org/s/docs/developer/key_concepts/api/
-        $fileIndex = 0;
+        $xml_filename = $this->extractOcr($pdfMedia);
         $data = [
-            "o:ingester" => "fdg", //choose default ingester
-            "file_index" => $fileIndex, //generate random index
+            "o:ingester" => "url", //choose default ingester
             "o:item" => [
                 "o:id" => $item->id() //Id of the item to which attach the medium
             ],
+            "ingest_url" => sprintf('%s/%s', $this->baseUri, $xml_filename),
+            "o:source" => basename($pdfMedia->source(), ".pdf").".xml"
         ];
 
-        $filedata = [
-            'file'=>[
-                $fileIndex => $tmp_file_escaped,
-            ],
-        ];
-
-        $this->api()->create('media', $data, $filedata);*/
+        $this->api()->create('media', $data);
 
         //TODO return media representation
-        return $xmlFilePath;
+        return sprintf('%s/%s', $this->basePath, $xml_filename);
     }
 
     /**
@@ -168,8 +166,9 @@ class PdfController extends AbstractActionController
     protected function extractOcr($pdf)
     {
         $original_filename = $pdf->filename();
+
         $xml_filename = preg_replace("/\.pdf$/i", ".xml", $original_filename);
-        $tmp_file = sys_get_temp_dir() . DIRECTORY_SEPARATOR . basename($xml_filename, ".xml");
+        $tmp_file = sprintf('%s/%s', $this->basePath, $xml_filename);
         $tmp_file_escaped = escapeshellarg($tmp_file);
 
         //TODO get path original file from media
@@ -178,7 +177,7 @@ class PdfController extends AbstractActionController
         $path = escapeshellarg($path);
         $cmd = "pdftohtml -i -c -hidden -xml $path $tmp_file_escaped";
         $res = shell_exec($cmd);
+        return $xml_filename;
 
-        return sys_get_temp_dir() . DIRECTORY_SEPARATOR . $xml_filename;
     }
 }
