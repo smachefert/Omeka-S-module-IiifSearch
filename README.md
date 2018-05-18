@@ -13,7 +13,7 @@ Installation
 Troubleshooting
 ---------------
 
-See online [PDF TOC issues](https://github.com/bubdxm/Omeka-S-module-IiifSearch/issues).
+See online [IIIF Search issues](https://github.com/bubdxm/Omeka-S-module-IiifSearch/issues).
 
 License
 -------
