@@ -23,6 +23,17 @@ class PdfController extends AbstractActionController
      */
     protected $basePath;
 
+
+    protected $pdfMimeTypes = array(
+        'application/pdf',
+        'application/x-pdf',
+        'application/acrobat',
+        'text/x-pdf',
+        'text/pdf',
+        'applications/vnd.pdf',
+    );
+    
+
     public function __construct($store, $basePath)
     {
         $this->store = $store;
@@ -53,42 +64,25 @@ class PdfController extends AbstractActionController
             throw new NotFoundException;
         }
 
-        $query = null;
         if ( ! isset($_GET['q']))
             throw new NotFoundException;
 
-        $query = $_GET['q'];
-        if ( $query == "" )
-                throw new NotFoundException;
-
         $response = $this->api()->read('items', $id);
         $item = $response->getContent();
-        if (empty($item)) {
+        if (empty($item))
             throw new NotFoundException;
+
+
+        $result = $this->checkItem($item);
+        if (empty($result['pdfMedia']) )
+            throw new InvalidArgumentException("L'item doit contenir un pdf");
+
+        if (empty($result['xmlMedia'])) {
+            $result['xmlMedia'] = $this->addMediaOcrFromPdf($item, $result['pdfMedia']);
         }
-
-        //generate xml file for ocr data
-        //if doesn't exist
-        //
-        $medias = $item->media();
-        $ocrFile = [];
-        $pdfFile = null;
-        foreach ($medias as $media) {
-            $mediaType = $media->mediaType();
-
-            if ($mediaType == 'application/xml')
-                $ocrFile[] = $media;
-
-            if ( in_array($mediaType, $this->pdfMimeTypes) )
-                $pdfFile = $media;
-        }
-
-        $this->extractOcr($pdfFile, $item);
-        //if ( empty($ocrFile))
-
 
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
-        $searchResponse = $iiifSearch($item, $query);
+        $searchResponse = $iiifSearch($result['xmlMedia']);
 
         return $this->jsonLd($searchResponse );
     }
@@ -109,37 +103,39 @@ class PdfController extends AbstractActionController
         return $view;
     }
 
-    protected $pdfMimeTypes = array(
-        'application/pdf',
-        'application/x-pdf',
-        'application/acrobat',
-        'text/x-pdf',
-        'text/pdf',
-        'applications/vnd.pdf',
-    );
-
     /**
-     * Extract the ocr from a PDF file to
-     * a xml file and attach it to the item
-     *
-     * @param string $path
-     * @return string
+     * @param $item
+     * @return xml and pdf media
+     *      [
+     *          "xmlMedia" => MediaRepresentation,
+     *          "pdfMedia" => MediaRepresentation,
+     *      ]
+     *      if don't exist return empty array
      */
-    protected function extractOcr($pdfMedia, $item)
-    {
-        $original_filename = $pdfMedia->filename();
-        $xml_filename = preg_replace("/\.pdf$/i", ".xml", $original_filename);
-        $tmp_file = sys_get_temp_dir() . DIRECTORY_SEPARATOR . basename($xml_filename, ".xml");
-        $tmp_file_escaped = escapeshellarg($tmp_file);
+    protected function checkItem($item){
 
-        //TODO get path original file from media
-        $path = $this->basePath . DIRECTORY_SEPARATOR . '/original/' . $original_filename;
+        $result = [];
 
-        $path = escapeshellarg($path);
-        $cmd = "pdftohtml -i -c -hidden -xml $path $tmp_file_escaped";
-        $res = shell_exec($cmd);
+        $medias = $item->media();
+        foreach ($medias as $media) {
+            $mediaType = $media->mediaType();
 
-        //see Documentation Attach a file :
+            if ($mediaType == 'application/xml')
+                $result['xmlMedia'] = $media;
+
+            if ( in_array($mediaType, $this->pdfMimeTypes) )
+                $result['pdfMedia'] = $media;
+        }
+
+        return $result;
+    }
+
+
+    protected function addMediaOcrFromPdf($item, $pdfMedia) {
+        $xmlFilePath = $this->extractOcr($pdfMedia);
+
+        //TODO attach file to item
+      /*  //see Documentation Attach a file :
         //https://omeka.org/s/docs/developer/key_concepts/api/
         $fileIndex = 0;
         $data = [
@@ -156,6 +152,33 @@ class PdfController extends AbstractActionController
             ],
         ];
 
-        $this->api()->create('media', $data, $filedata);
+        $this->api()->create('media', $data, $filedata);*/
+
+        //TODO return media representation
+        return $xmlFilePath;
+    }
+
+    /**
+     * Extract the ocr from a PDF file to
+     * a xml file and attach it to the item
+     *
+     * @param MediaRepresentation $pdf
+     * @return generated xml file's path
+     */
+    protected function extractOcr($pdf)
+    {
+        $original_filename = $pdf->filename();
+        $xml_filename = preg_replace("/\.pdf$/i", ".xml", $original_filename);
+        $tmp_file = sys_get_temp_dir() . DIRECTORY_SEPARATOR . basename($xml_filename, ".xml");
+        $tmp_file_escaped = escapeshellarg($tmp_file);
+
+        //TODO get path original file from media
+        $path = $this->basePath . DIRECTORY_SEPARATOR . '/original/' . $original_filename;
+
+        $path = escapeshellarg($path);
+        $cmd = "pdftohtml -i -c -hidden -xml $path $tmp_file_escaped";
+        $res = shell_exec($cmd);
+
+        return sys_get_temp_dir() . DIRECTORY_SEPARATOR . $xml_filename;
     }
 }
