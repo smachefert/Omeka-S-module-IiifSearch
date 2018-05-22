@@ -85,9 +85,9 @@ class PdfController extends AbstractActionController
         if (empty($result['pdfMedia']) )
             throw new InvalidArgumentException("L'item doit contenir un pdf");
 
-        if (empty($result['xmlMedia'])) {
+        //if (empty($result['xmlMedia'])) {
             $result['xmlMedia'] = $this->addMediaOcrFromPdf($item, $result['pdfMedia']);
-        }
+        //}
 
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
         $searchResponse = $iiifSearch($result['xmlMedia']);
@@ -141,6 +141,33 @@ class PdfController extends AbstractActionController
 
     protected function addMediaOcrFromPdf($item, $pdfMedia) {
         $xml_filename = $this->extractOcr($pdfMedia);
+
+        $xml_filename_fullpath = $this->basePath.DIRECTORY_SEPARATOR.$xml_filename;
+
+        $fileIndex=0;
+        $data=[ //Representation of the medium which will be created
+            "o:ingester" => "upload",
+            "file_index" => $fileIndex,
+            "o:item" => [
+                "o:id" => $item->id() //Id of the item to which attach the medium
+            ],
+        ];
+
+        $fileData = [
+            'file'=>[
+                $fileIndex => [
+                  "name" => "test.xml",
+                  "type" => "text/xml",
+                  "tmp_name" => $xml_filename_fullpath,
+                  "error" => UPLOAD_ERR_OK,
+                  "size" => filesize($xml_filename_fullpath)
+                ],
+            ],
+        ];
+        $response = $this->api()->create('media', $data, $fileData);
+
+        return sprintf('%s/%s', $this->basePath, $xml_filename);
+
         $data = [
             "o:ingester" => "url", //choose default ingester
             "o:item" => [
@@ -151,7 +178,6 @@ class PdfController extends AbstractActionController
         ];
 
         $this->api()->create('media', $data);
-
         //TODO return media representation
         return sprintf('%s/%s', $this->basePath, $xml_filename);
     }
