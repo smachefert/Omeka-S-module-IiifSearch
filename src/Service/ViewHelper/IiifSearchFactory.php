@@ -13,6 +13,7 @@ class IiifSearchFactory
         $tempFileFactory = $services->get('Omeka\File\TempFileFactory');
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+
         return new IiifSearch($tempFileFactory, $basePath);
     }
 }

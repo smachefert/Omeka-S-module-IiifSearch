@@ -28,7 +28,6 @@ class IiifSearch extends AbstractHelper
      */
     protected $basePath;
 
-
     protected $pdfMimeTypes = array(
         'application/pdf',
         'application/x-pdf',
@@ -45,22 +44,19 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Get the IIIF info for the specified record.
+     * Get the IIIF search response for fulltext research query.
      *
-     * @todo Replace all data by standard classes.
-     *
-     * @param MediaRepresentation|null $media
-     * @return Object|null
+     * @param ItemRepresentation $item
+     * @return array
      */
-    public function __invoke(/*MediaRepresentation*/
-        $ocr)
+    public function __invoke(ItemRepresentation $item)
     {
         $response = [
             '@context' => 'http://iiif.io/api/search/0/context.json',
             '@id' => "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]",
-            '@type' => 'sc:Manifest',
+            '@type' => 'sc:AnnotationList',
             'within' => [
-                '@type' => 'sc:layer',
+                '@type' => 'sc:Layer',
                 'total' => 0,
             ],
             'startIndex' => 0,
@@ -68,13 +64,12 @@ class IiifSearch extends AbstractHelper
         ];
 
         if (!$_GET['q'] == "") {
-            $resources = $this->searchFulltext($ocr, $_GET['q']);
+            $resources = $this->searchFulltext($item, $_GET['q']);
 
             $response['within']['total'] = sizeof($resources);
             $response['resources'] = $resources;
         }
 
-        $response = (object)$response;
         return $response;
     }
 
@@ -86,7 +81,7 @@ class IiifSearch extends AbstractHelper
      *  Return resources that match query for IIIF Search API
      * [
      *      [
-     *          '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
+     *          '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/ . a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
      *          '@type' => 'oa:Annotation',
      *          'motivation' => 'sc:painting',
      *          [
@@ -97,48 +92,42 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-    public function searchFulltext($xmlFilePath, $query)
+
+    //TODO add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
+    public function searchFulltext($item, $query)
     {
         $results = [];
+        $xml_file = [];
+        $images = [];
+
+        $widths = [];
+        $heights = [];
 
         $queryWords = $this->formatQuery($query);
         if (empty($queryWords))
             return $results;
 
-        $xml = $this->loadXml($xmlFilePath);
-        if (empty($xmlFilePath))
-            throw new Exception('Error:Cannot get XML file!');
-
-
-        //TODO replace all stuff to generate request
-        //TODO rajouter l'item en parametre on va en avoir besoin pour la requete
-        $list = array();
-        set_loop_records('files', $this->_item->getFiles());
-        foreach (loop('files') as $file) {
-            if ($file->mime_type == 'application/xml') {
-                $xml_file = $file;
-            }
-            // Only these image extensions can be read by current browsers.
-            elseif ($file->hasThumbnail() && preg_match('/\.(jpg|jpeg|png|gif)$/i', $file->filename)) {
-                $list[] = $file;
+        foreach ( $item->media() as $media ) {
+            $mediaType = $media->mediaType();
+            if  (($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')){
+                $xml_file = $media;
+            } else if ($media->hasThumbnails() ) {
+                $images[] = $media;
             }
         }
-        $widths = array();
-        $heights = array();
-        foreach ($list as $file) {
-            $imageSize = $this->getImageSize($file, $imageType);
-            $widths[] = $imageSize['width'];
-            $heights[] = $imageSize['height'];
+
+        if( empty($xml_file))
+            return $results;
+
+        $xml = $this->loadXml( file_get_contents($xml_file->originalUrl()) );
+
+        foreach ($images as $media) {
+            $image = $media->originalUrl();
+
+            list($width, $height) = getimagesize($image);
+            $widths[] = $width;
+            $heights[] = $height;
         }
-        $xmlFilePath = preg_replace('/\s{2,}/ui', ' ', $xmlFilePath);
-        $xmlFilePath = preg_replace('/<\/?b>/ui', '', $xmlFilePath);
-        $xmlFilePath = preg_replace('/<\/?i>/ui', '', $xmlFilePath);
-        $xmlFilePath = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlFilePath);
-        $xml = simplexml_load_string($xmlFilePath);
-        if (!$xml) {
-            throw new Exception('Error:Invalid XML!');
-        }
-        $result = array();
         try {
             // We need to store the name of the function to be used
             // for string length. mb_strlen() is better (especially
@@ -154,51 +143,52 @@ class IiifSearch extends AbstractHelper
                     if ($a == 'width') $page_width = (string)$b;
                     if ($a == 'number') $page_number = (string)$b;
                 }
-                $t = 1;
+                $cptMatch = 1;
                 foreach ($page->text as $row) {
                     $boxes = array();
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
                         if ($strlen_function($q) >= 3) {
                             if (preg_match("/$q/Uui", $zone_text) > 0) {
-                                foreach ($row->attributes() as $a => $b) {
-                                    if ($a == 'top') $zone_top = (string)$b;
-                                    if ($a == 'left') $zone_left = (string)$b;
-                                    if ($a == 'height') $zone_height = (string)$b;
-                                    if ($a == 'width') $zone_width = (string)$b;
+                                foreach ($row->attributes() as $key => $value) {
+                                    if ($key == 'top') $zone_top = (string)$value;
+                                    if ($key == 'left') $zone_left = (string)$value;
+                                    if ($key == 'height') $zone_height = (string)$value;
+                                    if ($key == 'width') $zone_width = (string)$value;
                                 }
-                                $zone_right = ($page_width - $zone_left - $zone_width);
-                                $zone_bottom = ($page_height - $zone_top - $zone_height);
-                                $zone_width_char = strlen($zone_text);
-                                $word_start_char = stripos($zone_text, $q);
-                                $word_width_char = strlen($q);
-                                $word_left = $zone_left + (($word_start_char * $zone_width) / $zone_width_char);
-                                $word_right = $word_left + ((($word_width_char + 2) * $zone_width) / $zone_width_char);
-                                $word_left = round($word_left * $widths[$page_number - 1] / $page_width);
-                                $word_right = round($word_right * $widths[$page_number - 1] / $page_width);
-                                $word_top = round($zone_top * $heights[$page_number - 1] / $page_height);
-                                $word_bottom = round($word_top + ($zone_height * $heights[$page_number - 1] / $page_height));
-                                $boxes[] = array(
-                                    'r' => $word_right,
-                                    'l' => $word_left,
-                                    'b' => $word_bottom,
-                                    't' => $word_top,
-                                    'page' => $page_number,
-                                );
-                                $zone_text = str_ireplace($q, '{{{' . $q . '}}}', $zone_text);
-                                $result['text'] = $zone_text;
-                                $result['par'] = array();
-                                $result['par'][] = array(
-                                    't' => $zone_top,
-                                    'r' => $zone_right,
-                                    'b' => $zone_bottom,
-                                    'l' => $zone_left,
-                                    'page' => $page_number,
-                                    'boxes' => $boxes,
-                                );
+
+                                $scaleX = $widths[$page_number - 1] / $page_width;
+                                $scaleY = $heights[$page_number - 1] / $page_height;
+
+                                $x = $zone_left + stripos($zone_text, $q)/strlen($zone_text)*$zone_width;
+                                $y = $zone_top ;
+
+                                $w = round($zone_width * ( (strlen($q)+1)   / strlen($zone_text)) )  ;
+                                $h = $zone_height ;
+
+                                $x = round($x * $scaleX);
+                                $y = round($y * $scaleY);
+
+                                $w = round($w * $scaleX);
+                                $h = round($h * $scaleY);
+
+                                $result['@id'] =  "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif-search/searchResults/' .
+                                    'a' . $page_number .
+                                    'h' . $cptMatch .
+                                    'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+                                $result['@type'] = "oa:Annotation";
+                                $result['motivation'] = "sc:painting";
+                                $result['resource'] = [
+                                    '@type' => 'cnt:ContextAstext',
+                                     'chars' => $q
+                                    ];
+                                $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $item->id() . '/canvas/p' . $page_number .
+                                    '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+
+
                                 $results[] = $result;
                             }
-                            $t += 1;
+                            $cptMatch += 1;
                         }
                     }
                 }
@@ -231,18 +221,23 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * @param $xmlPath
+     * @param $xmlContent from attached xml file ( PDFTexT module )
      * @return \SimpleXMLElement
      */
-    protected function loadXml( $xmlPath ) {
-        if (empty($xmlPath)) {
+    protected function loadXml( $xmlContent ) {
+        if (empty($xmlContent)) {
             throw new Exception('Error:Cannot get XML file!');
         }
-        $xmlPath = preg_replace('/\s{2,}/ui', ' ', $xmlPath);
-        $xmlPath = preg_replace('/<\/?b>/ui', '', $xmlPath);
-        $xmlPath = preg_replace('/<\/?i>/ui', '', $xmlPath);
-        $xmlPath = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlPath);
-        return simplexml_load_string($xmlPath);
+        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
+        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
+        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlPath);
+
+        $xml = simplexml_load_string($xmlPath );
+        if (!$xml) {
+            throw new Exception('Error:Invalid XML!');
+        }
+        return $xml;
     }
     /**
      * Returns a cleaned  string.
