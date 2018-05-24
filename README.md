@@ -4,12 +4,17 @@ IIIF Search (module for Omeka S)
 Summary
 -----------
 
-IIIF Search is a module for Omeka S that add IIIF Search Api for ocr content.
+IIIF Search is a module for Omeka S that add IIIF Search Api for fulltext searching.
 
 Installation
 ------------
 
-- This plugin needs [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) module on your server
+- This plugin needs 
+*[Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) 
+
+*[IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer)
+module on your server
+
 - install the module via github
 
 ```
@@ -27,6 +32,14 @@ You can use API with :
 http://yourdomain/omeka-s/iiif-search/:itemID?q=textquery   
 
 Iiif Search module will return Iiif Search response.
+
+Optional plugins
+----------------
+
+- [Universal Viewer](https://github.com/Daniel-KM/Omeka-S-module-UniversalViewer) : Module for Omeka S that adds the IIIF specifications in order to act like an IIPImage server, and the UniversalViewer, a unified online player for any file. It can display books, images, maps, audio, movies, pdf, 3D views, and anything else as long as the appropriate extensions are installed.
+
+- [IIIF-Search](https://github.com/bubdxm/Omeka-S-module-IiifSearch) :  Module for Omeka S that adds IIIF Search Api for  fulltext searching on universal viewer.
+
 
 Troubleshooting
 ---------------
