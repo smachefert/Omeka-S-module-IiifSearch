@@ -9,6 +9,24 @@ IIIF Search is a module for Omeka S that add IIIF Search Api for ocr content.
 Installation
 ------------
 
+- This plugin needs [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) module on your server
+- install the module via github
+
+```
+    cd omeka-s/modules  
+    git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
+```
+
+- Install it from the admin → Modules → IiifSearch -> install
+
+Using the Iiif Search module
+---------------------------
+
+You can use API with :
+
+http://yourdomain/omeka-s/iiif-search/:itemID?q=textsearch   
+
+Iiif Search module will return Iiif Search response.
 
 Troubleshooting
 ---------------
