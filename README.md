@@ -10,10 +10,9 @@ Installation
 ------------
 
 - This plugin needs 
-*[Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) 
-
-*[IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer)
-module on your server
+⋅⋅⋅[Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) 
+⋅⋅⋅[IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer)
+modules on your server
 
 - install the module via github
 
