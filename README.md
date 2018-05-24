@@ -24,7 +24,7 @@ Using the Iiif Search module
 
 You can use API with :
 
-http://yourdomain/omeka-s/iiif-search/:itemID?q=textsearch   
+http://yourdomain/omeka-s/iiif-search/:itemID?q=textquery   
 
 Iiif Search module will return Iiif Search response.
 
