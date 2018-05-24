@@ -9,10 +9,7 @@ IIIF Search is a module for Omeka S that add IIIF Search Api for fulltext search
 Installation
 ------------
 
-- This plugin needs 
-⋅⋅⋅[Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) 
-⋅⋅⋅[IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer)
-modules on your server
+- This plugin needs [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) and [IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer) modules on your server
 
 - install the module via github
 
