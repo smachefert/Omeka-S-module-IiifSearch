@@ -20,6 +20,9 @@ Installation
 
 - Install it from the admin → Modules → IiifSearch -> install
 
+- In IIIF Server's settings -> IIIF Search url 
+  add iiif-search url : http://yourdomain/omeka-s/iiif-search/
+
 Using the Iiif Search module
 ---------------------------
 
