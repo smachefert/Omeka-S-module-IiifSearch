@@ -80,18 +80,10 @@ class PdfController extends AbstractActionController
         if (empty($item))
             throw new NotFoundException;
 
-
-        $result = $this->checkItem($item);
-        if (empty($result['pdfMedia']) )
-            throw new InvalidArgumentException("L'item doit contenir un pdf");
-
-        if (empty($result['xmlMedia'])) {
-            $result['xmlMedia'] = $this->addMediaOcrFromPdf($item, $result['pdfMedia']);
-        }
-
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
-        $searchResponse = $iiifSearch($result['xmlMedia']);
+        $searchResponse = $iiifSearch($item);
 
+        $searchResponse = (object)$searchResponse;
         return $this->jsonLd($searchResponse );
     }
 
@@ -128,8 +120,9 @@ class PdfController extends AbstractActionController
         foreach ($medias as $media) {
             $mediaType = $media->mediaType();
 
-            if ( ($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')  )
+            if ( ($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')  ) {
                 $result['xmlMedia'] = $media;
+            }
 
             if ( in_array($mediaType, $this->pdfMimeTypes) )
                 $result['pdfMedia'] = $media;
@@ -153,7 +146,15 @@ class PdfController extends AbstractActionController
         $this->api()->create('media', $data);
 
         //TODO return media representation
-        return sprintf('%s/%s', $this->basePath, $xml_filename);
+        return $data = [
+            "o:ingester" => "url", //choose default ingester
+            "o:item" => [
+                "o:id" => $item->id() //Id of the item to which attach the medium
+            ],
+            "ingest_url" => sprintf('%s/%s', $this->baseUri, $xml_filename),
+            "o:source" => basename($pdfMedia->source(), ".pdf").".xml",
+            "path" => sprintf('%s/%s', $this->basePath, $xml_filename)
+        ];
     }
 
     /**
