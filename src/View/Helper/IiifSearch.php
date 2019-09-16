@@ -149,7 +149,7 @@ class IiifSearch extends AbstractHelper
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
                         if ($strlen_function($q) >= 3) {
-                            if (preg_match("/$q/Uui", $zone_text) > 0) {
+                            if ( (preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1])) ){
                                 foreach ($row->attributes() as $key => $value) {
                                     if ($key == 'top') $zone_top = (string)$value;
                                     if ($key == 'left') $zone_left = (string)$value;
@@ -231,9 +231,9 @@ class IiifSearch extends AbstractHelper
         $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
         $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
         $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
-        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlPath);
+        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
 
-        $xml = simplexml_load_string($xmlPath );
+        $xml = simplexml_load_string($xmlContent);
         if (!$xml) {
             throw new Exception('Error:Invalid XML!');
         }
