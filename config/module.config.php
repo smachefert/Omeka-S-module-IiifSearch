@@ -46,6 +46,21 @@ return [
                 ],
                 'may_terminate' => true,
                 'child_routes' => [
+                    // This format follows the example of the specification.
+                    // It allows to make a quick distinction between level 0 and level 1.
+                    // @link https://iiif.io/api/search/1.0/#service-description
+                    'search' => [
+                        'type' => \Zend\Router\Http\Literal::class,
+                        'options' => [
+                            'route' => '/search',
+                            'defaults' => [
+                                '__NAMESPACE__' => 'IiifSearch\Controller',
+                                'controller' => 'Search',
+                                'action' => 'index',
+                                'service' => 'SearchService1',
+                            ],
+                        ],
+                    ],
                     // @link https://iiif.io/api/presentation/2.1/#annotation-list
                     // Annotation name may follow the name of the canvas.
                     // In 2.1, canvas id is media id and name is p + index.

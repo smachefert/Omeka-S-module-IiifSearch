@@ -61,12 +61,31 @@ class Module extends AbstractModule
 
         $manifest = $event->getParam('manifest');
 
-        $manifest['service'][] = [
-            '@context' => 'http://iiif.io/api/search/0/context.json',
-            '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
-            'profile' => 'http://iiif.io/api/search/0/search',
-            'label' => 'Search within this manifest', // @translate
-        ];
+        // Manage last or recent version of module Iiif Server.
+        $isVersion2 = !is_object($manifest);
+        if ($isVersion2) {
+            $manifest['service'][] = [
+                '@context' => 'http://iiif.io/api/search/0/context.json',
+                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                'profile' => 'http://iiif.io/api/search/0/search',
+                'label' => 'Search within this manifest', // @translate
+            ];
+        } else {
+            /** @var \IiifServer\Iiif\Manifest $manifest */
+            $manifest->append(new \IiifServer\Iiif\Service([
+                '@context' => 'http://iiif.io/api/search/0/context.json',
+                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                'profile' => 'http://iiif.io/api/search/0/search',
+                'label' => 'Search within this manifest', // @translate
+                /*
+                '@context' => 'http://iiif.io/api/search/1/context.json',
+                'id' => $urlHelper('iiifsearch/search', ['id' => $resource->id()], ['force_canonical' => true]),
+                'type' => 'SearchService1',
+                'profile' => 'http://iiif.io/api/search/1/search',
+                'label' => 'Search within this manifest', // @translate
+                */
+            ]));
+        }
 
         $event->setParam('manifest', $manifest);
     }
