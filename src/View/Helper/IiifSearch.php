@@ -82,15 +82,18 @@ class IiifSearch extends AbstractHelper
                 '@type' => 'sc:Layer',
                 'total' => 0,
             ],
+            // TODO No pagination currently for search.
             'startIndex' => 0,
             'resources' => [],
+            'hits' => [],
         ];
 
         $q = trim($_GET['q']);
-        if (strlen($q)) {
-            $resources = $this->searchFulltext($q);
-            $response['within']['total'] = sizeof($resources);
-            $response['resources'] = $resources;
+        $result = $this->searchFulltext($q);
+        if ($result) {
+            $response['within']['total'] = count($result['resources']);
+            $response['resources'] = $result['resources'];
+            $response['hits'] = $result['hits'];
         }
 
         return $response;
@@ -101,7 +104,7 @@ class IiifSearch extends AbstractHelper
      *
      * @todo add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
      *
-     * @return array
+     * @return array|null
      *  Return resources that match query for IIIF Search API
      * [
      *      [
@@ -119,28 +122,32 @@ class IiifSearch extends AbstractHelper
     protected function searchFulltext($query)
     {
         if (!strlen($query)) {
-            return [];
+            return null;
         }
 
         $queryWords = $this->formatQuery($query);
         if (empty($queryWords)) {
-            return [];
+            return null;
         }
 
         $xml = $this->loadXml();
         if (empty($xml)) {
-            return [];
+            return null;
         }
 
         $this->prepareImageSizes();
 
-        $results = $this->searchFullTextPdfXml($xml, $queryWords);
-        return $results;
+        return $this->searchFullTextPdfXml($xml, $queryWords);
     }
 
     protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords)
     {
-        $results = [];
+        $result = [
+            'resources' => [],
+            'hits' => [],
+        ];
+
+        $matches = [];
         try {
             $hit = 0;
             $index = -1;
@@ -168,6 +175,8 @@ class IiifSearch extends AbstractHelper
                     continue;
                 }
 
+                $hits = [];
+                $hitMatches = [];
                 $rowIndex = -1;
                 foreach ($xmlPage->text as $xmlRow) {
                     ++$rowIndex;
@@ -177,7 +186,7 @@ class IiifSearch extends AbstractHelper
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
                             && mb_strlen($chars) >= $this->minimumQueryLength
-                            && preg_match('/' . preg_quote($chars, '/') . '/Uui', $zone['text']) > 0
+                            && preg_match('/' . preg_quote($chars, '/') . '/Uui', $zone['text'], $matches) > 0
                         ) {
                             $attributes = $xmlRow->attributes();
                             $zone['top'] = (string) @$attributes->top;
@@ -209,30 +218,44 @@ class IiifSearch extends AbstractHelper
                             $w = round($w * $scaleX);
                             $h = round($h * $scaleY);
 
-                            $result = [];
-                            $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/'
+                            $searchResult = [];
+                            $searchResult['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/'
                                 . 'a' . $page['number']
                                 . 'h' . $hit
                                 . 'r' . $x . ',' . $y . ',' . $w .  ',' . $h;
-                            $result['@type'] = "oa:Annotation";
-                            $result['motivation'] = "sc:painting";
-                            $result['resource'] = [
+                            $searchResult['@type'] = "oa:Annotation";
+                            $searchResult['motivation'] = "sc:painting";
+                            $searchResult['resource'] = [
                                 '@type' => 'cnt:ContextAstext',
                                  'chars' => $chars,
                                 ];
-                            $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number']
+                            $searchResult['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number']
                                 . '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h;
 
-                            $results[] = $result;
+                            $result['resources'][] = $searchResult;
+
+                            $hits[] = $searchResult['@id'];
+                            // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                            // TODO Get the text before first and last hit of the page.
+                            $hitMatches[] = $matches[0];
                         }
                     }
+                }
+
+                // Add hits per page.
+                if ($hits) {
+                    $searchHit = [];
+                    $searchHit['@type'] = 'search:Hit';
+                    $searchHit['annotations'] = $hits;
+                    $searchHit['match'] = implode(' ', array_unique($hitMatches));
+                    $result['hits'][] = $searchHit;
                 }
             }
         } catch (\Exception $e) {
             $this->getView()->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
-            return [];
+            return null;
         }
-        return $results;
+        return $result;
     }
 
     /**
