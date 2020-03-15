@@ -127,9 +127,12 @@ class IiifSearch extends AbstractHelper
             return $results;
         }
 
-        $this->prepareImageSizes();
+        $xml = $this->loadXml();
+        if (empty($xml)) {
+            return $results;
+        }
 
-        $xml = $this->loadXml(file_get_contents($this->xmlFile->originalUrl()));
+        $this->prepareImageSizes();
 
         try {
             foreach ($xml->page as $page) {
@@ -265,24 +268,27 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * @param $xmlContent from attached xml file ( PDFTexT module )
-     * @return \SimpleXMLElement
+     * @return \SimpleXMLElement|null
      */
-    protected function loadXml($xmlContent)
+    protected function loadXml()
     {
-        if (empty($xmlContent)) {
-            throw new Exception('Error:Cannot get XML file!');
-        }
+        $filepath = ($filename = $this->xmlFile->filename())
+            ? $this->basePath . '/original/' . $filename
+            : $this->xmlFile->originalUrl();
+
+        $xmlContent = file_get_contents($filepath);
+
         $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
         $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
         $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
         $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
 
-        $xml = simplexml_load_string($xmlContent);
-        if (!$xml) {
-            throw new Exception('Error:Invalid XML!');
+        $xmlContent = simplexml_load_string($xmlContent);
+        if (!$xmlContent) {
+            $this->getView()->logger()->err(sprintf('Error: Cannot get XML content from media #%d!', $this->xmlFile->id()));
+            return null;
         }
-        return $xml;
+        return $xmlContent;
     }
 
     protected function prepareScheme()
