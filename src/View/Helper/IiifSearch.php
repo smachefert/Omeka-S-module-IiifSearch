@@ -14,21 +14,29 @@ use Zend\View\Helper\AbstractHelper;
 class IiifSearch extends AbstractHelper
 {
     /**
-     * Full path to the files.
-     *
-     * @var string
+     * @var array
      */
-    protected $basePath;
-
-    protected $xmlMediaTypes = [
-        'application/xml',
-        'text/xml',
+    protected $xmlSupportedMediaTypes = [
+        'application/vnd.pdf2xml+xml',
     ];
 
     /**
      * @var int
      */
     protected $minimumQueryLength = 3;
+
+    protected $xmlMediaTypes = [
+        'application/xml',
+        'text/xml',
+        'application/vnd.pdf2xml+xml',
+    ];
+
+    /**
+     * Full path to the files.
+     *
+     * @var string
+     */
+    protected $basePath;
 
     /**
      * @var ItemRepresentation
@@ -39,6 +47,11 @@ class IiifSearch extends AbstractHelper
      * @var \Omeka\Api\Representation\MediaRepresentation
      */
     protected $xmlFile;
+
+    /**
+     * @var string
+     */
+    protected $xmlMediaType;
 
     /**
      * @var array
@@ -326,18 +339,29 @@ class IiifSearch extends AbstractHelper
             ? $this->basePath . '/original/' . $filename
             : $this->xmlFile->originalUrl();
 
-        $xmlContent = file_get_contents($filepath);
+        $this->xmlMediaType = $this->getView()->xmlMediaType($filepath, $this->xmlFile->mediaType());
+        if (!in_array($this->xmlMediaType, $this->xmlSupportedMediaTypes)) {
+            $this->getView()->logger()->err(sprintf('Error: Xml format "%1$s" is not managed currently (media #%2$d).', $this->xmlMediaType, $this->xmlFile->id()));
+            return null;
+        }
 
-        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
-        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
-        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
-        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
+        // Manage an exception.
+        if ($this->xmlMediaType === 'application/vnd.pdf2xml+xml') {
+            $xmlContent = file_get_contents($filepath);
+            $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
+            $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
+            $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+            $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
+            $xmlContent = simplexml_load_string($xmlContent);
+        } else {
+            $xmlContent = simplexml_load_file($filepath);
+        }
 
-        $xmlContent = simplexml_load_string($xmlContent);
         if (!$xmlContent) {
             $this->getView()->logger()->err(sprintf('Error: Cannot get XML content from media #%d!', $this->xmlFile->id()));
             return null;
         }
+
         return $xmlContent;
     }
 

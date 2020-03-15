@@ -9,6 +9,9 @@ return [
         ],
     ],
     'view_helpers' => [
+        'invokables' => [
+            'xmlMediaType' => View\Helper\XmlMediaType::class,
+        ],
         'factories' => [
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
         ],
