@@ -8,6 +8,7 @@
 namespace IiifSearch\View\Helper;
 
 use IiifSearch\Iiif\AnnotationList;
+use IiifSearch\Iiif\AnnotationSearchResult;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
 use Zend\View\Helper\AbstractHelper;
@@ -154,6 +155,7 @@ class IiifSearch extends AbstractHelper
         ], ['force_canonical' => true]) . '/p';
 
         $matches = [];
+        $resource = $this->item;
         try {
             $hit = 0;
             $index = -1;
@@ -209,38 +211,12 @@ class IiifSearch extends AbstractHelper
 
                             ++$hit;
 
-                            $scaleX = $this->imageSizes[$pageIndex]['width'] / $page['width'];
-                            $scaleY = $this->imageSizes[$pageIndex]['height'] / $page['height'];
+                            $image = $this->imageSizes[$pageIndex];
+                            $searchResult = new AnnotationSearchResult;
+                            $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                            $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
 
-                            $x = $zone['left'] + mb_stripos($zone['text'], $chars) / mb_strlen($zone['text']) * $zone['width'];
-                            $y = $zone['top'];
-
-                            $w = round($zone['width'] * ((mb_strlen($chars) + 1) / mb_strlen($zone['text']))) ;
-                            $h = $zone['height'];
-
-                            $x = round($x * $scaleX);
-                            $y = round($y * $scaleY);
-
-                            $w = round($w * $scaleX);
-                            $h = round($h * $scaleY);
-
-                            $searchResult = [];
-                            $searchResult['@id'] = $baseResultUrl
-                                . 'a' . $page['number']
-                                . 'h' . $hit
-                                . 'r' . $x . ',' . $y . ',' . $w .  ',' . $h;
-                            $searchResult['@type'] = "oa:Annotation";
-                            $searchResult['motivation'] = "sc:painting";
-                            $searchResult['resource'] = [
-                                '@type' => 'cnt:ContextAstext',
-                                 'chars' => $chars,
-                            ];
-                            $searchResult['on'] = $baseCanvasUrl . $page['number']
-                                . '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h;
-
-                            $result['resources'][] = $searchResult;
-
-                            $hits[] = $searchResult['@id'];
+                            $hits[] = $searchResult->getId();
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
                             // TODO Get the text before first and last hit of the page.
                             $hitMatches[] = $matches[0];
