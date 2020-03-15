@@ -35,9 +35,9 @@ class IiifSearch extends AbstractHelper
     protected $xmlFile;
 
     /**
-     * @var \Omeka\Api\Representation\MediaRepresentation[]
+     * @var array
      */
-    protected $images;
+    protected $imageSizes;
 
     /**
      * @todo Remove extraction of scheme.
@@ -112,28 +112,19 @@ class IiifSearch extends AbstractHelper
      */
     protected function searchFulltext($query)
     {
-        if (!strlen($query)) {
-            return [];
-        }
-
         $results = [];
-
-        $widths = [];
-        $heights = [];
+        if (!strlen($query)) {
+            return $results;
+        }
 
         $queryWords = $this->formatQuery($query);
         if (empty($queryWords)) {
             return $results;
         }
 
-        $xml = $this->loadXml(file_get_contents($this->xmlFile->originalUrl()));
+        $this->prepareImageSizes();
 
-        foreach ($this->images as $media) {
-            $image = $media->originalUrl();
-            list($width, $height) = getimagesize($image);
-            $widths[] = $width;
-            $heights[] = $height;
-        }
+        $xml = $this->loadXml(file_get_contents($this->xmlFile->originalUrl()));
 
         try {
             foreach ($xml->page as $page) {
@@ -150,13 +141,12 @@ class IiifSearch extends AbstractHelper
                 }
                 $cptMatch = 1;
                 foreach ($page->text as $row) {
-                    $boxes = [];
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
                         if (mb_strlen($q) >= 3) {
                             if ((preg_match('/' . preg_quote($q, '/') . '/Uui', $zone_text) > 0)
-                                && (isset($widths[$page_number - 1]))
-                                && (isset($heights[$page_number - 1]))
+                                && (isset($this->imageSizes[$page_number - 1]['width']))
+                                && (isset($this->imageSizes[$page_number - 1]['height']))
                             ) {
                                 foreach ($row->attributes() as $key => $value) {
                                     if ($key == 'top') {
@@ -173,8 +163,8 @@ class IiifSearch extends AbstractHelper
                                     }
                                 }
 
-                                $scaleX = $widths[$page_number - 1] / $page_width;
-                                $scaleY = $heights[$page_number - 1] / $page_height;
+                                $scaleX = $this->imageSizes[$page_number - 1]['width'] / $page_width;
+                                $scaleY = $this->imageSizes[$page_number - 1]['height'] / $page_height;
 
                                 $x = $zone_left + mb_stripos($zone_text, $q) / mb_strlen($zone_text) * $zone_width;
                                 $y = $zone_top ;
@@ -222,16 +212,31 @@ class IiifSearch extends AbstractHelper
     protected function prepareSearch()
     {
         $this->xmlFile = null;
-        $this->images = [];
+        $this->imageSizes = [];
         foreach ($this->item->media() as $media) {
             $mediaType = $media->mediaType();
             if (!$this->xmlFile && in_array($mediaType, $this->xmlMediaTypes)) {
                 $this->xmlFile = $media;
             } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
-                $this->images[] = $media;
+                $this->imageSizes[] = [
+                    'media' => $media,
+                ];
             }
         }
-        return isset($this->xmlFile) && count($this->images);
+        return isset($this->xmlFile) && count($this->imageSizes);
+    }
+
+    protected function prepareImageSizes()
+    {
+        foreach ($this->imageSizes as &$image) {
+            // Some media types don't save the file locally.
+            if ($filename = $image['media']->filename()) {
+                $filepath = $this->basePath . '/original/' . $filename;
+            } else {
+                $filepath = $image['media']->originalUrl();
+            }
+            list($image['width'], $image['height']) = getimagesize($filepath);
+        }
     }
 
     /**
