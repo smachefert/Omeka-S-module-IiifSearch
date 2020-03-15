@@ -19,6 +19,26 @@ class IiifSearch extends AbstractHelper
      */
     protected $basePath;
 
+    protected $xmlMediaTypes = [
+        'application/xml',
+        'text/xml',
+    ];
+
+    /**
+     * @var ItemRepresentation
+     */
+    protected $item;
+
+    /**
+     * @var \Omeka\Api\Representation\MediaRepresentation
+     */
+    protected $xmlFile;
+
+    /**
+     * @var \Omeka\Api\Representation\MediaRepresentation[]
+     */
+    protected $images;
+
     public function __construct($basePath)
     {
         $this->basePath = $basePath;
@@ -28,10 +48,17 @@ class IiifSearch extends AbstractHelper
      * Get the IIIF search response for fulltext research query.
      *
      * @param ItemRepresentation $item
-     * @return array
+     * @return array|null Null is returned if search is not supported for the
+     * resource.
      */
     public function __invoke(ItemRepresentation $item)
     {
+        $this->item = $item;
+
+        if (!$this->prepareSearch()) {
+            return null;
+        }
+
         $response = [
             '@context' => 'http://iiif.io/api/search/0/context.json',
             '@id' => "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]",
@@ -74,11 +101,13 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-    public function searchFulltext($item, $query)
+    protected function searchFulltext($query)
     {
+        if (!strlen($query)) {
+            return [];
+        }
+
         $results = [];
-        $xml_file = [];
-        $images = [];
 
         $widths = [];
         $heights = [];
@@ -88,24 +117,10 @@ class IiifSearch extends AbstractHelper
             return $results;
         }
 
-        foreach ($item->media() as $media) {
-            $mediaType = $media->mediaType();
-            if (($mediaType == 'application/xml') || ($mediaType == 'text/xml')) {
-                $xml_file = $media;
-            } elseif ($media->hasThumbnails()) {
-                $images[] = $media;
-            }
-        }
+        $xml = $this->loadXml(file_get_contents($this->xmlFile->originalUrl()));
 
-        if (empty($xml_file)) {
-            return $results;
-        }
-
-        $xml = $this->loadXml(file_get_contents($xml_file->originalUrl()));
-
-        foreach ($images as $media) {
+        foreach ($this->images as $media) {
             $image = $media->originalUrl();
-
             list($width, $height) = getimagesize($image);
             $widths[] = $width;
             $heights[] = $height;
@@ -174,7 +189,7 @@ class IiifSearch extends AbstractHelper
                                     '@type' => 'cnt:ContextAstext',
                                      'chars' => $q,
                                     ];
-                                $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $item->id() . '/canvas/p' . $page_number .
+                                $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page_number .
                                     '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
 
                                 $results[] = $result;
@@ -188,6 +203,26 @@ class IiifSearch extends AbstractHelper
             throw new \Exception('Error:PDF to XML conversion failed!');
         }
         return $results;
+    }
+
+    /**
+     * Check if the item support search and init the xml file.
+     *
+     * @return bool
+     */
+    protected function prepareSearch()
+    {
+        $this->xmlFile = null;
+        $this->images = [];
+        foreach ($this->item->media() as $media) {
+            $mediaType = $media->mediaType();
+            if (!$this->xmlFile && in_array($mediaType, $this->xmlMediaTypes)) {
+                $this->xmlFile = $media;
+            } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
+                $this->images[] = $media;
+            }
+        }
+        return isset($this->xmlFile) && count($this->images);
     }
 
     /**

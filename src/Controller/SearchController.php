@@ -30,6 +30,14 @@ class SearchController extends AbstractActionController
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
         $searchResponse = $iiifSearch($item);
 
+        if (!$searchResponse) {
+            $this->getResponse()->setStatusCode(\Zend\Http\Response::STATUS_CODE_400);
+            return new JsonModel([
+                'status' => 'error',
+                'message' => sprintf($this->translate('Search is not supported for resource #%d.'), $id), // @translate
+            ]);
+        }
+
         $searchResponse = (object) $searchResponse;
         return $this->jsonLd($searchResponse);
     }
