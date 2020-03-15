@@ -8,6 +8,7 @@
 namespace IiifSearch\View\Helper;
 
 use Omeka\Api\Representation\ItemRepresentation;
+use SimpleXMLElement;
 use Zend\View\Helper\AbstractHelper;
 
 class IiifSearch extends AbstractHelper
@@ -117,97 +118,118 @@ class IiifSearch extends AbstractHelper
      */
     protected function searchFulltext($query)
     {
-        $results = [];
         if (!strlen($query)) {
-            return $results;
+            return [];
         }
 
         $queryWords = $this->formatQuery($query);
         if (empty($queryWords)) {
-            return $results;
+            return [];
         }
 
         $xml = $this->loadXml();
         if (empty($xml)) {
-            return $results;
+            return [];
         }
 
         $this->prepareImageSizes();
 
+        $results = $this->searchFullTextPdfXml($xml, $queryWords);
+        return $results;
+    }
+
+    protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords)
+    {
+        $results = [];
         try {
-            foreach ($xml->page as $page) {
-                foreach ($page->attributes() as $a => $b) {
-                    if ($a == 'height') {
-                        $page_height = (string) $b;
-                    }
-                    if ($a == 'width') {
-                        $page_width = (string) $b;
-                    }
-                    if ($a == 'number') {
-                        $page_number = (string) $b;
-                    }
+            $index = -1;
+            foreach ($xml->page as $xmlPage) {
+                ++$index;
+                $attributes = $xmlPage->attributes();
+                $page['number'] = (string) @$attributes->number;
+                $page['width'] = (string) @$attributes->width;
+                $page['height'] = (string) @$attributes->height;
+                if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
+                    $this->getView()->logger()->warn(sprintf(
+                        'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
                 }
-                $cptMatch = 1;
-                foreach ($page->text as $row) {
-                    $zone_text = strip_tags($row->asXML());
-                    foreach ($queryWords as $q) {
-                        if (mb_strlen($q) >= $this->minimumQueryLength) {
-                            if ((preg_match('/' . preg_quote($q, '/') . '/Uui', $zone_text) > 0)
-                                && (isset($this->imageSizes[$page_number - 1]['width']))
-                                && (isset($this->imageSizes[$page_number - 1]['height']))
-                            ) {
-                                foreach ($row->attributes() as $key => $value) {
-                                    if ($key == 'top') {
-                                        $zone_top = (string) $value;
-                                    }
-                                    if ($key == 'left') {
-                                        $zone_left = (string) $value;
-                                    }
-                                    if ($key == 'height') {
-                                        $zone_height = (string) $value;
-                                    }
-                                    if ($key == 'width') {
-                                        $zone_width = (string) $value;
-                                    }
-                                }
 
-                                $scaleX = $this->imageSizes[$page_number - 1]['width'] / $page_width;
-                                $scaleY = $this->imageSizes[$page_number - 1]['height'] / $page_height;
+                // Should be the same than index.
+                $pageIndex = $page['number'] - 1;
+                if ($pageIndex !== $index) {
+                    $this->getView()->logger()->warn(sprintf(
+                        'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
+                }
 
-                                $x = $zone_left + mb_stripos($zone_text, $q) / mb_strlen($zone_text) * $zone_width;
-                                $y = $zone_top ;
-
-                                $w = round($zone_width * ((mb_strlen($q) + 1) / mb_strlen($zone_text)))  ;
-                                $h = $zone_height ;
-
-                                $x = round($x * $scaleX);
-                                $y = round($y * $scaleY);
-
-                                $w = round($w * $scaleX);
-                                $h = round($h * $scaleY);
-
-                                $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/' .
-                                    'a' . $page_number .
-                                    'h' . $cptMatch .
-                                    'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
-                                $result['@type'] = "oa:Annotation";
-                                $result['motivation'] = "sc:painting";
-                                $result['resource'] = [
-                                    '@type' => 'cnt:ContextAstext',
-                                     'chars' => $q,
-                                    ];
-                                $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page_number .
-                                    '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
-
-                                $results[] = $result;
+                $cptMatch = 0;
+                $rowIndex = -1;
+                foreach ($xmlPage->text as $xmlRow) {
+                    ++$rowIndex;
+                    $zone = [];
+                    $zone['text'] = strip_tags($xmlRow->asXML());
+                    foreach ($queryWords as $chars) {
+                        if (!empty($this->imageSizes[$pageIndex]['width'])
+                            && !empty($this->imageSizes[$pageIndex]['height'])
+                            && mb_strlen($chars) >= $this->minimumQueryLength
+                            && preg_match('/' . preg_quote($chars, '/') . '/Uui', $zone['text']) > 0
+                        ) {
+                            $attributes = $xmlRow->attributes();
+                            $zone['top'] = (string) @$attributes->top;
+                            $zone['left'] = (string) @$attributes->left;
+                            $zone['width'] = (string) @$attributes->width;
+                            $zone['height'] = (string) @$attributes->height;
+                            if (!strlen($zone['top']) || !strlen($zone['left']) || !strlen($zone['width']) || !strlen($zone['height'])) {
+                                $this->getView()->logger()->warn(sprintf(
+                                    'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
+                                    $this->xmlFile->id(), $pageIndex, $rowIndex
+                                ));
+                                continue;
                             }
-                            $cptMatch += 1;
+
+                            $scaleX = $this->imageSizes[$pageIndex]['width'] / $page['width'];
+                            $scaleY = $this->imageSizes[$pageIndex]['height'] / $page['height'];
+
+                            $x = $zone['left'] + mb_stripos($zone['text'], $chars) / mb_strlen($zone['text']) * $zone['width'];
+                            $y = $zone['top'];
+
+                            $w = round($zone['width'] * ((mb_strlen($chars) + 1) / mb_strlen($zone['text']))) ;
+                            $h = $zone['height'];
+
+                            $x = round($x * $scaleX);
+                            $y = round($y * $scaleY);
+
+                            $w = round($w * $scaleX);
+                            $h = round($h * $scaleY);
+
+                            $result = [];
+                            $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/' .
+                                'a' . $page['number'] .
+                                'h' . $cptMatch .
+                                'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+                            $result['@type'] = "oa:Annotation";
+                            $result['motivation'] = "sc:painting";
+                            $result['resource'] = [
+                                '@type' => 'cnt:ContextAstext',
+                                 'chars' => $chars,
+                                ];
+                            $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number'] .
+                                '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+
+                            $results[] = $result;
                         }
+                        ++$cptMatch;
                     }
                 }
             }
         } catch (\Exception $e) {
-            throw new \Exception('Error:PDF to XML conversion failed!');
+            $this->getView()->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
+            return [];
         }
         return $results;
     }
