@@ -45,13 +45,6 @@ class IiifSearch extends AbstractHelper
      */
     protected $imageSizes;
 
-    /**
-     * @todo Remove extraction of scheme.
-     *
-     * @var string
-     */
-    protected $scheme;
-
     public function __construct($basePath)
     {
         $this->basePath = $basePath;
@@ -72,11 +65,9 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        $this->prepareScheme();
-
         $response = [
             '@context' => 'http://iiif.io/api/search/0/context.json',
-            '@id' => $this->scheme . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'],
+            '@id' => $this->getView()->serverUrl(true),
             '@type' => 'sc:AnnotationList',
             'within' => [
                 '@type' => 'sc:Layer',
@@ -146,6 +137,19 @@ class IiifSearch extends AbstractHelper
             'resources' => [],
             'hits' => [],
         ];
+
+        // A search result is an annotation on the canvas of the original item,
+        // so an url managed by the iiif server.
+        $baseResultUrl = $this->getView()->url('iiifserver/uri', [
+            'id' => $this->item->id(),
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ], ['force_canonical' => true]) . '/';
+
+        $baseCanvasUrl = $this->getView()->url('iiifserver/uri', [
+            'id' => $this->item->id(),
+            'type' => 'canvas',
+        ], ['force_canonical' => true]) . '/p';
 
         $matches = [];
         try {
@@ -219,7 +223,7 @@ class IiifSearch extends AbstractHelper
                             $h = round($h * $scaleY);
 
                             $searchResult = [];
-                            $searchResult['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/'
+                            $searchResult['@id'] = $baseResultUrl
                                 . 'a' . $page['number']
                                 . 'h' . $hit
                                 . 'r' . $x . ',' . $y . ',' . $w .  ',' . $h;
@@ -228,8 +232,8 @@ class IiifSearch extends AbstractHelper
                             $searchResult['resource'] = [
                                 '@type' => 'cnt:ContextAstext',
                                  'chars' => $chars,
-                                ];
-                            $searchResult['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number']
+                            ];
+                            $searchResult['on'] = $baseCanvasUrl . $page['number']
                                 . '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h;
 
                             $result['resources'][] = $searchResult;
@@ -335,22 +339,6 @@ class IiifSearch extends AbstractHelper
             return null;
         }
         return $xmlContent;
-    }
-
-    protected function prepareScheme()
-    {
-        // Get the scheme. Copied from Omeka classic bootstrap.php.
-        // TODO Use Zend route methods.
-        if ((isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] === true))
-            || (isset($_SERVER['HTTP_SCHEME']) && $_SERVER['HTTP_SCHEME'] == 'https')
-            || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
-            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')
-        ) {
-            $this->scheme = 'https';
-        } else {
-            $this->scheme = 'http';
-        }
-        return $this->scheme;
     }
 
     /**
