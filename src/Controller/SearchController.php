@@ -38,7 +38,6 @@ class SearchController extends AbstractActionController
             ]);
         }
 
-        $searchResponse = (object) $searchResponse;
         return $this->jsonLd($searchResponse);
     }
 

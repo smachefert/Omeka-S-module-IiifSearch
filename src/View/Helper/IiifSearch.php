@@ -7,6 +7,7 @@
  */
 namespace IiifSearch\View\Helper;
 
+use IiifSearch\Iiif\AnnotationList;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
 use Zend\View\Helper\AbstractHelper;
@@ -67,8 +68,8 @@ class IiifSearch extends AbstractHelper
      * Get the IIIF search response for fulltext research query.
      *
      * @param ItemRepresentation $item
-     * @return array|null Null is returned if search is not supported for the
-     * resource.
+     * @return AnnotationList|null Null is returned if search is not supported
+     * for the resource.
      */
     public function __invoke(ItemRepresentation $item)
     {
@@ -78,28 +79,16 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        $response = [
-            '@context' => 'http://iiif.io/api/search/0/context.json',
-            '@id' => $this->getView()->serverUrl(true),
-            '@type' => 'sc:AnnotationList',
-            'within' => [
-                '@type' => 'sc:Layer',
-                'total' => 0,
-            ],
-            // TODO No pagination currently for search.
-            'startIndex' => 0,
-            'resources' => [],
-            'hits' => [],
-        ];
+        $query = $this->getView()->params()->fromQuery('q');
+        $result = $this->searchFulltext($query);
 
-        $q = trim($_GET['q']);
-        $result = $this->searchFulltext($q);
+        $response = new AnnotationList;
+        $response->initOptions(['requestUri' => $this->getView()->serverUrl(true)]);
         if ($result) {
-            $response['within']['total'] = count($result['resources']);
             $response['resources'] = $result['resources'];
             $response['hits'] = $result['hits'];
         }
-
+        $response->isValid(true);
         return $response;
     }
 
