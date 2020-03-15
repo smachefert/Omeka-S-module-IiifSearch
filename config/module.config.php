@@ -41,6 +41,25 @@ return [
                         'action' => 'index',
                     ],
                 ],
+                'may_terminate' => true,
+                'child_routes' => [
+                    // @link https://iiif.io/api/presentation/2.1/#annotation-list
+                    // Annotation name may follow the name of the canvas.
+                    // In 2.1, canvas id is media id and name is p + index.
+                    // In 3.0, canvas id is item id and name is media id.
+                    'annotation-list' => [
+                        'type' => \Zend\Router\Http\Segment::class,
+                        'options' => [
+                            'route' => '/list/:name',
+                            'constraints' => [
+                                'name' => 'p?\d+',
+                            ],
+                            'defaults' => [
+                                'action' => 'annotation-list',
+                            ],
+                        ],
+                    ],
+                ],
             ],
         ],
     ],

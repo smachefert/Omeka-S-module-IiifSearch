@@ -41,4 +41,14 @@ class SearchController extends AbstractActionController
         $searchResponse = (object) $searchResponse;
         return $this->jsonLd($searchResponse);
     }
+
+    public function annotationListAction()
+    {
+        // TODO Implement annotation-list action.
+        $this->getResponse()->setStatusCode(\Zend\Http\Response::STATUS_CODE_501);
+        return new JsonModel([
+            'status' => 'error',
+            'message' => $this->translate('Direct request to annotation-list is not implemented.'), // @translate
+        ]);
+    }
 }
