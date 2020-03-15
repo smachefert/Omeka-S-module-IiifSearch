@@ -25,6 +25,11 @@ class IiifSearch extends AbstractHelper
     ];
 
     /**
+     * @var int
+     */
+    protected $minimumQueryLength = 3;
+
+    /**
      * @var ItemRepresentation
      */
     protected $item;
@@ -80,9 +85,9 @@ class IiifSearch extends AbstractHelper
             'resources' => [],
         ];
 
-        if (!$_GET['q'] == "") {
-            $resources = $this->searchFulltext($item, $_GET['q']);
-
+        $q = trim($_GET['q']);
+        if (strlen($q)) {
+            $resources = $this->searchFulltext($q);
             $response['within']['total'] = sizeof($resources);
             $response['resources'] = $resources;
         }
@@ -143,7 +148,7 @@ class IiifSearch extends AbstractHelper
                 foreach ($page->text as $row) {
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
-                        if (mb_strlen($q) >= 3) {
+                        if (mb_strlen($q) >= $this->minimumQueryLength) {
                             if ((preg_match('/' . preg_quote($q, '/') . '/Uui', $zone_text) > 0)
                                 && (isset($this->imageSizes[$page_number - 1]['width']))
                                 && (isset($this->imageSizes[$page_number - 1]['height']))
@@ -242,15 +247,12 @@ class IiifSearch extends AbstractHelper
     /**
      * Normalize query because the search occurs inside a normalized text.
      * @param $query
-     * @return mixed
+     * @return array
      */
     protected function formatQuery($query)
     {
-        $minimumQueryLength = 3;
-
         $cleanQuery = $this->alnumString($query);
-
-        if (mb_strlen($cleanQuery) < $minimumQueryLength) {
+        if (mb_strlen($cleanQuery) < $this->minimumQueryLength) {
             return [];
         }
 
