@@ -196,8 +196,8 @@ class IiifSearch extends AbstractHelper
                     }
                 }
             }
-        } catch (Exception $e) {
-            throw new Exception('Error:PDF to XML conversion failed!');
+        } catch (\Exception $e) {
+            throw new \Exception('Error:PDF to XML conversion failed!');
         }
         return $results;
     }
