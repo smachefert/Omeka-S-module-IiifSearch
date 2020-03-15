@@ -4,26 +4,18 @@ namespace IiifSearch;
 
 return [
     'view_manager' => [
-        'template_path_stack' => [
-            dirname(__DIR__) . '/view',
-        ],
         'strategies' => [
             'ViewJsonStrategy',
         ],
     ],
     'view_helpers' => [
-        'invokables' => [
-
-        ],
         'factories' => [
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
         ],
     ],
     'controllers' => [
-        'invokables' => [
-        ],
         'factories' => [
-            'IiifSearch\Controller\Pdf' => Service\Controller\PdfControllerFactory::class,
+            'IiifSearch\Controller\Search' => Service\Controller\SearchControllerFactory::class,
         ],
     ],
     'controller_plugins' => [
@@ -33,8 +25,11 @@ return [
     ],
     'router' => [
         'routes' => [
-            'iiifsearch_pdf' => [
-                'type' => 'Segment',
+            /**
+             * @link https://iiif.io/api/search/1.0/#search
+             */
+            'iiifsearch' => [
+                'type' => \Zend\Router\Http\Segment::class,
                 'options' => [
                     'route' => '/iiif-search/:id',
                     'constraints' => [
@@ -42,22 +37,8 @@ return [
                     ],
                     'defaults' => [
                         '__NAMESPACE__' => 'IiifSearch\Controller',
-                        'controller' => 'Pdf',
+                        'controller' => 'Search',
                         'action' => 'index',
-                    ],
-                ],
-            ],
-            'iiifsearch_pdf_researchInfo' => [
-                'type' => 'Segment',
-                'options' => [
-                    'route' => '/iiif-search/:id',
-                    'constraints' => [
-                        'id' => '\d+',
-                    ],
-                    'defaults' => [
-                        '__NAMESPACE__' => 'IiifSearch\Controller',
-                        'controller' => 'Pdf',
-                        'action' => 'ocrResearch',
                     ],
                 ],
             ],

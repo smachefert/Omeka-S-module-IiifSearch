@@ -2,18 +2,12 @@
 
 namespace IiifSearch\Controller;
 
-use Omeka\File\Store\StoreInterface;
 use Omeka\Mvc\Exception\NotFoundException;
 use Zend\Mvc\Controller\AbstractActionController;
 use Zend\View\Model\ViewModel;
 
-class PdfController extends AbstractActionController
+class SearchController extends AbstractActionController
 {
-    /**
-     * @var StoreInterface
-     */
-    protected $store;
-
     /**
      * Full path to the files.
      *
@@ -37,9 +31,8 @@ class PdfController extends AbstractActionController
         'applications/vnd.pdf',
     ];
 
-    public function __construct($store, $basePath, $baseUri)
+    public function __construct($basePath, $baseUri)
     {
-        $this->store = $store;
         $this->basePath = $basePath;
         $this->baseUri = $baseUri;
     }

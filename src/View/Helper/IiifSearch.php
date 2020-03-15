@@ -8,16 +8,10 @@
 namespace IiifSearch\View\Helper;
 
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\File\TempFileFactory;
 use Zend\View\Helper\AbstractHelper;
 
 class IiifSearch extends AbstractHelper
 {
-    /**
-     * @var TempFileFactory
-     */
-    protected $tempFileFactory;
-
     /**
      * Full path to the files.
      *
@@ -34,9 +28,8 @@ class IiifSearch extends AbstractHelper
         'applications/vnd.pdf',
     ];
 
-    public function __construct(TempFileFactory $tempFileFactory, $basePath)
+    public function __construct($basePath)
     {
-        $this->tempFileFactory = $tempFileFactory;
         $this->basePath = $basePath;
     }
 
@@ -126,6 +119,7 @@ class IiifSearch extends AbstractHelper
             $widths[] = $width;
             $heights[] = $height;
         }
+
         try {
             foreach ($xml->page as $page) {
                 foreach ($page->attributes() as $a => $b) {

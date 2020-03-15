@@ -16,6 +16,6 @@ class Module extends AbstractModule
         parent::onBootstrap($event);
 
         $acl = $this->getServiceLocator()->get('Omeka\Acl');
-        $acl->allow(null, 'IiifSearch\Controller\Pdf');
+        $acl->allow(null, 'IiifSearch\Controller\Search');
     }
 }
