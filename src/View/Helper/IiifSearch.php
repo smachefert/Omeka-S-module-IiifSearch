@@ -142,6 +142,7 @@ class IiifSearch extends AbstractHelper
     {
         $results = [];
         try {
+            $hit = 0;
             $index = -1;
             foreach ($xml->page as $xmlPage) {
                 ++$index;
@@ -167,7 +168,6 @@ class IiifSearch extends AbstractHelper
                     continue;
                 }
 
-                $cptMatch = 0;
                 $rowIndex = -1;
                 foreach ($xmlPage->text as $xmlRow) {
                     ++$rowIndex;
@@ -192,6 +192,8 @@ class IiifSearch extends AbstractHelper
                                 continue;
                             }
 
+                            ++$hit;
+
                             $scaleX = $this->imageSizes[$pageIndex]['width'] / $page['width'];
                             $scaleY = $this->imageSizes[$pageIndex]['height'] / $page['height'];
 
@@ -208,22 +210,21 @@ class IiifSearch extends AbstractHelper
                             $h = round($h * $scaleY);
 
                             $result = [];
-                            $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/' .
-                                'a' . $page['number'] .
-                                'h' . $cptMatch .
-                                'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+                            $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/'
+                                . 'a' . $page['number']
+                                . 'h' . $hit
+                                . 'r' . $x . ',' . $y . ',' . $w .  ',' . $h;
                             $result['@type'] = "oa:Annotation";
                             $result['motivation'] = "sc:painting";
                             $result['resource'] = [
                                 '@type' => 'cnt:ContextAstext',
                                  'chars' => $chars,
                                 ];
-                            $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number'] .
-                                '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
+                            $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page['number']
+                                . '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h;
 
                             $results[] = $result;
                         }
-                        ++$cptMatch;
                     }
                 }
             }
