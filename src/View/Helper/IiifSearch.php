@@ -9,6 +9,7 @@ namespace IiifSearch\View\Helper;
 
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
+use IiifSearch\Iiif\SearchHit;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
 use Zend\View\Helper\AbstractHelper;
@@ -154,8 +155,8 @@ class IiifSearch extends AbstractHelper
             'type' => 'canvas',
         ], ['force_canonical' => true]) . '/p';
 
-        $matches = [];
         $resource = $this->item;
+        $matches = [];
         try {
             $hit = 0;
             $index = -1;
@@ -226,8 +227,7 @@ class IiifSearch extends AbstractHelper
 
                 // Add hits per page.
                 if ($hits) {
-                    $searchHit = [];
-                    $searchHit['@type'] = 'search:Hit';
+                    $searchHit = new SearchHit;
                     $searchHit['annotations'] = $hits;
                     $searchHit['match'] = implode(' ', array_unique($hitMatches));
                     $result['hits'][] = $searchHit;
@@ -237,6 +237,7 @@ class IiifSearch extends AbstractHelper
             $this->getView()->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
             return null;
         }
+
         return $result;
     }
 
