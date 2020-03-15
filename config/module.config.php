@@ -24,7 +24,7 @@ return [
         ],
         'factories' => [
             'IiifSearch\Controller\Pdf' => Service\Controller\PdfControllerFactory::class,
-        ]
+        ],
     ],
     'controller_plugins' => [
         'invokables' => [
@@ -47,7 +47,7 @@ return [
                     ],
                 ],
             ],
-            'iiifsearch_pdf_researchInfo'=> [
+            'iiifsearch_pdf_researchInfo' => [
                 'type' => 'Segment',
                 'options' => [
                     'route' => '/iiif-search/:id',
@@ -61,7 +61,6 @@ return [
                     ],
                 ],
             ],
-        ]
-    ]
+        ],
+    ],
 ];
-

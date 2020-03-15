@@ -4,7 +4,6 @@ namespace IiifSearch\Service\ViewHelper;
 
 use IiifSearch\View\Helper\IiifSearch;
 use Interop\Container\ContainerInterface;
-use Zend\ServiceManager\Factory\FactoryInterface;
 
 class IiifSearchFactory
 {

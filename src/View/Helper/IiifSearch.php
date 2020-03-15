@@ -5,12 +5,9 @@
  * Date: 17/05/18
  * Time: 16:01
  */
-
 namespace IiifSearch\View\Helper;
 
-use IiifSearch\Mvc\Controller\Plugin\TileInfo;
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\Api\Representation\MediaRepresentation;
 use Omeka\File\TempFileFactory;
 use Zend\View\Helper\AbstractHelper;
 
@@ -28,14 +25,14 @@ class IiifSearch extends AbstractHelper
      */
     protected $basePath;
 
-    protected $pdfMimeTypes = array(
+    protected $pdfMimeTypes = [
         'application/pdf',
         'application/x-pdf',
         'application/acrobat',
         'text/x-pdf',
         'text/pdf',
         'applications/vnd.pdf',
-    );
+    ];
 
     public function __construct(TempFileFactory $tempFileFactory, $basePath)
     {
@@ -73,9 +70,10 @@ class IiifSearch extends AbstractHelper
         return $response;
     }
 
-
     /**
      * Returns answers to a query.
+     *
+     * @todo add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
      *
      * @return array
      *  Return resources that match query for IIIF Search API
@@ -92,8 +90,6 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-
-    //TODO add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
     public function searchFulltext($item, $query)
     {
         $results = [];
@@ -104,22 +100,24 @@ class IiifSearch extends AbstractHelper
         $heights = [];
 
         $queryWords = $this->formatQuery($query);
-        if (empty($queryWords))
+        if (empty($queryWords)) {
             return $results;
+        }
 
-        foreach ( $item->media() as $media ) {
+        foreach ($item->media() as $media) {
             $mediaType = $media->mediaType();
-            if  (($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')){
+            if (($mediaType == 'application/xml') || ($mediaType == 'text/xml')) {
                 $xml_file = $media;
-            } else if ($media->hasThumbnails() ) {
+            } elseif ($media->hasThumbnails()) {
                 $images[] = $media;
             }
         }
 
-        if( empty($xml_file))
+        if (empty($xml_file)) {
             return $results;
+        }
 
-        $xml = $this->loadXml( file_get_contents($xml_file->originalUrl()) );
+        $xml = $this->loadXml(file_get_contents($xml_file->originalUrl()));
 
         foreach ($images as $media) {
             $image = $media->originalUrl();
@@ -139,31 +137,45 @@ class IiifSearch extends AbstractHelper
             }
             foreach ($xml->page as $page) {
                 foreach ($page->attributes() as $a => $b) {
-                    if ($a == 'height') $page_height = (string)$b;
-                    if ($a == 'width') $page_width = (string)$b;
-                    if ($a == 'number') $page_number = (string)$b;
+                    if ($a == 'height') {
+                        $page_height = (string) $b;
+                    }
+                    if ($a == 'width') {
+                        $page_width = (string) $b;
+                    }
+                    if ($a == 'number') {
+                        $page_number = (string) $b;
+                    }
                 }
                 $cptMatch = 1;
                 foreach ($page->text as $row) {
-                    $boxes = array();
+                    $boxes = [];
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
                         if ($strlen_function($q) >= 3) {
-                            if ( (preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1])) ){
+                            if ((preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1]))) {
                                 foreach ($row->attributes() as $key => $value) {
-                                    if ($key == 'top') $zone_top = (string)$value;
-                                    if ($key == 'left') $zone_left = (string)$value;
-                                    if ($key == 'height') $zone_height = (string)$value;
-                                    if ($key == 'width') $zone_width = (string)$value;
+                                    if ($key == 'top') {
+                                        $zone_top = (string) $value;
+                                    }
+                                    if ($key == 'left') {
+                                        $zone_left = (string) $value;
+                                    }
+                                    if ($key == 'height') {
+                                        $zone_height = (string) $value;
+                                    }
+                                    if ($key == 'width') {
+                                        $zone_width = (string) $value;
+                                    }
                                 }
 
                                 $scaleX = $widths[$page_number - 1] / $page_width;
                                 $scaleY = $heights[$page_number - 1] / $page_height;
 
-                                $x = $zone_left + stripos($zone_text, $q)/strlen($zone_text)*$zone_width;
+                                $x = $zone_left + stripos($zone_text, $q) / strlen($zone_text) * $zone_width;
                                 $y = $zone_top ;
 
-                                $w = round($zone_width * ( (strlen($q)+1)   / strlen($zone_text)) )  ;
+                                $w = round($zone_width * ((strlen($q) + 1) / strlen($zone_text)))  ;
                                 $h = $zone_height ;
 
                                 $x = round($x * $scaleX);
@@ -172,7 +184,7 @@ class IiifSearch extends AbstractHelper
                                 $w = round($w * $scaleX);
                                 $h = round($h * $scaleY);
 
-                                $result['@id'] =  "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif-search/searchResults/' .
+                                $result['@id'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif-search/searchResults/' .
                                     'a' . $page_number .
                                     'h' . $cptMatch .
                                     'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
@@ -180,11 +192,10 @@ class IiifSearch extends AbstractHelper
                                 $result['motivation'] = "sc:painting";
                                 $result['resource'] = [
                                     '@type' => 'cnt:ContextAstext',
-                                     'chars' => $q
+                                     'chars' => $q,
                                     ];
                                 $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $item->id() . '/canvas/p' . $page_number .
                                     '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
-
 
                                 $results[] = $result;
                             }
@@ -204,7 +215,8 @@ class IiifSearch extends AbstractHelper
      * @param $query
      * @return mixed
      */
-    protected function formatQuery($query) {
+    protected function formatQuery($query)
+    {
         $minimumQueryLength = 3;
 
         $cleanQuery = $this->alnumString($query);
@@ -214,8 +226,9 @@ class IiifSearch extends AbstractHelper
         }
 
         $queryWords = explode(' ', $cleanQuery);
-        if ( count($queryWords) > 1)
+        if (count($queryWords) > 1) {
             $queryWords[] = $cleanQuery;
+        }
 
         return $queryWords;
     }
@@ -224,7 +237,8 @@ class IiifSearch extends AbstractHelper
      * @param $xmlContent from attached xml file ( PDFTexT module )
      * @return \SimpleXMLElement
      */
-    protected function loadXml( $xmlContent ) {
+    protected function loadXml($xmlContent)
+    {
         if (empty($xmlContent)) {
             throw new Exception('Error:Cannot get XML file!');
         }
@@ -239,6 +253,7 @@ class IiifSearch extends AbstractHelper
         }
         return $xml;
     }
+
     /**
      * Returns a cleaned  string.
      *
@@ -246,15 +261,11 @@ class IiifSearch extends AbstractHelper
      * symbols.
      *
      * @param string $string The string to clean.
-     *
-     * @return string
-     *   The cleaned string.
+     * @return string The cleaned string.
      */
     protected function alnumString($string)
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', $string);
         return trim(preg_replace('/\s+/', ' ', $string));
     }
-
-
 }

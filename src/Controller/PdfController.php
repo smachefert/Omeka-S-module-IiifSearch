@@ -1,8 +1,6 @@
 <?php
 
-
 namespace IiifSearch\Controller;
-
 
 use Omeka\File\Store\StoreInterface;
 use Omeka\Mvc\Exception\NotFoundException;
@@ -30,16 +28,14 @@ class PdfController extends AbstractActionController
      */
     protected $baseUri;
 
-
-    protected $pdfMimeTypes = array(
+    protected $pdfMimeTypes = [
         'application/pdf',
         'application/x-pdf',
         'application/acrobat',
         'text/x-pdf',
         'text/pdf',
         'applications/vnd.pdf',
-    );
-
+    ];
 
     public function __construct($store, $basePath, $baseUri)
     {
@@ -72,19 +68,21 @@ class PdfController extends AbstractActionController
             throw new NotFoundException;
         }
 
-        if ( ! isset($_GET['q']))
+        if (! isset($_GET['q'])) {
             throw new NotFoundException;
+        }
 
         $response = $this->api()->read('items', $id);
         $item = $response->getContent();
-        if (empty($item))
+        if (empty($item)) {
             throw new NotFoundException;
+        }
 
         $iiifSearch = $this->viewHelpers()->get('iiifSearch');
         $searchResponse = $iiifSearch($item);
 
-        $searchResponse = (object)$searchResponse;
-        return $this->jsonLd($searchResponse );
+        $searchResponse = (object) $searchResponse;
+        return $this->jsonLd($searchResponse);
     }
 
     /**
@@ -112,35 +110,36 @@ class PdfController extends AbstractActionController
      *      ]
      *      if don't exist return empty array
      */
-    protected function checkItem($item){
-
+    protected function checkItem($item)
+    {
         $result = [];
 
         $medias = $item->media();
         foreach ($medias as $media) {
             $mediaType = $media->mediaType();
 
-            if ( ($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')  ) {
+            if (($mediaType == 'application/xml') || ($mediaType == 'text/xml')) {
                 $result['xmlMedia'] = $media;
             }
 
-            if ( in_array($mediaType, $this->pdfMimeTypes) )
+            if (in_array($mediaType, $this->pdfMimeTypes)) {
                 $result['pdfMedia'] = $media;
+            }
         }
 
         return $result;
     }
 
-
-    protected function addMediaOcrFromPdf($item, $pdfMedia) {
+    protected function addMediaOcrFromPdf($item, $pdfMedia)
+    {
         $xml_filename = $this->extractOcr($pdfMedia);
         $data = [
             "o:ingester" => "url", //choose default ingester
             "o:item" => [
-                "o:id" => $item->id() //Id of the item to which attach the medium
+                "o:id" => $item->id(), //Id of the item to which attach the medium
             ],
             "ingest_url" => sprintf('%s/%s', $this->baseUri, $xml_filename),
-            "o:source" => basename($pdfMedia->source(), ".pdf").".xml"
+            "o:source" => basename($pdfMedia->source(), ".pdf").".xml",
         ];
 
         $this->api()->create('media', $data);
@@ -149,11 +148,11 @@ class PdfController extends AbstractActionController
         return $data = [
             "o:ingester" => "url", //choose default ingester
             "o:item" => [
-                "o:id" => $item->id() //Id of the item to which attach the medium
+                "o:id" => $item->id(), //Id of the item to which attach the medium
             ],
             "ingest_url" => sprintf('%s/%s', $this->baseUri, $xml_filename),
             "o:source" => basename($pdfMedia->source(), ".pdf").".xml",
-            "path" => sprintf('%s/%s', $this->basePath, $xml_filename)
+            "path" => sprintf('%s/%s', $this->basePath, $xml_filename),
         ];
     }
 
@@ -179,6 +178,5 @@ class PdfController extends AbstractActionController
         $cmd = "pdftohtml -i -c -hidden -xml $path $tmp_file_escaped";
         $res = shell_exec($cmd);
         return $xml_filename;
-
     }
 }
