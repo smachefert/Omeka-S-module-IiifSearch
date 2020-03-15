@@ -5,6 +5,7 @@ use Omeka\Module\AbstractModule;
 use Zend\EventManager\Event;
 use Zend\EventManager\SharedEventManagerInterface;
 use Zend\Mvc\MvcEvent;
+use Zend\ServiceManager\ServiceLocatorInterface;
 
 class Module extends AbstractModule
 {
@@ -19,6 +20,13 @@ class Module extends AbstractModule
 
         $acl = $this->getServiceLocator()->get('Omeka\Acl');
         $acl->allow(null, 'IiifSearch\Controller\Search');
+    }
+
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator)
+    {
+        $filepath = __DIR__ . '/data/scripts/upgrade.php';
+        $this->setServiceLocator($serviceLocator);
+        require_once $filepath;
     }
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager)
