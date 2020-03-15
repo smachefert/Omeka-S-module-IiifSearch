@@ -39,6 +39,13 @@ class IiifSearch extends AbstractHelper
      */
     protected $images;
 
+    /**
+     * @todo Remove extraction of scheme.
+     *
+     * @var string
+     */
+    protected $scheme;
+
     public function __construct($basePath)
     {
         $this->basePath = $basePath;
@@ -59,9 +66,11 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        $this->prepareScheme();
+
         $response = [
             '@context' => 'http://iiif.io/api/search/0/context.json',
-            '@id' => "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]",
+            '@id' => $this->scheme . '://' . $_SERVER['HTTP_HOST'] . $_SERVER['REQUEST_URI'],
             '@type' => 'sc:AnnotationList',
             'within' => [
                 '@type' => 'sc:Layer',
@@ -179,7 +188,7 @@ class IiifSearch extends AbstractHelper
                                 $w = round($w * $scaleX);
                                 $h = round($h * $scaleY);
 
-                                $result['@id'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif-search/searchResults/' .
+                                $result['@id'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif-search/searchResults/' .
                                     'a' . $page_number .
                                     'h' . $cptMatch .
                                     'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
@@ -189,7 +198,7 @@ class IiifSearch extends AbstractHelper
                                     '@type' => 'cnt:ContextAstext',
                                      'chars' => $q,
                                     ];
-                                $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page_number .
+                                $result['on'] = $this->scheme . '://' . $_SERVER['HTTP_HOST'] . '/omeka-s/iiif/' . $this->item->id() . '/canvas/p' . $page_number .
                                     '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
 
                                 $results[] = $result;
@@ -267,6 +276,22 @@ class IiifSearch extends AbstractHelper
             throw new Exception('Error:Invalid XML!');
         }
         return $xml;
+    }
+
+    protected function prepareScheme()
+    {
+        // Get the scheme. Copied from Omeka classic bootstrap.php.
+        // TODO Use Zend route methods.
+        if ((isset($_SERVER['HTTPS']) && ($_SERVER['HTTPS'] == 'on' || $_SERVER['HTTPS'] === true))
+            || (isset($_SERVER['HTTP_SCHEME']) && $_SERVER['HTTP_SCHEME'] == 'https')
+            || (isset($_SERVER['SERVER_PORT']) && $_SERVER['SERVER_PORT'] == 443)
+            || (isset($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] == 'https')
+        ) {
+            $this->scheme = 'https';
+        } else {
+            $this->scheme = 'http';
+        }
+        return $this->scheme;
     }
 
     /**
