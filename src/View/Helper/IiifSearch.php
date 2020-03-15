@@ -19,15 +19,6 @@ class IiifSearch extends AbstractHelper
      */
     protected $basePath;
 
-    protected $pdfMimeTypes = [
-        'application/pdf',
-        'application/x-pdf',
-        'application/acrobat',
-        'text/x-pdf',
-        'text/pdf',
-        'applications/vnd.pdf',
-    ];
-
     public function __construct($basePath)
     {
         $this->basePath = $basePath;

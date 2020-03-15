@@ -14,8 +14,8 @@ return [
         ],
     ],
     'controllers' => [
-        'factories' => [
-            'IiifSearch\Controller\Search' => Service\Controller\SearchControllerFactory::class,
+        'invokables' => [
+            'IiifSearch\Controller\Search' => Controller\SearchController::class,
         ],
     ],
     'controller_plugins' => [
