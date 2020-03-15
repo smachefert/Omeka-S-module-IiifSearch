@@ -130,7 +130,10 @@ class IiifSearch extends AbstractHelper
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
                         if (mb_strlen($q) >= 3) {
-                            if ((preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1]))) {
+                            if ((preg_match('/' . preg_quote($q, '/') . '/Uui', $zone_text) > 0)
+                                && (isset($widths[$page_number - 1]))
+                                && (isset($heights[$page_number - 1]))
+                            ) {
                                 foreach ($row->attributes() as $key => $value) {
                                     if ($key == 'top') {
                                         $zone_top = (string) $value;
