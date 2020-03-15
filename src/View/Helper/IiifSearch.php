@@ -127,14 +127,6 @@ class IiifSearch extends AbstractHelper
             $heights[] = $height;
         }
         try {
-            // We need to store the name of the function to be used
-            // for string length. mb_strlen() is better (especially
-            // for diacrictics) but not available on all systems so
-            // sometimes we need to use the default strlen()
-            $strlen_function = "strlen";
-            if (function_exists('mb_strlen')) {
-                $strlen_function = "mb_strlen";
-            }
             foreach ($xml->page as $page) {
                 foreach ($page->attributes() as $a => $b) {
                     if ($a == 'height') {
@@ -152,7 +144,7 @@ class IiifSearch extends AbstractHelper
                     $boxes = [];
                     $zone_text = strip_tags($row->asXML());
                     foreach ($queryWords as $q) {
-                        if ($strlen_function($q) >= 3) {
+                        if (mb_strlen($q) >= 3) {
                             if ((preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1]))) {
                                 foreach ($row->attributes() as $key => $value) {
                                     if ($key == 'top') {
@@ -172,10 +164,10 @@ class IiifSearch extends AbstractHelper
                                 $scaleX = $widths[$page_number - 1] / $page_width;
                                 $scaleY = $heights[$page_number - 1] / $page_height;
 
-                                $x = $zone_left + stripos($zone_text, $q) / strlen($zone_text) * $zone_width;
+                                $x = $zone_left + mb_stripos($zone_text, $q) / mb_strlen($zone_text) * $zone_width;
                                 $y = $zone_top ;
 
-                                $w = round($zone_width * ((strlen($q) + 1) / strlen($zone_text)))  ;
+                                $w = round($zone_width * ((mb_strlen($q) + 1) / mb_strlen($zone_text)))  ;
                                 $h = $zone_height ;
 
                                 $x = round($x * $scaleX);
@@ -221,7 +213,7 @@ class IiifSearch extends AbstractHelper
 
         $cleanQuery = $this->alnumString($query);
 
-        if (strlen($cleanQuery) < $minimumQueryLength) {
+        if (mb_strlen($cleanQuery) < $minimumQueryLength) {
             return [];
         }
 
