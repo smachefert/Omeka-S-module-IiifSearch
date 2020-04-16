@@ -5,21 +5,34 @@
  * Date: 17/05/18
  * Time: 16:01
  */
-
 namespace IiifSearch\View\Helper;
 
-use IiifSearch\Mvc\Controller\Plugin\TileInfo;
+use IiifSearch\Iiif\AnnotationList;
+use IiifSearch\Iiif\AnnotationSearchResult;
+use IiifSearch\Iiif\SearchHit;
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\Api\Representation\MediaRepresentation;
-use Omeka\File\TempFileFactory;
+use SimpleXMLElement;
 use Zend\View\Helper\AbstractHelper;
 
 class IiifSearch extends AbstractHelper
 {
     /**
-     * @var TempFileFactory
+     * @var array
      */
-    protected $tempFileFactory;
+    protected $xmlSupportedMediaTypes = [
+        'application/vnd.pdf2xml+xml',
+    ];
+
+    /**
+     * @var int
+     */
+    protected $minimumQueryLength = 3;
+
+    protected $xmlMediaTypes = [
+        'application/xml',
+        'text/xml',
+        'application/vnd.pdf2xml+xml',
+    ];
 
     /**
      * Full path to the files.
@@ -28,18 +41,28 @@ class IiifSearch extends AbstractHelper
      */
     protected $basePath;
 
-    protected $pdfMimeTypes = array(
-        'application/pdf',
-        'application/x-pdf',
-        'application/acrobat',
-        'text/x-pdf',
-        'text/pdf',
-        'applications/vnd.pdf',
-    );
+    /**
+     * @var ItemRepresentation
+     */
+    protected $item;
 
-    public function __construct(TempFileFactory $tempFileFactory, $basePath)
+    /**
+     * @var \Omeka\Api\Representation\MediaRepresentation
+     */
+    protected $xmlFile;
+
+    /**
+     * @var string
+     */
+    protected $xmlMediaType;
+
+    /**
+     * @var array
+     */
+    protected $imageSizes;
+
+    public function __construct($basePath)
     {
-        $this->tempFileFactory = $tempFileFactory;
         $this->basePath = $basePath;
     }
 
@@ -47,37 +70,36 @@ class IiifSearch extends AbstractHelper
      * Get the IIIF search response for fulltext research query.
      *
      * @param ItemRepresentation $item
-     * @return array
+     * @return AnnotationList|null Null is returned if search is not supported
+     * for the resource.
      */
     public function __invoke(ItemRepresentation $item)
     {
-        $response = [
-            '@context' => 'http://iiif.io/api/search/0/context.json',
-            '@id' => "http://$_SERVER[HTTP_HOST]$_SERVER[REQUEST_URI]",
-            '@type' => 'sc:AnnotationList',
-            'within' => [
-                '@type' => 'sc:Layer',
-                'total' => 0,
-            ],
-            'startIndex' => 0,
-            'resources' => [],
-        ];
+        $this->item = $item;
 
-        if (!$_GET['q'] == "") {
-            $resources = $this->searchFulltext($item, $_GET['q']);
-
-            $response['within']['total'] = sizeof($resources);
-            $response['resources'] = $resources;
+        if (!$this->prepareSearch()) {
+            return null;
         }
 
+        $query = $this->getView()->params()->fromQuery('q');
+        $result = $this->searchFulltext($query);
+
+        $response = new AnnotationList;
+        $response->initOptions(['requestUri' => $this->getView()->serverUrl(true)]);
+        if ($result) {
+            $response['resources'] = $result['resources'];
+            $response['hits'] = $result['hits'];
+        }
+        $response->isValid(true);
         return $response;
     }
-
 
     /**
      * Returns answers to a query.
      *
-     * @return array
+     * @todo add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
+     *
+     * @return array|null
      *  Return resources that match query for IIIF Search API
      * [
      *      [
@@ -92,153 +114,223 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-
-    //TODO add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
-    public function searchFulltext($item, $query)
+    protected function searchFulltext($query)
     {
-        $results = [];
-        $xml_file = [];
-        $images = [];
-
-        $widths = [];
-        $heights = [];
+        if (!strlen($query)) {
+            return null;
+        }
 
         $queryWords = $this->formatQuery($query);
-        if (empty($queryWords))
-            return $results;
-
-        foreach ( $item->media() as $media ) {
-            $mediaType = $media->mediaType();
-            if  (($mediaType == 'application/xml') ||  ($mediaType == 'text/xml')){
-                $xml_file = $media;
-            } else if ($media->hasThumbnails() ) {
-                $images[] = $media;
-            }
+        if (empty($queryWords)) {
+            return null;
         }
 
-        if( empty($xml_file))
-            return $results;
-
-        $xml = $this->loadXml( file_get_contents($xml_file->originalUrl()) );
-
-        foreach ($images as $media) {
-            $image = $media->originalUrl();
-
-            list($width, $height) = getimagesize($image);
-            $widths[] = $width;
-            $heights[] = $height;
+        $xml = $this->loadXml();
+        if (empty($xml)) {
+            return null;
         }
+
+        $this->prepareImageSizes();
+
+        return $this->searchFullTextPdfXml($xml, $queryWords);
+    }
+
+    protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords)
+    {
+        $result = [
+            'resources' => [],
+            'hits' => [],
+        ];
+
+        // A search result is an annotation on the canvas of the original item,
+        // so an url managed by the iiif server.
+        $baseResultUrl = $this->getView()->url('iiifserver/uri', [
+            'id' => $this->item->id(),
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ], ['force_canonical' => true]) . '/';
+
+        $baseCanvasUrl = $this->getView()->url('iiifserver/uri', [
+            'id' => $this->item->id(),
+            'type' => 'canvas',
+        ], ['force_canonical' => true]) . '/p';
+
+        $resource = $this->item;
+        $matches = [];
         try {
-            // We need to store the name of the function to be used
-            // for string length. mb_strlen() is better (especially
-            // for diacrictics) but not available on all systems so
-            // sometimes we need to use the default strlen()
-            $strlen_function = "strlen";
-            if (function_exists('mb_strlen')) {
-                $strlen_function = "mb_strlen";
-            }
-            foreach ($xml->page as $page) {
-                foreach ($page->attributes() as $a => $b) {
-                    if ($a == 'height') $page_height = (string)$b;
-                    if ($a == 'width') $page_width = (string)$b;
-                    if ($a == 'number') $page_number = (string)$b;
+            $hit = 0;
+            $index = -1;
+            foreach ($xml->page as $xmlPage) {
+                ++$index;
+                $attributes = $xmlPage->attributes();
+                $page['number'] = (string) @$attributes->number;
+                $page['width'] = (string) @$attributes->width;
+                $page['height'] = (string) @$attributes->height;
+                if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
+                    $this->getView()->logger()->warn(sprintf(
+                        'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
                 }
-                $cptMatch = 1;
-                foreach ($page->text as $row) {
-                    $boxes = array();
-                    $zone_text = strip_tags($row->asXML());
-                    foreach ($queryWords as $q) {
-                        if ($strlen_function($q) >= 3) {
-                            if ( (preg_match("/$q/Uui", $zone_text) > 0) && (isset($widths[$page_number - 1])) && (isset($heights[$page_number - 1])) ){
-                                foreach ($row->attributes() as $key => $value) {
-                                    if ($key == 'top') $zone_top = (string)$value;
-                                    if ($key == 'left') $zone_left = (string)$value;
-                                    if ($key == 'height') $zone_height = (string)$value;
-                                    if ($key == 'width') $zone_width = (string)$value;
-                                }
 
-                                $scaleX = $widths[$page_number - 1] / $page_width;
-                                $scaleY = $heights[$page_number - 1] / $page_height;
+                // Should be the same than index.
+                $pageIndex = $page['number'] - 1;
+                if ($pageIndex !== $index) {
+                    $this->getView()->logger()->warn(sprintf(
+                        'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
+                }
 
-                                $x = $zone_left + stripos($zone_text, $q)/strlen($zone_text)*$zone_width;
-                                $y = $zone_top ;
-
-                                $w = round($zone_width * ( (strlen($q)+1)   / strlen($zone_text)) )  ;
-                                $h = $zone_height ;
-
-                                $x = round($x * $scaleX);
-                                $y = round($y * $scaleY);
-
-                                $w = round($w * $scaleX);
-                                $h = round($h * $scaleY);
-
-                                $result['@id'] =  "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif-search/searchResults/' .
-                                    'a' . $page_number .
-                                    'h' . $cptMatch .
-                                    'r' . $x . ',' . $y . ',' . $w .  ',' . $h ;
-                                $result['@type'] = "oa:Annotation";
-                                $result['motivation'] = "sc:painting";
-                                $result['resource'] = [
-                                    '@type' => 'cnt:ContextAstext',
-                                     'chars' => $q
-                                    ];
-                                $result['on'] = "http://$_SERVER[HTTP_HOST]" . '/omeka-s/iiif/' . $item->id() . '/canvas/p' . $page_number .
-                                    '#xywh=' . $x . ',' . $y . ',' . $w .  ',' . $h ;
-
-
-                                $results[] = $result;
+                $hits = [];
+                $hitMatches = [];
+                $rowIndex = -1;
+                foreach ($xmlPage->text as $xmlRow) {
+                    ++$rowIndex;
+                    $zone = [];
+                    $zone['text'] = strip_tags($xmlRow->asXML());
+                    foreach ($queryWords as $chars) {
+                        if (!empty($this->imageSizes[$pageIndex]['width'])
+                            && !empty($this->imageSizes[$pageIndex]['height'])
+                            && mb_strlen($chars) >= $this->minimumQueryLength
+                            && preg_match('/' . preg_quote($chars, '/') . '/Uui', $zone['text'], $matches) > 0
+                        ) {
+                            $attributes = $xmlRow->attributes();
+                            $zone['top'] = (string) @$attributes->top;
+                            $zone['left'] = (string) @$attributes->left;
+                            $zone['width'] = (string) @$attributes->width;
+                            $zone['height'] = (string) @$attributes->height;
+                            if (!strlen($zone['top']) || !strlen($zone['left']) || !strlen($zone['width']) || !strlen($zone['height'])) {
+                                $this->getView()->logger()->warn(sprintf(
+                                    'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
+                                    $this->xmlFile->id(), $pageIndex, $rowIndex
+                                ));
+                                continue;
                             }
-                            $cptMatch += 1;
+
+                            ++$hit;
+
+                            $image = $this->imageSizes[$pageIndex];
+                            $searchResult = new AnnotationSearchResult;
+                            $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                            $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+
+                            $hits[] = $searchResult->getId();
+                            // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                            // TODO Get the text before first and last hit of the page.
+                            $hitMatches[] = $matches[0];
                         }
                     }
                 }
+
+                // Add hits per page.
+                if ($hits) {
+                    $searchHit = new SearchHit;
+                    $searchHit['annotations'] = $hits;
+                    $searchHit['match'] = implode(' ', array_unique($hitMatches));
+                    $result['hits'][] = $searchHit;
+                }
             }
-        } catch (Exception $e) {
-            throw new Exception('Error:PDF to XML conversion failed!');
+        } catch (\Exception $e) {
+            $this->getView()->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
+            return null;
         }
-        return $results;
+
+        return $result;
+    }
+
+    /**
+     * Check if the item support search and init the xml file.
+     *
+     * @return bool
+     */
+    protected function prepareSearch()
+    {
+        $this->xmlFile = null;
+        $this->imageSizes = [];
+        foreach ($this->item->media() as $media) {
+            $mediaType = $media->mediaType();
+            if (!$this->xmlFile && in_array($mediaType, $this->xmlMediaTypes)) {
+                $this->xmlFile = $media;
+            } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
+                $this->imageSizes[] = [
+                    'media' => $media,
+                ];
+            }
+        }
+        return isset($this->xmlFile) && count($this->imageSizes);
+    }
+
+    protected function prepareImageSizes()
+    {
+        foreach ($this->imageSizes as &$image) {
+            // Some media types don't save the file locally.
+            if ($filename = $image['media']->filename()) {
+                $filepath = $this->basePath . '/original/' . $filename;
+            } else {
+                $filepath = $image['media']->originalUrl();
+            }
+            list($image['width'], $image['height']) = getimagesize($filepath);
+        }
     }
 
     /**
      * Normalize query because the search occurs inside a normalized text.
      * @param $query
-     * @return mixed
+     * @return array
      */
-    protected function formatQuery($query) {
-        $minimumQueryLength = 3;
-
+    protected function formatQuery($query)
+    {
         $cleanQuery = $this->alnumString($query);
-
-        if (strlen($cleanQuery) < $minimumQueryLength) {
+        if (mb_strlen($cleanQuery) < $this->minimumQueryLength) {
             return [];
         }
 
         $queryWords = explode(' ', $cleanQuery);
-        if ( count($queryWords) > 1)
+        if (count($queryWords) > 1) {
             $queryWords[] = $cleanQuery;
+        }
 
         return $queryWords;
     }
 
     /**
-     * @param $xmlContent from attached xml file ( PDFTexT module )
-     * @return \SimpleXMLElement
+     * @return \SimpleXMLElement|null
      */
-    protected function loadXml( $xmlContent ) {
-        if (empty($xmlContent)) {
-            throw new Exception('Error:Cannot get XML file!');
-        }
-        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
-        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
-        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
-        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
+    protected function loadXml()
+    {
+        $filepath = ($filename = $this->xmlFile->filename())
+            ? $this->basePath . '/original/' . $filename
+            : $this->xmlFile->originalUrl();
 
-        $xml = simplexml_load_string($xmlContent);
-        if (!$xml) {
-            throw new Exception('Error:Invalid XML!');
+        $this->xmlMediaType = $this->getView()->xmlMediaType($filepath, $this->xmlFile->mediaType());
+        if (!in_array($this->xmlMediaType, $this->xmlSupportedMediaTypes)) {
+            $this->getView()->logger()->err(sprintf('Error: Xml format "%1$s" is not managed currently (media #%2$d).', $this->xmlMediaType, $this->xmlFile->id()));
+            return null;
         }
-        return $xml;
+
+        // Manage an exception.
+        if ($this->xmlMediaType === 'application/vnd.pdf2xml+xml') {
+            $xmlContent = file_get_contents($filepath);
+            $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
+            $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
+            $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+            $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
+            $xmlContent = simplexml_load_string($xmlContent);
+        } else {
+            $xmlContent = simplexml_load_file($filepath);
+        }
+
+        if (!$xmlContent) {
+            $this->getView()->logger()->err(sprintf('Error: Cannot get XML content from media #%d!', $this->xmlFile->id()));
+            return null;
+        }
+
+        return $xmlContent;
     }
+
     /**
      * Returns a cleaned  string.
      *
@@ -246,15 +338,11 @@ class IiifSearch extends AbstractHelper
      * symbols.
      *
      * @param string $string The string to clean.
-     *
-     * @return string
-     *   The cleaned string.
+     * @return string The cleaned string.
      */
     protected function alnumString($string)
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', $string);
         return trim(preg_replace('/\s+/', ' ', $string));
     }
-
-
 }

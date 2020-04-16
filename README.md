@@ -47,7 +47,7 @@ See online [IIIF Search issues](https://github.com/bubdxm/Omeka-S-module-IiifSea
 License
 -------
 
-This module is published under [GNU/GPL].
+This module is published under [GNU/GPL](https://www.gnu.org/licenses/gpl-3.0.html).
 
 This program is free software; you can redistribute it and/or modify it under
 the terms of the GNU General Public License as published by the Free Software
