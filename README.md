@@ -15,9 +15,9 @@ Installation
 ------------
 - install the module via github
 
-```
-    cd omeka-s/modules  
-    git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
+```sh
+cd omeka-s/modules
+git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
 - Install it from the admin → Modules → IiifSearch -> install
