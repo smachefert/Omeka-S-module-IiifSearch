@@ -3,8 +3,8 @@
 namespace IiifSearch\Controller;
 
 use Omeka\Mvc\Exception\NotFoundException;
-use Zend\Mvc\Controller\AbstractActionController;
-use Zend\View\Model\JsonModel;
+use Laminas\Mvc\Controller\AbstractActionController;
+use Laminas\View\Model\JsonModel;
 
 class SearchController extends AbstractActionController
 {
@@ -31,7 +31,7 @@ class SearchController extends AbstractActionController
         $searchResponse = $iiifSearch($item);
 
         if (!$searchResponse) {
-            $this->getResponse()->setStatusCode(\Zend\Http\Response::STATUS_CODE_400);
+            $this->getResponse()->setStatusCode(\Laminas\Http\Response::STATUS_CODE_400);
             return new JsonModel([
                 'status' => 'error',
                 'message' => sprintf($this->translate('Search is not supported for resource #%d.'), $id), // @translate
@@ -44,7 +44,7 @@ class SearchController extends AbstractActionController
     public function annotationListAction()
     {
         // TODO Implement annotation-list action.
-        $this->getResponse()->setStatusCode(\Zend\Http\Response::STATUS_CODE_501);
+        $this->getResponse()->setStatusCode(\Laminas\Http\Response::STATUS_CODE_501);
         return new JsonModel([
             'status' => 'error',
             'message' => $this->translate('Direct request to annotation-list is not implemented.'), // @translate

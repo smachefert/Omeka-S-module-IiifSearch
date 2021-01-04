@@ -8,7 +8,7 @@ namespace IiifSearch\View\Helper;
 
 use finfo;
 use XMLReader;
-use Zend\View\Helper\AbstractHelper;
+use Laminas\View\Helper\AbstractHelper;
 
 /**
  * Get a more precise media type for xml files.

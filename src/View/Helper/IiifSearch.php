@@ -12,7 +12,7 @@ use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
-use Zend\View\Helper\AbstractHelper;
+use Laminas\View\Helper\AbstractHelper;
 
 class IiifSearch extends AbstractHelper
 {

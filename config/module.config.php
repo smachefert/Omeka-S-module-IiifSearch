@@ -32,7 +32,7 @@ return [
              * @link https://iiif.io/api/search/1.0/#search
              */
             'iiifsearch' => [
-                'type' => \Zend\Router\Http\Segment::class,
+                'type' => \Laminas\Router\Http\Segment::class,
                 'options' => [
                     'route' => '/iiif-search/:id',
                     'constraints' => [
@@ -50,7 +50,7 @@ return [
                     // It allows to make a quick distinction between level 0 and level 1.
                     // @link https://iiif.io/api/search/1.0/#service-description
                     'search' => [
-                        'type' => \Zend\Router\Http\Literal::class,
+                        'type' => \Laminas\Router\Http\Literal::class,
                         'options' => [
                             'route' => '/search',
                             'defaults' => [
@@ -67,7 +67,7 @@ return [
                     // In 3.0, canvas id is item identifier and name is media id.
                     // TODO Manage identifiers for iiif search annotation list.
                     'annotation-list' => [
-                        'type' => \Zend\Router\Http\Segment::class,
+                        'type' => \Laminas\Router\Http\Segment::class,
                         'options' => [
                             'route' => '/list/:name',
                             'constraints' => [
