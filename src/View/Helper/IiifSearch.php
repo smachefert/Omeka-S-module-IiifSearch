@@ -144,16 +144,15 @@ class IiifSearch extends AbstractHelper
 
         // A search result is an annotation on the canvas of the original item,
         // so an url managed by the iiif server.
-        $baseResultUrl = $this->getView()->url('iiifserver/uri', [
-            'id' => $this->item->id(),
+        $view = $this->getView();
+        $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
             'type' => 'annotation',
             'name' => 'search-result',
-        ], ['force_canonical' => true]) . '/';
+        ]) . '/';
 
-        $baseCanvasUrl = $this->getView()->url('iiifserver/uri', [
-            'id' => $this->item->id(),
+        $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
             'type' => 'canvas',
-        ], ['force_canonical' => true]) . '/p';
+        ]) . '/p';
 
         $resource = $this->item;
         $matches = [];
@@ -167,7 +166,7 @@ class IiifSearch extends AbstractHelper
                 $page['width'] = (string) @$attributes->width;
                 $page['height'] = (string) @$attributes->height;
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
-                    $this->getView()->logger()->warn(sprintf(
+                    $view->logger()->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->xmlFile->id(), $index
                     ));
@@ -177,7 +176,7 @@ class IiifSearch extends AbstractHelper
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
                 if ($pageIndex !== $index) {
-                    $this->getView()->logger()->warn(sprintf(
+                    $view->logger()->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->xmlFile->id(), $index
                     ));
@@ -203,7 +202,7 @@ class IiifSearch extends AbstractHelper
                             $zone['width'] = (string) @$attributes->width;
                             $zone['height'] = (string) @$attributes->height;
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !strlen($zone['width']) || !strlen($zone['height'])) {
-                                $this->getView()->logger()->warn(sprintf(
+                                $view->logger()->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
                                     $this->xmlFile->id(), $pageIndex, $rowIndex
                                 ));
@@ -234,7 +233,7 @@ class IiifSearch extends AbstractHelper
                 }
             }
         } catch (\Exception $e) {
-            $this->getView()->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
+            $view->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
             return null;
         }
 

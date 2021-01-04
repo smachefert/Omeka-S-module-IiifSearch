@@ -65,7 +65,11 @@ class Module extends AbstractModule
             return;
         }
 
-        $urlHelper = $this->getServiceLocator()->get('ViewHelperManager')->get('url');
+        $plugins = $this->getServiceLocator()->get('ViewHelperManager');
+        $urlHelper = $plugins->get('url');
+        $identifier = $plugins->has('iiifCleanIdentifiers')
+            ? $plugins->get('iiifCleanIdentifiers')->__invoke($resource->id())
+            : $resource->id();
 
         $manifest = $event->getParam('manifest');
 
@@ -74,7 +78,7 @@ class Module extends AbstractModule
         if ($isVersion2) {
             $manifest['service'][] = [
                 '@context' => 'http://iiif.io/api/search/0/context.json',
-                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
                 'profile' => 'http://iiif.io/api/search/0/search',
                 'label' => 'Search within this manifest', // @translate
             ];
@@ -82,12 +86,12 @@ class Module extends AbstractModule
             /** @var \IiifServer\Iiif\Manifest $manifest */
             $manifest->append(new \IiifServer\Iiif\Service([
                 '@context' => 'http://iiif.io/api/search/0/context.json',
-                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
                 'profile' => 'http://iiif.io/api/search/0/search',
                 'label' => 'Search within this manifest', // @translate
                 /*
                 '@context' => 'http://iiif.io/api/search/1/context.json',
-                'id' => $urlHelper('iiifsearch/search', ['id' => $resource->id()], ['force_canonical' => true]),
+                'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
                 'type' => 'SearchService1',
                 'profile' => 'http://iiif.io/api/search/1/search',
                 'label' => 'Search within this manifest', // @translate
