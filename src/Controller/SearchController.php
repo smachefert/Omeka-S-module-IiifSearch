@@ -1,10 +1,10 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace IiifSearch\Controller;
 
-use Omeka\Mvc\Exception\NotFoundException;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
+use Omeka\Mvc\Exception\NotFoundException;
 
 class SearchController extends AbstractActionController
 {

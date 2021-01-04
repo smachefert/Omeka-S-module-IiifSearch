@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 /**
  * Created by IntelliJ IDEA.
  * User: xavier
@@ -10,9 +10,9 @@ namespace IiifSearch\View\Helper;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
+use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
-use Laminas\View\Helper\AbstractHelper;
 
 class IiifSearch extends AbstractHelper
 {
@@ -262,7 +262,7 @@ class IiifSearch extends AbstractHelper
         return isset($this->xmlFile) && count($this->imageSizes);
     }
 
-    protected function prepareImageSizes()
+    protected function prepareImageSizes(): void
     {
         // TODO Use plugin imageSize from modules IiifServer and ImageServer.
         foreach ($this->imageSizes as &$image) {

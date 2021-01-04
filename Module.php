@@ -1,11 +1,11 @@
-<?php
+<?php declare(strict_types=1);
 namespace IiifSearch;
 
-use Omeka\Module\AbstractModule;
 use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
 use Laminas\Mvc\MvcEvent;
 use Laminas\ServiceManager\ServiceLocatorInterface;
+use Omeka\Module\AbstractModule;
 
 class Module extends AbstractModule
 {
@@ -14,7 +14,7 @@ class Module extends AbstractModule
         return include __DIR__ . '/config/module.config.php';
     }
 
-    public function onBootstrap(MvcEvent $event)
+    public function onBootstrap(MvcEvent $event): void
     {
         parent::onBootstrap($event);
 
@@ -22,14 +22,14 @@ class Module extends AbstractModule
         $acl->allow(null, 'IiifSearch\Controller\Search');
     }
 
-    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator)
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator): void
     {
         $filepath = __DIR__ . '/data/scripts/upgrade.php';
         $this->setServiceLocator($serviceLocator);
         require_once $filepath;
     }
 
-    public function attachListeners(SharedEventManagerInterface $sharedEventManager)
+    public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
     {
         $sharedEventManager->attach(
             '*',
@@ -38,7 +38,7 @@ class Module extends AbstractModule
         );
     }
 
-    public function handleIiifServerManifest(Event $event)
+    public function handleIiifServerManifest(Event $event): void
     {
         $type = $event->getParam('type');
         if ($type !== 'item') {

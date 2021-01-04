@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace IiifSearch;
 
@@ -28,7 +28,7 @@ return [
     ],
     'router' => [
         'routes' => [
-            /**
+            /*
              * @link https://iiif.io/api/search/1.0/#search
              */
             'iiifsearch' => [
