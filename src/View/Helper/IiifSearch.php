@@ -264,6 +264,7 @@ class IiifSearch extends AbstractHelper
 
     protected function prepareImageSizes()
     {
+        // TODO Use plugin imageSize from modules IiifServer and ImageServer.
         foreach ($this->imageSizes as &$image) {
             // Some media types don't save the file locally.
             if ($filename = $image['media']->filename()) {
