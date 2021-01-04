@@ -41,7 +41,7 @@ namespace IiifSearch\Iiif;
  */
 class AnnotationSearchResult extends AbstractSimpleType
 {
-    protected  $_storage = [
+    protected $_storage = [
         '@context' => 'http://iiif.io/api/search/0/context.json',
         '@id' => null,
         '@type' => 'oa:Annotation',
@@ -70,7 +70,7 @@ class AnnotationSearchResult extends AbstractSimpleType
      */
     protected $_box = [];
 
-    public function __construct (array $data = null)
+    public function __construct(array $data = null)
     {
         // Parent is required to init data.
         parent::__construct($data);
@@ -115,7 +115,7 @@ class AnnotationSearchResult extends AbstractSimpleType
         return $this->_options['baseResultUrl']
             . 'a' . $this->_result['page']['number']
             . 'h' . $this->_result['hit']
-            . 'r' . $this->_box['x'] . ',' . $this->_box['y'] . ',' . $this->_box['w'] .  ',' . $this->_box['h'];
+            . 'r' . $this->_box['x'] . ',' . $this->_box['y'] . ',' . $this->_box['w'] . ',' . $this->_box['h'];
     }
 
     /**
@@ -140,7 +140,7 @@ class AnnotationSearchResult extends AbstractSimpleType
         // TODO Use the routing system of IiifServer.
         return $this->_options['baseCanvasUrl']
             . $this->_result['page']['number']
-            . '#xywh=' . $this->_box['x'] . ',' . $this->_box['y'] . ',' . $this->_box['w'] .  ',' . $this->_box['h'];
+            . '#xywh=' . $this->_box['x'] . ',' . $this->_box['y'] . ',' . $this->_box['w'] . ',' . $this->_box['h'];
     }
 
     protected function prepareBox()

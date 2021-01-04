@@ -71,6 +71,7 @@ class Module extends AbstractModule
             ? $plugins->get('iiifCleanIdentifiers')->__invoke($resource->id())
             : $resource->id();
 
+        /** @var \IiifServer\Iiif\Manifest $manifest */
         $manifest = $event->getParam('manifest');
 
         // Manage last or recent version of module Iiif Server.
@@ -83,7 +84,6 @@ class Module extends AbstractModule
                 'label' => 'Search within this manifest', // @translate
             ];
         } else {
-            /** @var \IiifServer\Iiif\Manifest $manifest */
             $manifest->append(new \IiifServer\Iiif\Service([
                 '@context' => 'http://iiif.io/api/search/0/context.json',
                 '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),

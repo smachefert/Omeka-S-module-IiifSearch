@@ -62,7 +62,7 @@ class AnnotationList extends AbstractSimpleType
         'hits' => self::RECOMMENDED,
     ];
 
-    public function __construct (array $data = null)
+    public function __construct(array $data = null)
     {
         // Parent is required to init data.
         parent::__construct($data);
