@@ -34,7 +34,7 @@ class SearchController extends AbstractActionController
             $this->getResponse()->setStatusCode(\Laminas\Http\Response::STATUS_CODE_400);
             return new JsonModel([
                 'status' => 'error',
-                'message' => sprintf($this->translate('Search is not supported for resource #%d.'), $id), // @translate
+                'message' => sprintf($this->translate('Search is not supported for resource #%d (missing XML and/or image files).'), $id), // @translate
             ]);
         }
 
