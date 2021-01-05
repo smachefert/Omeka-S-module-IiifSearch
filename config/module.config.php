@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 namespace IiifSearch;
 
@@ -28,15 +28,15 @@ return [
     ],
     'router' => [
         'routes' => [
-            /**
+            /*
              * @link https://iiif.io/api/search/1.0/#search
              */
             'iiifsearch' => [
-                'type' => \Zend\Router\Http\Segment::class,
+                'type' => \Laminas\Router\Http\Segment::class,
                 'options' => [
                     'route' => '/iiif-search/:id',
                     'constraints' => [
-                        'id' => '\d+',
+                        'id' => '[^/]*',
                     ],
                     'defaults' => [
                         '__NAMESPACE__' => 'IiifSearch\Controller',
@@ -50,7 +50,7 @@ return [
                     // It allows to make a quick distinction between level 0 and level 1.
                     // @link https://iiif.io/api/search/1.0/#service-description
                     'search' => [
-                        'type' => \Zend\Router\Http\Literal::class,
+                        'type' => \Laminas\Router\Http\Literal::class,
                         'options' => [
                             'route' => '/search',
                             'defaults' => [
@@ -64,9 +64,10 @@ return [
                     // @link https://iiif.io/api/presentation/2.1/#annotation-list
                     // Annotation name may follow the name of the canvas.
                     // In 2.1, canvas id is media id and name is p + index.
-                    // In 3.0, canvas id is item id and name is media id.
+                    // In 3.0, canvas id is item identifier and name is media id.
+                    // TODO Manage identifiers for iiif search annotation list.
                     'annotation-list' => [
-                        'type' => \Zend\Router\Http\Segment::class,
+                        'type' => \Laminas\Router\Http\Segment::class,
                         'options' => [
                             'route' => '/list/:name',
                             'constraints' => [

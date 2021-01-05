@@ -1,14 +1,13 @@
-<?php
+<?php declare(strict_types=1);
 
 /**
- * @see \Next\File\TempFile
+ * @see \Next\File\TempFile
  */
-
 namespace IiifSearch\View\Helper;
 
 use finfo;
+use Laminas\View\Helper\AbstractHelper;
 use XMLReader;
-use Zend\View\Helper\AbstractHelper;
 
 /**
  * Get a more precise media type for xml files.

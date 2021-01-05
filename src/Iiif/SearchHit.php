@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * Copyright 2020 Daniel Berthereau
@@ -41,7 +41,7 @@ namespace IiifSearch\Iiif;
  */
 class SearchHit extends AbstractSimpleType
 {
-    protected  $_storage = [
+    protected $_storage = [
         // A hit is the list of all matches of a page.
         '@type' => 'search:Hit',
         // The list of search result ids.
@@ -62,7 +62,7 @@ class SearchHit extends AbstractSimpleType
         'after' => self::RECOMMENDED,
     ];
 
-    public function __construct (array $data = null)
+    public function __construct(array $data = null)
     {
         // Parent is required to init data.
         parent::__construct($data);

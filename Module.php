@@ -1,11 +1,11 @@
-<?php
+<?php declare(strict_types=1);
 namespace IiifSearch;
 
+use Laminas\EventManager\Event;
+use Laminas\EventManager\SharedEventManagerInterface;
+use Laminas\Mvc\MvcEvent;
+use Laminas\ServiceManager\ServiceLocatorInterface;
 use Omeka\Module\AbstractModule;
-use Zend\EventManager\Event;
-use Zend\EventManager\SharedEventManagerInterface;
-use Zend\Mvc\MvcEvent;
-use Zend\ServiceManager\ServiceLocatorInterface;
 
 class Module extends AbstractModule
 {
@@ -14,7 +14,7 @@ class Module extends AbstractModule
         return include __DIR__ . '/config/module.config.php';
     }
 
-    public function onBootstrap(MvcEvent $event)
+    public function onBootstrap(MvcEvent $event): void
     {
         parent::onBootstrap($event);
 
@@ -22,14 +22,14 @@ class Module extends AbstractModule
         $acl->allow(null, 'IiifSearch\Controller\Search');
     }
 
-    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator)
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator): void
     {
         $filepath = __DIR__ . '/data/scripts/upgrade.php';
         $this->setServiceLocator($serviceLocator);
         require_once $filepath;
     }
 
-    public function attachListeners(SharedEventManagerInterface $sharedEventManager)
+    public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
     {
         $sharedEventManager->attach(
             '*',
@@ -38,7 +38,7 @@ class Module extends AbstractModule
         );
     }
 
-    public function handleIiifServerManifest(Event $event)
+    public function handleIiifServerManifest(Event $event): void
     {
         $type = $event->getParam('type');
         if ($type !== 'item') {
@@ -65,8 +65,13 @@ class Module extends AbstractModule
             return;
         }
 
-        $urlHelper = $this->getServiceLocator()->get('ViewHelperManager')->get('url');
+        $plugins = $this->getServiceLocator()->get('ViewHelperManager');
+        $urlHelper = $plugins->get('url');
+        $identifier = $plugins->has('iiifCleanIdentifiers')
+            ? $plugins->get('iiifCleanIdentifiers')->__invoke($resource->id())
+            : $resource->id();
 
+        /** @var \IiifServer\Iiif\Manifest $manifest */
         $manifest = $event->getParam('manifest');
 
         // Manage last or recent version of module Iiif Server.
@@ -74,20 +79,19 @@ class Module extends AbstractModule
         if ($isVersion2) {
             $manifest['service'][] = [
                 '@context' => 'http://iiif.io/api/search/0/context.json',
-                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
                 'profile' => 'http://iiif.io/api/search/0/search',
                 'label' => 'Search within this manifest', // @translate
             ];
         } else {
-            /** @var \IiifServer\Iiif\Manifest $manifest */
             $manifest->append(new \IiifServer\Iiif\Service([
                 '@context' => 'http://iiif.io/api/search/0/context.json',
-                '@id' => $urlHelper('iiifsearch', ['id' => $resource->id()], ['force_canonical' => true]),
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
                 'profile' => 'http://iiif.io/api/search/0/search',
                 'label' => 'Search within this manifest', // @translate
                 /*
                 '@context' => 'http://iiif.io/api/search/1/context.json',
-                'id' => $urlHelper('iiifsearch/search', ['id' => $resource->id()], ['force_canonical' => true]),
+                'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
                 'type' => 'SearchService1',
                 'profile' => 'http://iiif.io/api/search/1/search',
                 'label' => 'Search within this manifest', // @translate

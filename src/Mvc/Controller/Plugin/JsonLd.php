@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * Copyright 2015-2017 Daniel Berthereau
@@ -30,7 +30,7 @@
 
 namespace IiifSearch\Mvc\Controller\Plugin;
 
-use Zend\Mvc\Controller\Plugin\AbstractPlugin;
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
 
 class JsonLd extends AbstractPlugin
 {

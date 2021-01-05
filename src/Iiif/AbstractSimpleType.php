@@ -1,4 +1,4 @@
-<?php
+<?php declare(strict_types=1);
 
 /*
  * Copyright 2020 Daniel Berthereau
@@ -69,7 +69,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
      */
     protected $_options = [];
 
-    public function __construct (array $data = null)
+    public function __construct(array $data = null)
     {
         $input = $data
             ? array_replace($this->_storage, $data)
@@ -88,7 +88,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         $output = $this->getArrayCopy();
 
         // Remove all forbidden keys.
-        $allowedKeys = array_filter($this->_keys, function($v) {
+        $allowedKeys = array_filter($this->_keys, function ($v) {
             return $v !== self::NOT_ALLOWED;
         });
         $output = array_intersect_key($output, $allowedKeys);
@@ -125,7 +125,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         $output = $this->getContent();
 
         // Check if all required data are present.
-        $requiredKeys = array_filter($this->_keys, function($v) {
+        $requiredKeys = array_filter($this->_keys, function ($v) {
             return $v === self::REQUIRED;
         });
         $intersect = array_intersect_key($requiredKeys, $output);

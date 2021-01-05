@@ -15,9 +15,9 @@ Installation
 ------------
 - install the module via github
 
-```
-    cd omeka-s/modules  
-    git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
+```sh
+cd omeka-s/modules
+git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
 - Install it from the admin → Modules → IiifSearch -> install
@@ -37,7 +37,7 @@ Iiif Search module will return Iiif Search response.
 Optional modules
 ----------------
 
-- [Universal Viewer](https://github.com/Daniel-KM/Omeka-S-module-UniversalViewer) : Module for Omeka S that adds the IIIF specifications in order to act like an IIPImage server, and the UniversalViewer, a unified online player for any file. It can display books, images, maps, audio, movies, pdf, 3D views, and anything else as long as the appropriate extensions are installed.
+- [Universal Viewer](https://gitlab.com/Daniel-KM/Omeka-S-module-UniversalViewer) : Module for Omeka S that adds the IIIF specifications in order to act like an IIPImage server, and the UniversalViewer, a unified online player for any file. It can display books, images, maps, audio, movies, pdf, 3D views, and anything else as long as the appropriate extensions are installed.
 
 Troubleshooting
 ---------------
