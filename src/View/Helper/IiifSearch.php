@@ -81,7 +81,7 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        $query = $this->getView()->params()->fromQuery('q');
+        $query = (string) $this->getView()->params()->fromQuery('q');
         $result = $this->searchFulltext($query);
 
         $response = new AnnotationList;
@@ -114,7 +114,7 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-    protected function searchFulltext($query)
+    protected function searchFulltext(string $query)
     {
         if (!strlen($query)) {
             return null;
