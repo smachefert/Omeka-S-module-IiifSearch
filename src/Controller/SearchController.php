@@ -15,7 +15,7 @@ class SearchController extends AbstractActionController
             throw new NotFoundException;
         }
 
-        $q = $this->params()->fromQuery('q');
+        $q = (string) $this->params()->fromQuery('q');
         if (!strlen($q)) {
             $this->getResponse()->setStatusCode(400);
             return new JsonModel([
