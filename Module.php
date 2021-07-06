@@ -84,19 +84,25 @@ class Module extends AbstractModule
                 'label' => 'Search within this manifest', // @translate
             ];
         } else {
-            $manifest->append(new \IiifServer\Iiif\Service([
-                '@context' => 'http://iiif.io/api/search/0/context.json',
-                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
-                'profile' => 'http://iiif.io/api/search/0/search',
-                'label' => 'Search within this manifest', // @translate
+            $manifest
+                // Use of "@" is slightly more compatible with old viewers.
+                ->appendService(new \IiifServer\Iiif\Service($resource, [
+                    '@context' => 'http://iiif.io/api/search/0/context.json',
+                    '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
+                    '@type' => 'SearchService1',
+                    'profile' => 'http://iiif.io/api/search/0/search',
+                    'label' => 'Search within this manifest', // @translate
+                ]))
                 /*
-                '@context' => 'http://iiif.io/api/search/1/context.json',
-                'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
-                'type' => 'SearchService1',
-                'profile' => 'http://iiif.io/api/search/1/search',
-                'label' => 'Search within this manifest', // @translate
+                ->appendService(new \IiifServer\Iiif\Service($resource, [
+                    '@context' => 'http://iiif.io/api/search/1/context.json',
+                    'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
+                    'type' => 'SearchService1',
+                    'profile' => 'http://iiif.io/api/search/1/search',
+                    'label' => 'Search within this manifest', // @translate
+                ]))
                 */
-            ]));
+            ;
         }
 
         $event->setParam('manifest', $manifest);
