@@ -5,6 +5,7 @@ namespace IiifSearch\View\Helper;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
+use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
 use SimpleXMLElement;
@@ -22,6 +23,11 @@ class IiifSearch extends AbstractHelper
      * @var int
      */
     protected $minimumQueryLength = 3;
+
+    /**
+     * @var \Laminas\Log\Logger
+     */
+    protected $logger;
 
     /**
      * Full path to the files.
@@ -50,8 +56,9 @@ class IiifSearch extends AbstractHelper
      */
     protected $imageSizes;
 
-    public function __construct($basePath)
+    public function __construct(Logger $logger, $basePath)
     {
+        $this->logger = $logger;
         $this->basePath = $basePath;
     }
 
@@ -156,7 +163,7 @@ class IiifSearch extends AbstractHelper
                 $page['width'] = (string) @$attributes->width;
                 $page['height'] = (string) @$attributes->height;
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
-                    $view->logger()->warn(sprintf(
+                    $this->logger->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->xmlFile->id(), $index
                     ));
@@ -166,7 +173,7 @@ class IiifSearch extends AbstractHelper
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
                 if ($pageIndex !== $index) {
-                    $view->logger()->warn(sprintf(
+                    $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
                         $this->xmlFile->id(), $index
                     ));
@@ -192,7 +199,7 @@ class IiifSearch extends AbstractHelper
                             $zone['width'] = (string) @$attributes->width;
                             $zone['height'] = (string) @$attributes->height;
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !strlen($zone['width']) || !strlen($zone['height'])) {
-                                $view->logger()->warn(sprintf(
+                                $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
                                     $this->xmlFile->id(), $pageIndex, $rowIndex
                                 ));
@@ -223,7 +230,7 @@ class IiifSearch extends AbstractHelper
                 }
             }
         } catch (\Exception $e) {
-            $view->logger()->err(sprintf(
+            $this->logger->err(sprintf(
                 'Error: PDF to XML conversion failed for media file #%d!', // @translate
                 $this->xmlFile->id()
             ));
@@ -247,6 +254,11 @@ class IiifSearch extends AbstractHelper
                 if (!$this->xmlFile) {
                     $this->xmlFile = $media;
                 }
+            } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
+                $this->logger->warn(
+                    sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise enough and is skipped.', // @translate
+                        $this->xmlMediaType, $media->id
+                    ));
             } elseif ($media->ingester() == 'iiif') {
                 $this->imageSizes[] = [
                     'media' => $media,
@@ -310,7 +322,7 @@ class IiifSearch extends AbstractHelper
         $xmlContent = file_get_contents($filepath);
         $xmlContent = $this->fixBadUtf8($xmlContent);
         if (!$xmlContent) {
-            $this->getView()->logger()->err(sprintf(
+            $this->logger->err(sprintf(
                 'Error: XML content seems empty for media #%d!', // @translate
                 $this->xmlFile->id()
             ));
@@ -327,7 +339,7 @@ class IiifSearch extends AbstractHelper
 
         $xmlContent = simplexml_load_string($xmlContent);
         if (!$xmlContent) {
-            $this->getView()->logger()->err(sprintf(
+            $this->logger->err(sprintf(
                 'Error: Cannot get XML content from media #%d!', // @translate
                 $this->xmlFile->id()
             ));
@@ -385,6 +397,14 @@ REGEX;
             }
         };
 
-        return preg_replace_callback($regex, $utf8replacer, (string) $string);
+        // Log invalid files.
+        $count = 0;
+        $result = preg_replace_callback($regex, $utf8replacer, (string) $string, -1, $count);
+        if ($count) {
+            $this->logger->warn(sprintf(
+                'Warning: some files contain invalid unicode characters and cannot be searched quickly.' // @translate
+            ));
+        }
+        return $result;
     }
 }

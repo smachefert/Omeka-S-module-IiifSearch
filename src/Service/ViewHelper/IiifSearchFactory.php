@@ -11,6 +11,9 @@ class IiifSearchFactory
     {
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        return new IiifSearch($basePath);
+        return new IiifSearch(
+            $services->get('Omeka\Logger'),
+            $basePath
+        );
     }
 }
