@@ -16,6 +16,7 @@
  * @see \EasyAdmin /data/media-types/media-type-identifiers
  * @see \ExtractText /data/media-types/media-type-identifiers
  * @see \IiifSearch /data/media-types/media-type-identifiers
+ * @see \IiifServer\Iiif\TraitIiifType
  * @see \XmlViewer /data/media-types/media-type-identifiers
  */
 return [
