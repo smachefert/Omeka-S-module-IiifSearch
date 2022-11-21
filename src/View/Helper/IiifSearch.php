@@ -1,10 +1,5 @@
 <?php declare(strict_types=1);
-/**
- * Created by IntelliJ IDEA.
- * User: xavier
- * Date: 17/05/18
- * Time: 16:01
- */
+
 namespace IiifSearch\View\Helper;
 
 use IiifSearch\Iiif\AnnotationList;
@@ -73,7 +68,7 @@ class IiifSearch extends AbstractHelper
      * @return AnnotationList|null Null is returned if search is not supported
      * for the resource.
      */
-    public function __invoke(ItemRepresentation $item)
+    public function __invoke(ItemRepresentation $item): ?AnnotationList
     {
         $this->item = $item;
 
@@ -81,11 +76,12 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        $query = (string) $this->getView()->params()->fromQuery('q');
+        $view = $this->getView();
+        $query = (string) $view->params()->fromQuery('q');
         $result = $this->searchFulltext($query);
 
         $response = new AnnotationList;
-        $response->initOptions(['requestUri' => $this->getView()->serverUrl(true)]);
+        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
         if ($result) {
             $response['resources'] = $result['resources'];
             $response['hits'] = $result['hits'];
@@ -114,7 +110,7 @@ class IiifSearch extends AbstractHelper
      *      ]
      *      ...
      */
-    protected function searchFulltext(string $query)
+    protected function searchFulltext(string $query): ?array
     {
         if (!strlen($query)) {
             return null;
@@ -233,7 +229,10 @@ class IiifSearch extends AbstractHelper
                 }
             }
         } catch (\Exception $e) {
-            $view->logger()->err(sprintf('Error: PDF to XML conversion failed for media file #%d!', $this->xmlFile->id()));
+            $view->logger()->err(sprintf(
+                'Error: PDF to XML conversion failed for media file #%d!', // @translate
+                $this->xmlFile->id()
+            ));
             return null;
         }
 
@@ -242,10 +241,8 @@ class IiifSearch extends AbstractHelper
 
     /**
      * Check if the item support search and init the xml file.
-     *
-     * @return bool
      */
-    protected function prepareSearch()
+    protected function prepareSearch(): bool
     {
         $this->xmlFile = null;
         $this->imageSizes = [];
@@ -287,10 +284,8 @@ class IiifSearch extends AbstractHelper
 
     /**
      * Normalize query because the search occurs inside a normalized text.
-     * @param $query
-     * @return array
      */
-    protected function formatQuery($query)
+    protected function formatQuery($query): array
     {
         $cleanQuery = $this->alnumString($query);
         if (mb_strlen($cleanQuery) < $this->minimumQueryLength) {
@@ -305,10 +300,7 @@ class IiifSearch extends AbstractHelper
         return $queryWords;
     }
 
-    /**
-     * @return \SimpleXMLElement|null
-     */
-    protected function loadXml()
+    protected function loadXml(): ?SimpleXMLElement
     {
         $filepath = ($filename = $this->xmlFile->filename())
             ? $this->basePath . '/original/' . $filename
@@ -316,7 +308,10 @@ class IiifSearch extends AbstractHelper
 
         $this->xmlMediaType = $this->getView()->xmlMediaType($filepath, $this->xmlFile->mediaType());
         if (!in_array($this->xmlMediaType, $this->xmlSupportedMediaTypes)) {
-            $this->getView()->logger()->err(sprintf('Error: Xml format "%1$s" is not managed currently (media #%2$d).', $this->xmlMediaType, $this->xmlFile->id()));
+            $this->getView()->logger()->err(
+                sprintf('Error: Xml format "%1$s" is not managed currently (media #%2$d).', // @translate
+                $this->xmlMediaType, $this->xmlFile->id()
+            ));
             return null;
         }
 
@@ -333,7 +328,10 @@ class IiifSearch extends AbstractHelper
         }
 
         if (!$xmlContent) {
-            $this->getView()->logger()->err(sprintf('Error: Cannot get XML content from media #%d!', $this->xmlFile->id()));
+            $this->getView()->logger()->err(sprintf(
+                'Error: Cannot get XML content from media #%d!', // @translate
+                $this->xmlFile->id()
+            ));
             return null;
         }
 
@@ -345,13 +343,10 @@ class IiifSearch extends AbstractHelper
      *
      * Removes trailing spaces and anything else, except letters, numbers and
      * symbols.
-     *
-     * @param string $string The string to clean.
-     * @return string The cleaned string.
      */
-    protected function alnumString($string)
+    protected function alnumString($string): string
     {
-        $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', $string);
+        $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
     }
 }

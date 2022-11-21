@@ -25,7 +25,7 @@ class XmlMediaType extends AbstractHelper
      */
     protected $filepath;
 
-    public function __invoke($filepath, $mediaType = null)
+    public function __invoke($filepath, $mediaType = null): ?string
     {
         $this->filepath = $filepath;
 
@@ -46,20 +46,17 @@ class XmlMediaType extends AbstractHelper
      * Get the Internet media type of the file.
      *
      * @uses finfo
-     * @return string
      */
-    protected function simpleMediaType()
+    protected function simpleMediaType(): ?string
     {
         $finfo = new finfo(FILEINFO_MIME_TYPE);
-        return $finfo->file($this->filepath);
+        return $finfo->file($this->filepath) ?: null;
     }
 
     /**
      * Extract a more precise xml media type when possible.
-     *
-     * @return string
      */
-    protected function getMediaTypeXml()
+    protected function getMediaTypeXml(): ?string
     {
         libxml_clear_errors();
 
@@ -127,10 +124,8 @@ class XmlMediaType extends AbstractHelper
      *
      * In many cases, the media type is saved in a uncompressed file "mimetype"
      * at the beginning of the zip file. If present, get it.
-     *
-     * @return string
      */
-    protected function getMediaTypeZip()
+    protected function getMediaTypeZip(): ?string
     {
         $handle = fopen($this->filepath, 'rb');
         $contents = fread($handle, 256);

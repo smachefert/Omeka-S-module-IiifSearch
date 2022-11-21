@@ -2,6 +2,7 @@
 
 namespace IiifSearch\Controller;
 
+use Laminas\Http\Response;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
 use Omeka\Mvc\Exception\NotFoundException;
@@ -17,7 +18,7 @@ class SearchController extends AbstractActionController
 
         $q = (string) $this->params()->fromQuery('q');
         if (!strlen($q)) {
-            $this->getResponse()->setStatusCode(400);
+            $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
             return new JsonModel([
                 'status' => 'error',
                 'message' => $this->translate('Missing or empty query.'), // @translate
@@ -31,7 +32,7 @@ class SearchController extends AbstractActionController
         $searchResponse = $iiifSearch($item);
 
         if (!$searchResponse) {
-            $this->getResponse()->setStatusCode(\Laminas\Http\Response::STATUS_CODE_400);
+            $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
             return new JsonModel([
                 'status' => 'error',
                 'message' => sprintf($this->translate('Search is not supported for resource #%d (missing XML and/or image files).'), $id), // @translate
@@ -44,7 +45,7 @@ class SearchController extends AbstractActionController
     public function annotationListAction()
     {
         // TODO Implement annotation-list action.
-        $this->getResponse()->setStatusCode(\Laminas\Http\Response::STATUS_CODE_501);
+        $this->getResponse()->setStatusCode(Response::STATUS_CODE_501);
         return new JsonModel([
             'status' => 'error',
             'message' => $this->translate('Direct request to annotation-list is not implemented.'), // @translate
