@@ -41,6 +41,10 @@ class Module extends AbstractModule
 
     public function handleIiifServerManifest(Event $event): void
     {
+        // Target is the view.
+        // Available keys: "format", the manifest, info etc according to format, "resource", "type".
+
+        // This is the iiif type, not omeka one.
         $type = $event->getParam('type');
         if ($type !== 'item') {
             return;
@@ -51,6 +55,7 @@ class Module extends AbstractModule
         // Checking if resource has at least an XML file that will allow search.
         $searchServiceAvailable = false;
         $searchMediaTypes = [
+            'application/alto+xml',
             'application/vnd.pdf2xml+xml',
         ];
         foreach ($resource->media() as $media) {

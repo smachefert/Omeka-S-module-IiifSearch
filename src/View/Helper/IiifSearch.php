@@ -16,6 +16,7 @@ class IiifSearch extends AbstractHelper
      * @var array
      */
     protected $supportedMediaTypes = [
+        'application/alto+xml',
         'application/vnd.pdf2xml+xml',
     ];
 
@@ -45,6 +46,11 @@ class IiifSearch extends AbstractHelper
      * @var \Omeka\Api\Representation\MediaRepresentation
      */
     protected $xmlFile;
+
+    /**
+     * @var \Omeka\Api\Representation\MediaRepresentation[]
+     */
+    protected $xmlFiles;
 
     /**
      * @var string
@@ -129,10 +135,170 @@ class IiifSearch extends AbstractHelper
 
         $this->prepareImageSizes();
 
+        if ($this->xmlMediaType === 'application/alto+xml') {
+            return $this->searchFullTextAlto($xml, $queryWords);
+        }
+
         return $this->searchFullTextPdfXml($xml, $queryWords);
     }
 
-    protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords)
+    protected function searchFullTextAlto(SimpleXmlElement $xml, $queryWords): ?array
+    {
+        $result = [
+            'resources' => [],
+            'hits' => [],
+        ];
+
+        // A search result is an annotation on the canvas of the original item,
+        // so an url managed by the iiif server.
+        $view = $this->getView();
+        $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ]) . '/';
+
+        $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'canvas',
+        ]) . '/p';
+
+        $resource = $this->item;
+        try {
+            $hit = 0;
+            $index = -1;
+            foreach ($xml->alto as $xmlPage) {
+                ++$index;
+                $attributes = $xmlPage->Layout->Page->attributes();
+                // TODO Alto is merged, so use the index, not the page.
+                // TODO Check why casting to string is needed.
+                // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
+                $page['number'] = (string) ($index + 1);
+                $page['width'] = (string) @$attributes->WIDTH;
+                $page['height'] = (string) @$attributes->HEIGHT;
+                if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
+                    $view->logger()->warn(sprintf(
+                        'Incomplete data for xml file from media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
+                }
+
+                // TODO Not checked for now: alto is rebuilt so all images are first.
+                $pageIndex = $index;
+                // Should be the same than index.
+                /*
+                $pageIndex = $page['number'] - 1;
+                if ($pageIndex !== $index) {
+                    $view->logger()->warn(sprintf(
+                        'Inconsistent data for xml file from media #%1$s, page %2$s.', // @translate
+                        $this->xmlFile->id(), $index
+                    ));
+                    continue;
+                }
+                */
+
+                $hits = [];
+                $hitMatches = [];
+
+                $extractStringData = function (\SimpleXMLElement $xmlString) use (&$result, &$hits, &$hitMatches, &$hit, $resource, $view, $baseResultUrl, $baseCanvasUrl, $page, $pageIndex, $queryWords): void {
+                    $attributes = $xmlString->attributes();
+                    $matches = [];
+                    $zone = [];
+                    $zone['text'] = (string) $attributes->CONTENT;
+                    foreach ($queryWords as $chars) {
+                        if (!empty($this->imageSizes[$pageIndex]['width'])
+                            && !empty($this->imageSizes[$pageIndex]['height'])
+                            && mb_strlen($chars) >= $this->minimumQueryLength
+                            && preg_match('/' . preg_quote($chars, '/') . '/Uui', $zone['text'], $matches) > 0
+                        ) {
+                            $zone['top'] = (string) @$attributes->VPOS;
+                            $zone['left'] = (string) @$attributes->HPOS;
+                            $zone['width'] = (string) @$attributes->WIDTH;
+                            $zone['height'] = (string) @$attributes->HEIGHT;
+                            if (!strlen($zone['top']) || !strlen($zone['left']) || !strlen($zone['width']) || !strlen($zone['height'])) {
+                                $view->logger()->warn(sprintf(
+                                    'Inconsistent data for xml file from media #%1$s, page %2$s.', // @translate
+                                    $this->xmlFile->id(), $pageIndex
+                                ));
+                                continue;
+                            }
+
+                            ++$hit;
+
+                            $image = $this->imageSizes[$pageIndex];
+                            $searchResult = new AnnotationSearchResult;
+                            $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                            $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+
+                            $hits[] = $searchResult->id();
+                            // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                            // TODO Get the text before first and last hit of the page.
+                            $hitMatches[] = $matches[0];
+                        }
+                    }
+                };
+
+                foreach ($xmlPage->Layout->Page->children() as $pageElement) {
+                    if ($pageElement->getName() === 'String') {
+                        $extractStringData($pageElement);
+                    } else {
+                        foreach ($pageElement->children() as $pageElement2) {
+                            if ($pageElement2->getName() === 'String') {
+                                $extractStringData($pageElement2);
+                            } else {
+                                foreach ($pageElement2->children() as $pageElement3) {
+                                    if ($pageElement3->getName() === 'String') {
+                                        $extractStringData($pageElement3);
+                                    } else {
+                                        foreach ($pageElement3->children() as $pageElement4) {
+                                            if ($pageElement4->getName() === 'String') {
+                                                $extractStringData($pageElement4);
+                                            } else {
+                                                foreach ($pageElement4->children() as $pageElement5) {
+                                                    if ($pageElement5->getName() === 'String') {
+                                                        $extractStringData($pageElement5);
+                                                    } else {
+                                                        foreach ($pageElement5->children() as $pageElement6) {
+                                                            if ($pageElement6->getName() === 'String') {
+                                                                $extractStringData($pageElement6);
+                                                            } else {
+                                                                foreach ($pageElement6->children() as $pageElement7) {
+                                                                    if ($pageElement7->getName() === 'String') {
+                                                                        $extractStringData($pageElement7);
+                                                                    }
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Add hits per page.
+                if ($hits) {
+                    $searchHit = new SearchHit;
+                    $searchHit['annotations'] = $hits;
+                    $searchHit['match'] = implode(' ', array_unique($hitMatches));
+                    $result['hits'][] = $searchHit;
+                }
+            }
+        } catch (\Exception $e) {
+            $view->logger()->err(sprintf(
+                'Error: XML alto content may be invalid for media file #%d!', // @translate
+                $this->xmlFile->id()
+            ));
+            return null;
+        }
+
+        return $result;
+    }
+
+    protected function searchFullTextPdfXml(SimpleXmlElement $xml, $queryWords): ?array
     {
         $result = [
             'resources' => [],
@@ -241,19 +407,22 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Check if the item support search and init the xml file.
+     * Check if the item support search and init the xml files.
      */
     protected function prepareSearch(): bool
     {
         $this->xmlFile = null;
+        $this->xmlFiles = [];
+
         $this->imageSizes = [];
         foreach ($this->item->media() as $media) {
             $mediaType = $media->mediaType();
-            // Get the first supported xml.
             if (in_array($mediaType, $this->supportedMediaTypes)) {
+                // TODO Remove single xmlFile.
                 if (!$this->xmlFile) {
                     $this->xmlFile = $media;
                 }
+                $this->xmlFiles[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise enough and is skipped.', // @translate
@@ -311,6 +480,10 @@ class IiifSearch extends AbstractHelper
 
     protected function loadXml(): ?SimpleXMLElement
     {
+        if (count($this->xmlFiles) > 1) {
+            return $this->loadXmls();
+        }
+
         $filepath = ($filename = $this->xmlFile->filename())
             ? $this->basePath . '/original/' . $filename
             : $this->xmlFile->originalUrl();
@@ -335,6 +508,8 @@ class IiifSearch extends AbstractHelper
             $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
             $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
             $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
+        } elseif (true) {
+            return $this->loadXmls();
         }
 
         $xmlContent = simplexml_load_string($xmlContent);
@@ -347,6 +522,36 @@ class IiifSearch extends AbstractHelper
         }
 
         return $xmlContent;
+    }
+
+    protected function loadXmls(): ?SimpleXMLElement
+    {
+        $this->xmlMediaType = 'application/alto+xml';
+
+        if (!in_array($this->xmlMediaType, $this->supportedMediaTypes)) {
+            $this->getView()->logger()->err(sprintf(
+                'Error: Xml format "%1$s" is not managed currently (media #%2$d).', // @translate
+                $this->xmlMediaType, $this->xmlFile->id()
+            ));
+            return null;
+        }
+
+        $xmlContent = '<?xml version="1.0" encoding="UTF-8"?>' . "\n";
+        $xmlContent .= '<altos>' . "\n";
+
+        foreach ($this->xmlFiles as $xmlFileMedia) {
+            $filepath = ($filename = $xmlFileMedia->filename())
+                ? $this->basePath . '/original/' . $filename
+                : $xmlFileMedia->originalUrl();
+            $currentXml = file_get_contents($filepath);
+            $currentXml = str_replace(['<?xml version="1.0" encoding="UTF-8"?>', '<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="http://www.loc.gov/standards/alto/ns-v3# http://www.loc.gov/alto/v3/alto-3-0.xsd">'], ['<alto>'], $currentXml);
+
+            $xmlContent .= $currentXml . "\n";
+        }
+
+        $xmlContent .= '</altos>';
+        $xmlContent = $this->fixBadUtf8($xmlContent);
+        return @simplexml_load_string($xmlContent);
     }
 
     /**
