@@ -253,13 +253,11 @@ class IiifSearch extends AbstractHelper
             $mediaType = $media->mediaType();
             if (!$this->xmlFile && in_array($mediaType, $this->xmlMediaTypes)) {
                 $this->xmlFile = $media;
-            } 
-            elseif ($media->ingester() == 'iiif') {
+            } elseif ($media->ingester() == 'iiif') {
                 $this->imageSizes[] = [
                     'media' => $media,
                 ];
-            }
-            elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
+            } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
                 $this->imageSizes[] = [
                     'media' => $media,
                 ];
@@ -278,13 +276,12 @@ class IiifSearch extends AbstractHelper
             } else {
                 $filepath = $image['media']->originalUrl();
             }
-            if ( $image['media']->ingester() == 'iiif' ) {
+            if ($image['media']->ingester() == 'iiif') {
                 $mediaData = $image['media']->mediaData();
-                list($image['width'], $image['height']) = array($mediaData['width'], $mediaData['height']);
+                list($image['width'], $image['height']) = [$mediaData['width'], $mediaData['height']];
             } else {
-                list($image['width'], $image['height']) = getimagesize($filepath);    
+                list($image['width'], $image['height']) = getimagesize($filepath);
             }
-            
         }
     }
 

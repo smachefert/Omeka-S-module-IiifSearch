@@ -172,9 +172,8 @@ class XmlMediaType extends AbstractHelper
             $this->getView()->logger()->err($message);
         }
 
-        return isset($this->xmlMediaTypes[$type])
-            ? $this->xmlMediaTypes[$type]
-            : null;
+        return $this->xmlMediaTypes[$type]
+            ?? null;
     }
 
     /**
