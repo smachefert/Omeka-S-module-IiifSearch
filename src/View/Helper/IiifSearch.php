@@ -31,6 +31,11 @@ class IiifSearch extends AbstractHelper
     protected $logger;
 
     /**
+     * @var \IiifSearch\View\Helper\FixUtf8
+     */
+    protected $fixUtf8;
+
+    /**
      * Full path to the files.
      *
      * @var string
@@ -62,9 +67,10 @@ class IiifSearch extends AbstractHelper
      */
     protected $imageSizes;
 
-    public function __construct(Logger $logger, $basePath)
+    public function __construct(Logger $logger, ?FixUtf8 $fixUtf8, $basePath)
     {
         $this->logger = $logger;
+        $this->fixUtf8 = $fixUtf8;
         $this->basePath = $basePath;
     }
 
@@ -491,9 +497,10 @@ class IiifSearch extends AbstractHelper
         // The media type is already checked.
         $this->xmlMediaType = $this->xmlFile->mediaType();
 
-        // Fix badly formatted xml files.
         $xmlContent = file_get_contents($filepath);
-        $xmlContent = $this->fixBadUtf8($xmlContent);
+        if ($this->fixUtf8) {
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
         if (!$xmlContent) {
             $this->logger->err(sprintf(
                 'Error: XML content seems empty for media #%d!', // @translate
@@ -550,7 +557,9 @@ class IiifSearch extends AbstractHelper
         }
 
         $xmlContent .= '</altos>';
-        $xmlContent = $this->fixBadUtf8($xmlContent);
+        if ($this->fixUtf8) {
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
         return @simplexml_load_string($xmlContent);
     }
 
@@ -564,52 +573,5 @@ class IiifSearch extends AbstractHelper
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
-    }
-
-    /**
-     * Some utf8 files, generally edited under Windows, should be cleaned.
-     *
-     * @see https://stackoverflow.com/questions/1401317/remove-non-utf8-characters-from-string#1401716
-     */
-    protected function fixBadUtf8($string): ?string
-    {
-        $regex = <<<'REGEX'
-/
-  (
-    (?: [\x00-\x7F]               # single-byte sequences   0xxxxxxx
-    |   [\xC0-\xDF][\x80-\xBF]    # double-byte sequences   110xxxxx 10xxxxxx
-    |   [\xE0-\xEF][\x80-\xBF]{2} # triple-byte sequences   1110xxxx 10xxxxxx * 2
-    |   [\xF0-\xF7][\x80-\xBF]{3} # quadruple-byte sequence 11110xxx 10xxxxxx * 3
-    ){1,100}                      # ...one or more times
-  )
-| ( [\x80-\xBF] )                 # invalid byte in range 10000000 - 10111111
-| ( [\xC0-\xFF] )                 # invalid byte in range 11000000 - 11111111
-/x
-REGEX;
-
-        $utf8replacer = function ($captures) {
-            if ($captures[1] !== '') {
-                // Valid byte sequence. Return unmodified.
-                return $captures[1];
-            } elseif ($captures[2] !== '') {
-                // Invalid byte of the form 10xxxxxx.
-                // Encode as 11000010 10xxxxxx.
-                return "\xC2" . $captures[2];
-            } else {
-                // Invalid byte of the form 11xxxxxx.
-                // Encode as 11000011 10xxxxxx.
-                return "\xC3" . chr(ord($captures[3]) - 64);
-            }
-        };
-
-        // Log invalid files.
-        $count = 0;
-        $result = preg_replace_callback($regex, $utf8replacer, (string) $string, -1, $count);
-        if ($count) {
-            $this->logger->warn(sprintf(
-                'Warning: some files contain invalid unicode characters and cannot be searched quickly.' // @translate
-            ));
-        }
-        return $result;
     }
 }

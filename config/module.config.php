@@ -16,6 +16,9 @@ return [
         ],
     ],
     'view_helpers' => [
+        'invokables' => [
+            'fixUtf8' => View\Helper\FixUtf8::class,
+        ],
         'factories' => [
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
         ],
@@ -88,6 +91,13 @@ return [
                     ],
                 ],
             ],
+        ],
+    ],
+    'iiifserver' => [
+        'config' => [
+            // This parameter may be overridden in your local config.
+            // Disabled by default for performance.
+            'iiifserver_enable_utf8_fix' => false,
         ],
     ],
 ];
