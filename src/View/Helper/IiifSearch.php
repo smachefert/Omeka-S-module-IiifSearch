@@ -216,7 +216,7 @@ class IiifSearch extends AbstractHelper
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
 
-                            $hits[] = $searchResult->getId();
+                            $hits[] = $searchResult->id();
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
                             // TODO Get the text before first and last hit of the page.
                             $hitMatches[] = $matches[0];

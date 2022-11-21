@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020 Daniel Berthereau
+ * Copyright 2020-2022 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -80,23 +80,23 @@ class AnnotationSearchResult extends AbstractSimpleType
      * @param array $options
      * @return self
      */
-    public function setResult(array $result)
+    public function setResult(array $result): AbstractSimpleType
     {
         $this->_result = $result;
         $this->prepareBox();
         return $this;
     }
 
-    public function getContent()
+    public function getContent(): array
     {
         if (empty($this->offsetGet('@id'))) {
-            $this->offsetSet('@id', $this->getId());
+            $this->offsetSet('@id', $this->id());
         }
         if (empty($this->offsetGet('resource'))) {
-            $this->offsetSet('resource', $this->getResource());
+            $this->offsetSet('resource', $this->resource());
         }
         if (empty($this->offsetGet('on'))) {
-            $this->offsetSet('on', $this->getOn());
+            $this->offsetSet('on', $this->on());
         }
         return parent::getContent();
     }
@@ -106,7 +106,7 @@ class AnnotationSearchResult extends AbstractSimpleType
      *
      * @return string|null
      */
-    public function getId()
+    public function id(): ?string
     {
         if (empty($this->_box)) {
             return null;
@@ -119,12 +119,10 @@ class AnnotationSearchResult extends AbstractSimpleType
     }
 
     /**
-     * Warning: getResource() is used for the annotation resource, not the Omeka
+     * Warning: resource() is used for the annotation resource, not the Omeka
      * resource.
-     *
-     * @return array
      */
-    public function getResource()
+    public function resource(): array
     {
         return [
             '@type' => 'cnt:ContextAstext',
@@ -132,10 +130,7 @@ class AnnotationSearchResult extends AbstractSimpleType
         ];
     }
 
-    /**
-     * @return string
-     */
-    public function getOn()
+    public function on(): string
     {
         // TODO Use the routing system of IiifServer.
         return $this->_options['baseCanvasUrl']
@@ -143,10 +138,10 @@ class AnnotationSearchResult extends AbstractSimpleType
             . '#xywh=' . $this->_box['x'] . ',' . $this->_box['y'] . ',' . $this->_box['w'] . ',' . $this->_box['h'];
     }
 
-    protected function prepareBox()
+    protected function prepareBox(): AbstractSimpleType
     {
         if (empty($this->_result['resource'])) {
-            return null;
+            return $this;
         }
 
         $scaleX = $this->_result['image']['width'] / $this->_result['page']['width'];
@@ -164,5 +159,6 @@ class AnnotationSearchResult extends AbstractSimpleType
 
         $this->_box['w'] = round($w * $scaleX);
         $this->_box['h'] = round($h * $scaleY);
+        return $this;
     }
 }
