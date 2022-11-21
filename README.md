@@ -1,48 +1,82 @@
 IIIF Search (module for Omeka S)
-=============================
+================================
+
 
 Summary
 -----------
 
 IIIF Search is a module for Omeka S that add IIIF Search Api for fulltext searching.
 
-Require Modules
----------------
 
-- This module needs [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr) and [IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer) modules on your server
+Optional modules
+----------------
+
+The module can live alone, but module [IIIF-Server](https://github.com/bubdxm/Omeka-S-module-IiifServer) is required to be useful on your own install.
+
+If your ocr comes from pdf, you need to extract them first with module [Extract OCR](https://github.com/bubdxm/Omeka-S-module-ExtractOcr).
+
+If your ocr files are Alto xml files, they are managed natively: just upload them with the item alongside images (tested on alto v3).
+
 
 Installation
 ------------
-- install the module via github
+
+- Download the last release or install the module via git:
 
 ```sh
 cd omeka-s/modules
 git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
-- Install it from the admin → Modules → IiifSearch -> install
+- Enable it from Omeka admin → Modules → IiifSearch -> install
 
-- In IIIF Server's settings -> IIIF Search url 
-  add iiif-search url : http://yourdomain/omeka-s/iiif-search/
+The IIIF search service is automatically appended to IIIF manifests when an ocr text is available.
+
+***WARNING***
+
+If your files are badly UTF-8 encoded, in particular alto xml files, you may need to enable a feature to fix them dynamically: add this code in the file `config/local.config.php` of Omeka:
+
+```php
+    'iiifserver' => [
+        'config' => [
+            'iiifserver_enable_utf8_fix' => true,
+        ],
+    ],
+```
+
+Of course, for performance, it's better to fix files before upload.
+
 
 Using the Iiif Search module
 ---------------------------
 
 You can use API with :
 
-http://yourdomain/omeka-s/iiif-search/:itemID?q=textquery   
+http://yourdomain/omeka-s/iiif-search/:itemID?q=textquery
 
 Iiif Search module will return Iiif Search response.
 
-Optional modules
-----------------
 
-- [Universal Viewer](https://gitlab.com/Daniel-KM/Omeka-S-module-UniversalViewer) : Module for Omeka S that adds the IIIF specifications in order to act like an IIPImage server, and the UniversalViewer, a unified online player for any file. It can display books, images, maps, audio, movies, pdf, 3D views, and anything else as long as the appropriate extensions are installed.
+Viewers
+-------
+
+- [Diva](https://gitlab.com/Daniel-KM/Omeka-S-module-Diva) : Module for Omeka S compliant with IIIF that displays a light IIIF compliant viewer.
+- [Mirador](https://gitlab.com/Daniel-KM/Omeka-S-module-Mirador) : Module for Omeka S compliant with IIIF that displays a fully IIIF compliant viewer with multiple windows.
+- [Universal Viewer](https://gitlab.com/Daniel-KM/Omeka-S-module-UniversalViewer) : Module for Omeka S compliant with IIIF that displays an unified online player for any file. It can display books, images, maps, audio, movies, pdf, 3D views, and anything else as long as the appropriate extensions are installed.
+
+
+TODO
+----
+
+- [ ] Auto complete.
+- [ ] Store data (word positions) as media data or item data or in a specific table or in Solr to speed up queries, in particular when alto are many.
+
 
 Troubleshooting
 ---------------
 
 See online [IIIF Search issues](https://github.com/bubdxm/Omeka-S-module-IiifSearch/issues).
+
 
 License
 -------
@@ -68,4 +102,4 @@ Contact
 -------
 
 * Syvain Machefert, Université Bordeaux 3 (see [symac](https://github.com/symac))
-
+* Daniel Berthereau, (see [Daniel-KM](https://gitlab.com/Daniel-KM))
