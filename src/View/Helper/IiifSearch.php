@@ -14,7 +14,7 @@ class IiifSearch extends AbstractHelper
     /**
      * @var array
      */
-    protected $xmlSupportedMediaTypes = [
+    protected $supportedMediaTypes = [
         'application/vnd.pdf2xml+xml',
     ];
 
@@ -22,12 +22,6 @@ class IiifSearch extends AbstractHelper
      * @var int
      */
     protected $minimumQueryLength = 3;
-
-    protected $xmlMediaTypes = [
-        'application/xml',
-        'text/xml',
-        'application/vnd.pdf2xml+xml',
-    ];
 
     /**
      * Full path to the files.
@@ -248,8 +242,11 @@ class IiifSearch extends AbstractHelper
         $this->imageSizes = [];
         foreach ($this->item->media() as $media) {
             $mediaType = $media->mediaType();
-            if (!$this->xmlFile && in_array($mediaType, $this->xmlMediaTypes)) {
-                $this->xmlFile = $media;
+            // Get the first supported xml.
+            if (in_array($mediaType, $this->supportedMediaTypes)) {
+                if (!$this->xmlFile) {
+                    $this->xmlFile = $media;
+                }
             } elseif ($media->ingester() == 'iiif') {
                 $this->imageSizes[] = [
                     'media' => $media,
@@ -306,14 +303,8 @@ class IiifSearch extends AbstractHelper
             ? $this->basePath . '/original/' . $filename
             : $this->xmlFile->originalUrl();
 
-        $this->xmlMediaType = $this->getView()->xmlMediaType($filepath, $this->xmlFile->mediaType());
-        if (!in_array($this->xmlMediaType, $this->xmlSupportedMediaTypes)) {
-            $this->getView()->logger()->err(
-                sprintf('Error: Xml format "%1$s" is not managed currently (media #%2$d).', // @translate
-                $this->xmlMediaType, $this->xmlFile->id()
-            ));
-            return null;
-        }
+        // The media type is already checked.
+        $this->xmlMediaType = $this->xmlFile->mediaType();
 
         // Fix badly formatted xml files.
         $xmlContent = file_get_contents($filepath);

@@ -51,8 +51,6 @@ class Module extends AbstractModule
         // Checking if resource has at least an XML file that will allow search.
         $searchServiceAvailable = false;
         $searchMediaTypes = [
-            'application/xml',
-            'text/xml',
             'application/vnd.pdf2xml+xml',
         ];
         foreach ($resource->media() as $media) {
