@@ -3,15 +3,19 @@
 namespace IiifSearch;
 
 return [
+    'service_manager' => [
+        'factories' => [
+            // Copied from EasyAdmin.
+            'Omeka\File\TempFileFactory' => Service\File\TempFileFactoryFactory::class,
+            'Omeka\File\Validator' => Service\File\ValidatorFactory::class,
+        ],
+    ],
     'view_manager' => [
         'strategies' => [
             'ViewJsonStrategy',
         ],
     ],
     'view_helpers' => [
-        'invokables' => [
-            'xmlMediaType' => View\Helper\XmlMediaType::class,
-        ],
         'factories' => [
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
         ],
@@ -24,6 +28,10 @@ return [
     'controller_plugins' => [
         'invokables' => [
             'jsonLd' => Mvc\Controller\Plugin\JsonLd::class,
+        ],
+        'factories' => [
+            // Copied from EasyAdmin.
+            'specifyMediaType' => Service\ControllerPlugin\SpecifyMediaTypeFactory::class,
         ],
     ],
     'router' => [

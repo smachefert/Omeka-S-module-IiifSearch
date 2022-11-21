@@ -13,6 +13,7 @@
  *
  * @see \Omeka\File\TempFile
  * @see \BulkImport\Form\Reader\XmlReaderParamsForm
+ * @see \EasyAdmin /data/media-types/media-type-identifiers
  * @see \ExtractText /data/media-types/media-type-identifiers
  * @see \IiifSearch /data/media-types/media-type-identifiers
  * @see \XmlViewer /data/media-types/media-type-identifiers

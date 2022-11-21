@@ -1,31 +1,50 @@
 <?php declare(strict_types=1);
 
-/**
- * @see XmlViewer
- */
-namespace IiifSearch\View\Helper;
+namespace IiifSearch\Mvc\Controller\Plugin;
 
 use finfo;
-use Laminas\View\Helper\AbstractHelper;
+use Laminas\Log\Logger;
+use Laminas\Mvc\Controller\Plugin\AbstractPlugin;
 use XMLReader;
 
 /**
- * Get a more precise media type for xml files.
+ * Get a more precise media type for files, mainly xml and json ones.
+ *
+ * @todo Make more precise media type for text/plain and application/json.
  *
  * @see \Omeka\File\TempFile
  * @see \BulkImport\Form\Reader\XmlReaderParamsForm
+ * @see \EasyAdmin /data/media-types/media-type-identifiers
  * @see \ExtractText /data/media-types/media-type-identifiers
  * @see \IiifSearch /data/media-types/media-type-identifiers
  * @see \XmlViewer /data/media-types/media-type-identifiers
  */
-class XmlMediaType extends AbstractHelper
+class SpecifyMediaType extends AbstractPlugin
 {
+    /**
+     * @var \Laminas\Log\Logger
+     */
+    protected $logger;
+
+    /**
+     * List of normalized media types extracted from files metadata.
+     *
+     * @var array
+     */
+    protected $mediaTypesIdentifiers;
+
     /**
      * @var string
      */
     protected $filepath;
 
-    public function __invoke($filepath, $mediaType = null): ?string
+    public function __construct(Logger $logger, array $mediaTypesIdentifiers)
+    {
+        $this->logger = $logger;
+        $this->mediaTypesIdentifiers = $mediaTypesIdentifiers;
+    }
+
+    public function __invoke(string $filepath, ?string $mediaType = null): ?string
     {
         $this->filepath = $filepath;
 
@@ -50,7 +69,11 @@ class XmlMediaType extends AbstractHelper
     protected function simpleMediaType(): ?string
     {
         $finfo = new finfo(FILEINFO_MIME_TYPE);
-        return $finfo->file($this->filepath) ?: null;
+        $mediaType = $finfo->file($this->filepath) ?: null;
+        if (array_key_exists($mediaType, \Omeka\File\TempFile::MEDIA_TYPE_ALIASES)) {
+            $mediaType = \Omeka\File\TempFile::MEDIA_TYPE_ALIASES[$mediaType];
+        }
+        return $mediaType;
     }
 
     /**
@@ -66,7 +89,7 @@ class XmlMediaType extends AbstractHelper
                 'The file "%1$s" is not parsable by xml reader.', // @translate
                 $this->filepath
             );
-            $this->getView()->logger()->err($message);
+            $this->logger->err($message);
             return null;
         }
 
@@ -106,17 +129,15 @@ class XmlMediaType extends AbstractHelper
 
         $error = libxml_get_last_error();
         if ($error) {
-            // TODO See module Next and use PsrMessage.
+            // TODO Use PsrMessage.
             $message = new \Omeka\Stdlib\Message(
-                'Error level {%1$s}, code {%2$s}, for file "{%3$s}", line {%4$s}, column {%5$s}: {%6$s}', // @translate
+                'Xml parsing error level %1$s, code %2$s, for file "%3$s", line %4$s, column %5$s: %6$s', // @translate
                 $error->level, $error->code, $error->file, $error->line, $error->column, $error->message
             );
-            $this->getView()->logger()->err($message);
+            $this->logger->err($message);
         }
 
-        $xmlMediaTypes = require_once dirname(__DIR__, 3) . '/data/media-types/media-type-identifiers.php';
-
-        return $xmlMediaTypes[$type] ?? null;
+        return $this->mediaTypesIdentifiers[$type] ?? null;
     }
 
     /**
