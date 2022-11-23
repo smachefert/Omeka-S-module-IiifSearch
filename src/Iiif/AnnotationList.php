@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020 Daniel Berthereau
+ * Copyright 2020-2022 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -68,29 +68,23 @@ class AnnotationList extends AbstractSimpleType
         parent::__construct($data);
     }
 
-    public function getContent()
+    public function getContent(): array
     {
         if (empty($this->offsetGet('@id'))) {
-            $this->offsetSet('@id', $this->getId());
+            $this->offsetSet('@id', $this->id());
         }
         if (empty($this->offsetGet('within'))) {
-            $this->offsetSet('within', $this->getWithin());
+            $this->offsetSet('within', $this->within());
         }
         return parent::getContent();
     }
 
-    /**
-     * @return string
-     */
-    public function getId()
+    public function id(): ?string
     {
         return $this->_options['requestUri'];
     }
 
-    /**
-     * @return array
-     */
-    public function getWithin()
+    public function within(): array
     {
         // TODO Implement class Within.
         return [

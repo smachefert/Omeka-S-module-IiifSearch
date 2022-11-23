@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020 Daniel Berthereau
+ * Copyright 2020-2022 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -77,13 +77,13 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         parent::__construct($input);
     }
 
-    public function initOptions(array $options)
+    public function initOptions(array $options): AbstractSimpleType
     {
         $this->_options = $options;
         return $this;
     }
 
-    public function getContent()
+    public function getContent(): array
     {
         $output = $this->getArrayCopy();
 
@@ -120,7 +120,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
      * @throws \IiifServer\Iiif\Exception\RuntimeException
      * @return bool
      */
-    public function isValid($throwException = false)
+    public function isValid(bool $throwException = false): bool
     {
         $output = $this->getContent();
 
