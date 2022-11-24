@@ -99,5 +99,5 @@ return [
             // Disabled by default for performance.
             'iiifserver_enable_utf8_fix' => false,
         ],
-    ],
+    ]
 ];

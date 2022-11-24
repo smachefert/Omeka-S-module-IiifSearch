@@ -8,6 +8,10 @@ use Laminas\Mvc\MvcEvent;
 use Laminas\ServiceManager\ServiceLocatorInterface;
 use Omeka\Module\AbstractModule;
 
+use Laminas\Mvc\Controller\AbstractController;
+use IiifSearch\Form\ConfigForm;
+use Laminas\View\Renderer\PhpRenderer;
+
 class Module extends AbstractModule
 {
     public function getConfig()
@@ -110,5 +114,61 @@ class Module extends AbstractModule
         }
 
         $event->setParam('manifest', $manifest);
+    }
+
+    /**
+     * getConfigForm
+     *
+     * @param  mixed $renderer
+     */
+    public function getConfigForm(PhpRenderer $renderer)
+    {
+        $translate = $renderer->plugin('translate');
+
+        $services = $this->getServiceLocator();
+
+        $settings = $services->get('Omeka\Settings');
+        $form = $services->get('FormElementManager')->get(ConfigForm::class);
+        $value = $settings->get("iiifsearch_minimum_query_length", 3);
+        $params = [];
+        $params["iiifsearch_minimum_query_length"] = $value;
+        $form->init();
+        $form->setData($params);
+        return $renderer->formCollection($form);
+    }
+
+    /**
+     * handleConfigForm
+     *
+     * @param  mixed $controller
+     */
+    public function handleConfigForm(AbstractController $controller)
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        $params = $controller->getRequest()->getPost();
+        $settings->set("iiifsearch_minimum_query_length", intval($params["iiifsearch_minimum_query_length"]));
+    }
+
+    /**
+     * install
+     *
+     * @param ServiceLocatorInterface $services
+     */
+    public function install(ServiceLocatorInterface $services): void
+    {
+        $settings = $services->get('Omeka\Settings');
+        $settings->set("iiifsearch_minimum_query_length", 3);
+    }
+
+    /**
+     * unistall
+     *
+     * @param ServiceLocatorInterface $services
+     */
+    public function uninstall(ServiceLocatorInterface $services): void
+    {
+        $settings = $services->get('Omeka\Settings');
+        $settings->delete("iiifsearch_minimum_query_length");
     }
 }

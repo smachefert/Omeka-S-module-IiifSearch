@@ -470,8 +470,10 @@ class IiifSearch extends AbstractHelper
      */
     protected function formatQuery($query): array
     {
+        $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length') ?? $this->minimumQueryLength;
+
         $cleanQuery = $this->alnumString($query);
-        if (mb_strlen($cleanQuery) < $this->minimumQueryLength) {
+        if (mb_strlen($cleanQuery) < $minimumQueryLength) {
             return [];
         }
 
@@ -482,7 +484,7 @@ class IiifSearch extends AbstractHelper
 
         $chars = [];
         foreach ($queryWords as $queryWord) {
-            if (mb_strlen($queryWord) >= $this->minimumQueryLength) {
+            if (mb_strlen($queryWord) >= $minimumQueryLength) {
                 $chars[] = preg_quote($queryWord, '/');
             }
         }
