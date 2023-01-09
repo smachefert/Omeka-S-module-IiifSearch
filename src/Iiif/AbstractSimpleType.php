@@ -105,7 +105,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         return array_replace(array_intersect_key($this->_keys, $output), $output);
     }
 
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         // The validity check updates the content.
         $this->isValid(true);
