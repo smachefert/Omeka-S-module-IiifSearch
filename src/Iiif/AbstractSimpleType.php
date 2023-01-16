@@ -110,7 +110,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         // The validity check updates the content.
         $this->isValid(true);
         // TODO Remove useless context from sub-objects. And other copied data (homepage, etc.).
-        return (object) $this->getContent();
+        return (array) $this->getContent();
     }
 
     /**
