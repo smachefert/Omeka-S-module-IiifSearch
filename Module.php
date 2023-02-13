@@ -27,10 +27,10 @@ class Module extends AbstractModule
         $acl->allow(null, 'IiifSearch\Controller\Search');
     }
 
-    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $serviceLocator): void
+    public function upgrade($oldVersion, $newVersion, ServiceLocatorInterface $services): void
     {
         $filepath = __DIR__ . '/data/scripts/upgrade.php';
-        $this->setServiceLocator($serviceLocator);
+        $this->setServiceLocator($services);
         require_once $filepath;
     }
 

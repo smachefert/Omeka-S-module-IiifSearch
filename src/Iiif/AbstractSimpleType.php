@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020-2022 Daniel Berthereau
+ * Copyright 2020-2023 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -105,12 +105,12 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         return array_replace(array_intersect_key($this->_keys, $output), $output);
     }
 
-    public function jsonSerialize()
+    public function jsonSerialize(): array
     {
         // The validity check updates the content.
         $this->isValid(true);
         // TODO Remove useless context from sub-objects. And other copied data (homepage, etc.).
-        return (object) $this->getContent();
+        return (array) $this->getContent();
     }
 
     /**
