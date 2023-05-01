@@ -25,7 +25,7 @@ Installation
 
 ```sh
 cd omeka-s/modules
-git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
+git clone git@github.com:symac/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
 - Enable it from Omeka admin → Modules → IiifSearch -> install
