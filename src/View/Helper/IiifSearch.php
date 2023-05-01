@@ -120,19 +120,34 @@ class IiifSearch extends AbstractHelper
      * @todo add xml validation ( pdf filename == xml filename according to Extract Ocr plugin )
      *
      * @return array|null
-     *  Return resources that match query for IIIF Search API
+     *   Return resources (the pages) and hits (the position of the words to
+     *   highlight) that match query for IIIF Search API.
+     *
+     * ```php
      * [
-     *      [
-     *          '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/ . a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
-     *          '@type' => 'oa:Annotation',
-     *          'motivation' => 'sc:painting',
+     *      'resources' => [
      *          [
-     *              '@type' => 'cnt:ContentAsText',
-     *              'chars' =>  corresponding match char list ,
-     *          ]
-     *          'on' => canvas url with coordonate for IIIF Server module,
-     *      ]
-     *      ...
+     *              '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/ . a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
+     *              '@type' => 'oa:Annotation',
+     *              'motivation' => 'sc:painting',
+     *              [
+     *                  '@type' => 'cnt:ContentAsText',
+     *                  'chars' =>  corresponding match char list ,
+     *              ],
+     *              'on' => canvas url with coordonate for IIIF Server module,
+     *          ],
+     *     ],
+     *     'hits' => [
+     *         [
+     *             '@type' => 'search:Hit',
+     *             'annotations' => [
+     *                 'https://your_domain.com/omeka-s/iiif/2/104205/annotation/search-result/a6h1r1265,1074,108,32',
+     *             ],
+     *             'match' => 'searched-word',
+     *         ],
+     *     ],
+     * ]
+     * ```
      */
     protected function searchFulltext(string $query): ?array
     {
@@ -148,9 +163,7 @@ class IiifSearch extends AbstractHelper
         $xml = $this->loadXml();
         if (empty($xml)) {
             return null;
-        }
-
-        if ($this->mediaType === 'application/alto+xml') {
+        } elseif ($this->mediaType === 'application/alto+xml') {
             return $this->searchFullTextAlto($xml, $queryWords);
         } elseif ($this->mediaType === 'application/vnd.pdf2xml+xml') {
             return $this->searchFullTextPdfXml($xml, $queryWords);
@@ -201,6 +214,7 @@ class IiifSearch extends AbstractHelper
                 }
                 // TODO The measure may not be pixel, but mm or inch. This may be managed by viewer.
                 // TODO Check why casting to string is needed.
+                $page = [];
                 // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
                 $page['number'] = (string) ($index + 1);
                 $page['width'] = (string) @$attributes->WIDTH;
@@ -312,6 +326,7 @@ class IiifSearch extends AbstractHelper
             foreach ($xml->page as $xmlPage) {
                 ++$index;
                 $attributes = $xmlPage->attributes();
+                $page = [];
                 $page['number'] = (string) @$attributes->number;
                 $page['width'] = (string) @$attributes->width;
                 $page['height'] = (string) @$attributes->height;
@@ -399,7 +414,7 @@ class IiifSearch extends AbstractHelper
      * There may be one xml by page.
      * There may be missing alto to some images.
      * There may be only xml files in the items.
-     * Alto allows one xml by page o rone xml for all pages too.
+     * Alto allows one xml by page or one xml for all pages too.
      *
      * So get the exact list matching images (if any) to avoid bad page indexes.
      *
@@ -417,7 +432,7 @@ class IiifSearch extends AbstractHelper
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise enough and is skipped.', // @translate
-                        $this->mediaType, $media->id()
+                        $mediaType, $media->id()
                     ));
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
@@ -470,7 +485,8 @@ class IiifSearch extends AbstractHelper
      */
     protected function formatQuery($query): array
     {
-        $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length') ?? $this->minimumQueryLength;
+        $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length')
+            ?: $this->minimumQueryLength;
 
         $cleanQuery = $this->alnumString($query);
         if (mb_strlen($cleanQuery) < $minimumQueryLength) {
