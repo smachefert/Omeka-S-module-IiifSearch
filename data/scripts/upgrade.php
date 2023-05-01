@@ -48,3 +48,16 @@ if (version_compare($oldVersion, '3.3.3', '<')) {
     $message->setEscapeHtml(false);
     $messenger->addWarning($message);
 }
+
+if (version_compare($oldVersion, '3.4.4', '<')) {
+    $settings->set('iiifsearch_disable_search_media_values', false);
+    $settings->set('iiifsearch_xml_fix_mode', 'no');
+    $message = new Message(
+        'A new option allows to include media metadata in search, not only full text.' // @translate
+    );
+    $messenger->addSuccess($message);
+    $message = new Message(
+        'A new option allows to fix bad xml and invalid utf-8 characters.' // @translate
+    );
+    $messenger->addSuccess($message);
+}
