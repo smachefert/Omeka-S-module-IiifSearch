@@ -124,7 +124,7 @@ class IiifSearch extends AbstractHelper
         $result = $this->searchFulltext($query);
 
         if ($this->searchMediaValues) {
-            $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0);
+            $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
             $result = $result === null && $resultValues === null
                 ? null
                 : array_merge($result ?? [], $resultValues ?? []);
@@ -172,6 +172,7 @@ class IiifSearch extends AbstractHelper
      *             'match' => 'searched-word',
      *         ],
      *     ],
+     *     'media_ids' => [1],
      *     'hit' => 1,
      * ]
      * ```
@@ -204,6 +205,7 @@ class IiifSearch extends AbstractHelper
         $result = [
             'resources' => [],
             'hits' => [],
+            'media_ids' => [],
             'hit' => 0,
         ];
 
@@ -299,6 +301,7 @@ class IiifSearch extends AbstractHelper
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+                            $result['media_ids'][] = $image['id'];
 
                             $hits[] = $searchResult->id();
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
@@ -334,6 +337,7 @@ class IiifSearch extends AbstractHelper
         $result = [
             'resources' => [],
             'hits' => [],
+            'media_ids' => [],
             'hit' => 0,
         ];
 
@@ -410,6 +414,7 @@ class IiifSearch extends AbstractHelper
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+                            $result['media_ids'][] = $image['id'];
 
                             $hits[] = $searchResult->id();
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
@@ -469,7 +474,7 @@ class IiifSearch extends AbstractHelper
      * ]
      * ```
      */
-    protected function searchMediaValues(string $query, int $hit): ?array
+    protected function searchMediaValues(string $query, int $hit, array $iiifMediaIds = []): ?array
     {
         if (!strlen($query)) {
             return null;
@@ -508,7 +513,7 @@ class IiifSearch extends AbstractHelper
         $chars = '';
         // TODO Remove files that are not images in result.
         $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
-        foreach ($mediaIds as $id) {
+        foreach (array_diff($mediaIds, $iiifMediaIds) as $id) {
             // Skip files that are not images.
             if (!isset($imageIndexById[$id])) {
                 continue;
