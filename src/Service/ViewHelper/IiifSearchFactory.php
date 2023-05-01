@@ -13,16 +13,16 @@ class IiifSearchFactory
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
         $plugins = $services->get('ControllerPluginManager');
         $helpers = $services->get('ViewHelperManager');
+        $settings = $services->get('Omeka\Settings');
 
         return new IiifSearch(
             $services->get('Omeka\Logger'),
             $services->get('Omeka\ApiManager'),
-            empty($config['iiifserver']['config']['iiifserver_enable_utf8_fix'])
-                ? null
-                : $helpers->get('fixUtf8'),
+            $helpers->get('fixUtf8'),
             $plugins->has('imageSize') ? $plugins->get('imageSize') : null,
             $basePath,
-            !$services->get('Omeka\Settings')->get('iiifsearch_disable_search_media_values')
+            !$settings->get('iiifsearch_disable_search_media_values'),
+            $settings->get('iiifsearch_xml_fix_mode', 'no')
         );
     }
 }

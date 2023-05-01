@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use DOMDocument;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
@@ -61,6 +62,11 @@ class IiifSearch extends AbstractHelper
     protected $searchMediaValues;
 
     /**
+     * @var string
+     */
+    protected $xmlFixMode;
+
+    /**
      * @var ItemRepresentation
      */
     protected $item;
@@ -88,10 +94,11 @@ class IiifSearch extends AbstractHelper
     public function __construct(
         Logger $logger,
         ApiManager $api,
-        ?FixUtf8 $fixUtf8,
+        FixUtf8 $fixUtf8,
         ?ImageSize $imageSize,
         string $basePath,
-        bool $searchMediaValues
+        bool $searchMediaValues,
+        string $xmlFixMode
     ) {
         $this->logger = $logger;
         $this->api = $api;
@@ -99,6 +106,7 @@ class IiifSearch extends AbstractHelper
         $this->imageSize = $imageSize;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
+        $this->xmlFixMode = $xmlFixMode;
     }
 
     /**
@@ -566,9 +574,10 @@ class IiifSearch extends AbstractHelper
                 $this->xmlFiles[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
-                    sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise enough and is skipped.', // @translate
-                        $mediaType, $media->id()
-                    ));
+                    sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
+                        $mediaType, $media->id(), $media->originalUrl()
+                ));
+                $this->xmlFiles[] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
@@ -652,9 +661,9 @@ class IiifSearch extends AbstractHelper
         return $chars;
     }
 
-
-
     /**
+     * @see \IiifServer\Iiif\TraitXml::loadXml()
+     *
      * @todo The format pdf2xml can be replaced by an alto multi-pages, even if the format is quicker for search, but less precise for positions.
      */
     protected function loadXml(): ?SimpleXMLElement
@@ -666,41 +675,83 @@ class IiifSearch extends AbstractHelper
             return $this->mergeXmlAlto();
         }
 
+        // Get local file if any, else url (there is only one file here).
         $filepath = ($filename = $this->firstXmlFile->filename())
             ? $this->basePath . '/original/' . $filename
             : $this->firstXmlFile->originalUrl();
 
+        $isPdf2Xml = $this->mediaType === 'application/vnd.pdf2xml+xml';
+
+        return $this->loadXmlFromFilepath($filepath, $isPdf2Xml);
+    }
+
+    protected function loadXmlFromFilepath(string $filepath, bool $isPdf2Xml = false): ?SimpleXMLElement
+    {
         $xmlContent = file_get_contents($filepath);
 
-        if ($this->fixUtf8) {
-            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-        }
-
-        if (!$xmlContent) {
+        try {
+            if ($this->xmlFixMode === 'dom') {
+                if ($isPdf2Xml) {
+                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
+                }
+                $xmlContent = $this->fixXmlDom($xmlContent);
+            } elseif ($this->xmlFixMode === 'regex') {
+                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+                if ($isPdf2Xml) {
+                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
+                }
+                $currentXml = @simplexml_load_string($xmlContent);
+            } elseif ($this->xmlFixMode === 'all') {
+                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+                if ($isPdf2Xml) {
+                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
+                }
+                $currentXml = $this->fixXmlDom($xmlContent);
+            } else {
+                if ($isPdf2Xml) {
+                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
+                }
+                $currentXml = @simplexml_load_string($xmlContent);
+            }
+        } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: XML content seems empty for media #%d!', // @translate
+                'Error: XML content is incorrect for media #%d.', // @translate
                 $this->firstXmlFile->id()
             ));
             return null;
         }
 
-        // Manage an exception.
-        if ($this->mediaType === 'application/vnd.pdf2xml+xml') {
-            $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
-            $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
-            $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
-            $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
-        }
-
-        $xmlContent = simplexml_load_string($xmlContent);
-        if (!$xmlContent) {
+        if (!$currentXml) {
             $this->logger->err(sprintf(
-                'Error: Cannot get XML content from media #%d!', // @translate
+                'Error: XML content seems empty for media #%d.', // @translate
                 $this->firstXmlFile->id()
             ));
             return null;
         }
 
+        return $currentXml;
+    }
+
+    protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
+    {
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument('1.1', 'UTF-8');
+        $dom->strictErrorChecking = false;
+        $dom->validateOnParse = false;
+        $dom->recover = true;
+        $dom->loadXML($xmlContent);
+        $currentXml = simplexml_import_dom($dom);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        return $currentXml;
+    }
+
+    protected function fixXmlPdf2Xml(string $xmlContent): string
+    {
+        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
+        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
+        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+        $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
         return $xmlContent;
     }
 
@@ -733,18 +784,15 @@ class IiifSearch extends AbstractHelper
 
         $first = true;
         foreach ($this->xmlFiles as $xmlFileMedia) {
+            // Get local file if any, else url.
             $filepath = ($filename = $xmlFileMedia->filename())
                 ? $this->basePath . '/original/' . $filename
                 : $xmlFileMedia->originalUrl();
-            $xmlContent = file_get_contents($filepath);
-            if ($this->fixUtf8) {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-            }
 
-            $currentXml = @simplexml_load_string($xmlContent);
+            $currentXml = $this->loadXmlFromFilepath($filepath, false);
             if (!$currentXml) {
                 $this->logger->err(sprintf(
-                    'Error: Cannot get XML content from media #%d!', // @translate
+                    'Error: Cannot get XML content from media #%d.', // @translate
                     $xmlFileMedia->id()
                 ));
                 if (!$alto) {

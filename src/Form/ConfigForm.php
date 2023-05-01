@@ -37,6 +37,32 @@ class ConfigForm extends Form
                 'attributes' => [
                     'id' => 'iiifsearch_disable_search_media_values',
                 ],
+            ])
+
+            // The option is the same in module IIIF Server.
+            ->add([
+                'name' => 'iiifsearch_xml_fix_mode',
+                'type' => Element\Radio::class,
+                'options' => [
+                    'label' => 'Fix bad xml and invalid utf-8 characters', // @translate
+                    'value_options' => [
+                        'no' => 'No', // @translate
+                        'dom' => 'Via DOM (quick)', // @translate
+                        'regex' => 'Via regex (slow)', // @translate
+                        'all' => 'All', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_xml_fix_mode',
+                    'value' => 'no',
+                ],
+            ]);
+
+        $inputFilter = $this->getInputFilter();
+        $inputFilter
+            ->add([
+                'name' => 'iiifsearch_xml_fix_mode',
+                'required' => false,
             ]);
     }
 }
