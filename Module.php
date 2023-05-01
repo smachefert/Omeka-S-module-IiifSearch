@@ -130,6 +130,7 @@ class Module extends AbstractModule
         $form = $services->get('FormElementManager')->get(ConfigForm::class);
         $params = [];
         $params['iiifsearch_minimum_query_length'] = $settings->get('iiifsearch_minimum_query_length', 3);
+        $params['iiifsearch_xml_image_match'] = $settings->get('iiifsearch_xml_image_match', 'order');
         $params['iiifsearch_xml_fix_mode'] = $settings->get('iiifsearch_xml_fix_mode', 'no');
         $form->init();
         $form->setData($params);
@@ -147,6 +148,7 @@ class Module extends AbstractModule
         $settings = $services->get('Omeka\Settings');
         $params = $controller->getRequest()->getPost();
         $settings->set('iiifsearch_minimum_query_length', intval($params['iiifsearch_minimum_query_length']));
+        $settings->set('iiifsearch_xml_image_match', $params['iiifsearch_xml_image_match']);
         $settings->set('iiifsearch_xml_fix_mode', $params['iiifsearch_xml_fix_mode']);
     }
 

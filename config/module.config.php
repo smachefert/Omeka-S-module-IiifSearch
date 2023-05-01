@@ -100,6 +100,7 @@ return [
         'config' => [
             'iiifsearch_minimum_query_length' => 3,
             'iiifsearch_disable_search_media_values' => false,
+            'iiifsearch_xml_image_match' => 'order',
             'iiifsearch_xml_fix_mode' => 'no',
         ],
     ],

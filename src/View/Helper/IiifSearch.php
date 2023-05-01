@@ -64,6 +64,11 @@ class IiifSearch extends AbstractHelper
     /**
      * @var string
      */
+    protected $xmlImageMatch;
+
+    /**
+     * @var string
+     */
     protected $xmlFixMode;
 
     /**
@@ -98,6 +103,7 @@ class IiifSearch extends AbstractHelper
         ?ImageSize $imageSize,
         string $basePath,
         bool $searchMediaValues,
+        string $xmlImageMatch,
         string $xmlFixMode
     ) {
         $this->logger = $logger;
@@ -106,6 +112,7 @@ class IiifSearch extends AbstractHelper
         $this->imageSize = $imageSize;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
+        $this->xmlImageMatch = $xmlImageMatch;
         $this->xmlFixMode = $xmlFixMode;
     }
 
@@ -563,11 +570,34 @@ class IiifSearch extends AbstractHelper
      *
      * The logic is managed by the module Iiif server if available: it manages
      * the same process for the text overlay.
+     *
+     * An option allows to force the matching of files (order or filename).
      */
     protected function prepareSearch(): bool
     {
         $this->xmlFiles = [];
         $this->imageSizes = [];
+
+        $this->prepareSearchOrder();
+
+        $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
+
+        $result = $this->firstXmlFile
+            && count($this->imageSizes);
+
+        if (!$result) {
+            return false;
+        }
+
+        if ($this->xmlImageMatch === 'basename') {
+            $this->prepareSearchBasename();
+        }
+
+        return true;
+    }
+
+    protected function prepareSearchOrder(): self
+    {
         foreach ($this->item->media() as $media) {
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
@@ -587,6 +617,7 @@ class IiifSearch extends AbstractHelper
                         'id' => $media->id(),
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
+                        'source' => $media->source(),
                     ];
                 }
                 // Info stored by Iiif Server.
@@ -595,21 +626,47 @@ class IiifSearch extends AbstractHelper
                         'id' => $media->id(),
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
+                        'source' => $media->source(),
                     ];
                 } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
                     $size = ['id' => $media->id()];
                     $size += $this->imageSize
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
+                    $size['source'] = $media->source();
                     $this->imageSizes[] = $size;
                 }
             }
         }
 
+        return $this;
+    }
+
+    /**
+     * Reorder files according to source basename.
+     */
+    protected function prepareSearchBasename(): self
+    {
+        $result = [];
+
+        $xmls = [];
+        foreach ($this->xmlFiles as $index => $media) {
+            $xmls[$index] = pathinfo($media->source(), PATHINFO_FILENAME);
+        }
+
+        foreach ($this->imageSizes as $index => $sizeData) {
+            $basename = pathinfo($sizeData['source'], PATHINFO_FILENAME);
+            $xmlIndex = array_search($basename, $xmls);
+            $result[$index] = $xmlIndex === false
+                ? null
+                : $this->xmlFiles[$xmlIndex];
+        }
+
+        $this->xmlFiles = $result;
+
         $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
 
-        return $this->firstXmlFile
-            && count($this->imageSizes);
+        return $this;
     }
 
     protected function imageSizeLocal(MediaRepresentation $media): array

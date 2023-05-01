@@ -22,6 +22,7 @@ class IiifSearchFactory
             $plugins->has('imageSize') ? $plugins->get('imageSize') : null,
             $basePath,
             !$settings->get('iiifsearch_disable_search_media_values'),
+            $settings->get('iiifsearch_xml_image_match', 'order'),
             $settings->get('iiifsearch_xml_fix_mode', 'no')
         );
     }
