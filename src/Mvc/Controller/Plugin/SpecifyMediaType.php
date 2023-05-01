@@ -44,7 +44,10 @@ class SpecifyMediaType extends AbstractPlugin
         $this->mediaTypesIdentifiers = $mediaTypesIdentifiers;
     }
 
-    public function __invoke(string $filepath, ?string $mediaType = null): ?string
+    /**
+     * @var ?string|bool $mediaType may be a bool due to a bug in core when the file is missing and FileTemp returns false as mediaType.
+     */
+    public function __invoke(string $filepath, $mediaType = null): ?string
     {
         $this->filepath = $filepath;
 
