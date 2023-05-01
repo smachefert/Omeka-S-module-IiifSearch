@@ -8,6 +8,7 @@ use IiifSearch\Iiif\SearchHit;
 use IiifServer\Mvc\Controller\Plugin\ImageSize;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
+use Omeka\Api\Manager as ApiManager;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
 use SimpleXMLElement;
@@ -33,6 +34,11 @@ class IiifSearch extends AbstractHelper
     protected $logger;
 
     /**
+     * @var \Omeka\Api\Manager
+     */
+    protected $api;
+
+    /**
      * @var \IiifServer\Mvc\Controller\Plugin\FixUtf8
      */
     protected $fixUtf8;
@@ -48,6 +54,11 @@ class IiifSearch extends AbstractHelper
      * @var string
      */
     protected $basePath;
+
+    /**
+     * @var bool
+     */
+    protected $searchMediaValues;
 
     /**
      * @var ItemRepresentation
@@ -74,12 +85,20 @@ class IiifSearch extends AbstractHelper
      */
     protected $imageSizes;
 
-    public function __construct(Logger $logger, ?FixUtf8 $fixUtf8, ?ImageSize $imageSize, $basePath)
-    {
+    public function __construct(
+        Logger $logger,
+        ApiManager $api,
+        ?FixUtf8 $fixUtf8,
+        ?ImageSize $imageSize,
+        string $basePath,
+        bool $searchMediaValues
+    ) {
         $this->logger = $logger;
+        $this->api = $api;
         $this->fixUtf8 = $fixUtf8;
         $this->imageSize = $imageSize;
         $this->basePath = $basePath;
+        $this->searchMediaValues = $searchMediaValues;
     }
 
     /**
@@ -103,6 +122,13 @@ class IiifSearch extends AbstractHelper
         $query = (string) $view->params()->fromQuery('q');
 
         $result = $this->searchFulltext($query);
+
+        if ($this->searchMediaValues) {
+            $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0);
+            $result = $result === null && $resultValues === null
+                ? null
+                : array_merge($result ?? [], $resultValues ?? []);
+        }
 
         $response = new AnnotationList;
         $response->initOptions(['requestUri' => $view->serverUrl(true)]);
@@ -146,6 +172,7 @@ class IiifSearch extends AbstractHelper
      *             'match' => 'searched-word',
      *         ],
      *     ],
+     *     'hit' => 1,
      * ]
      * ```
      */
@@ -177,6 +204,7 @@ class IiifSearch extends AbstractHelper
         $result = [
             'resources' => [],
             'hits' => [],
+            'hit' => 0,
         ];
 
         // A search result is an annotation on the canvas of the original item,
@@ -296,6 +324,8 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        $result['hit'] = $hit;
+
         return $result;
     }
 
@@ -304,6 +334,7 @@ class IiifSearch extends AbstractHelper
         $result = [
             'resources' => [],
             'hits' => [],
+            'hit' => 0,
         ];
 
         // A search result is an annotation on the canvas of the original item,
@@ -404,6 +435,105 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        $result['hit'] = $hit;
+
+        return $result;
+    }
+
+
+    /**
+     * Returns answers to a query on metadata.
+     *
+     * Media already returned with full text are not returned.
+     *
+     *@see self::searchFulltext()
+     *
+     * @return array|null
+     *   Return resources (the pages) that match query for IIIF Search API.
+     *
+     * ```php
+     * [
+     *      'resources' => [
+     *          [
+     *              '@id' => 'https://your_domain.com/omeka-s/iiif-search/itemID/searchResults/ . a . numCanvas . h . numresult. r .  xCoord , yCoord, wCoord , hCoord ',
+     *              '@type' => 'oa:Annotation',
+     *              'motivation' => 'sc:painting',
+     *              [
+     *                  '@type' => 'cnt:ContentAsText',
+     *                  'chars' =>  corresponding match char list ,
+     *              ],
+     *              'on' => canvas url with coordonate for IIIF Server module,
+     *          ],
+     *     ],
+     *     'hit' => 2,
+     * ]
+     * ```
+     */
+    protected function searchMediaValues(string $query, int $hit): ?array
+    {
+        if (!strlen($query)) {
+            return null;
+        }
+
+        // A search result is an annotation on the canvas of the original item,
+        // so an url managed by the iiif server.
+        $iiifUrl = $this->getView()->plugin('iiifUrl');
+        $baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ]) . '/';
+
+        $baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'canvas',
+        ]) . '/p';
+
+        $resource = $this->item;
+
+        $imageSizesById = [];
+        foreach ($this->imageSizes as $index => $imageData) {
+            $imageData['index'] = $index;
+            $imageSizesById[$imageData['id']] = $imageData;
+        }
+        $imageIndexById = array_column($imageSizesById, 'index', 'id');
+
+        // Only media is needed.
+        $mediaQuery = [
+            'item_id' => $this->item->id(),
+            'fulltext_search' => $query,
+            // Position is not supported before v4.1.
+            'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
+            'sort_order' => 'asc',
+        ];
+        $result = [];
+        $chars = '';
+        // TODO Remove files that are not images in result.
+        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+        foreach ($mediaIds as $id) {
+            // Skip files that are not images.
+            if (!isset($imageIndexById[$id])) {
+                continue;
+            }
+            ++$hit;
+            $image = $imageSizesById[$id];
+            $zone = [
+                'text' => '',
+                'top' => 0,
+                'left' => 0,
+                'width' => $image['width'],
+                'height' => $image['height'],
+            ];
+            $page = [
+                'number' => $imageIndexById[$id] + 1,
+                'width' => $image['width'],
+                'height' => $image['height'],
+            ];
+            $searchResult = new AnnotationSearchResult;
+            $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+            $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+        }
+
+        $result['hit'] = $hit;
+
         return $result;
     }
 
@@ -440,17 +570,24 @@ class IiifSearch extends AbstractHelper
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
                     $this->imageSizes[] = [
+                        'id' => $media->id(),
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
                     ];
                 }
                 // Info stored by Iiif Server.
                 elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $this->imageSizes[] = $mediaData['dimensions']['original'];
+                    $this->imageSizes[] = [
+                        'id' => $media->id(),
+                        'width' => $mediaData['dimensions']['original']['width'],
+                        'height' => $mediaData['dimensions']['original']['height'],
+                    ];
                 } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
-                    $this->imageSizes[] = $this->imageSize
+                    $size = ['id' => $media->id()];
+                    $size += $this->imageSize
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
+                    $this->imageSizes[] = $size;
                 }
             }
         }

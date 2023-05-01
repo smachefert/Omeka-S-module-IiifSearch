@@ -98,6 +98,12 @@ return [
             ],
         ],
     ],
+    'iiifsearch' => [
+        'config' => [
+            'iiifsearch_minimum_query_length' => 3,
+            'iiifsearch_skip_search_media_values' => false,
+        ],
+    ],
     'iiifserver' => [
         'config' => [
             // This parameter may be overridden in your local config.
