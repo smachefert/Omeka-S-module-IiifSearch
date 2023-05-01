@@ -23,6 +23,11 @@ return [
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
         ],
     ],
+    'form_elements' => [
+        'invokables' => [
+            Form\ConfigForm::class => Form\ConfigForm::class,
+        ],
+    ],
     'controllers' => [
         'invokables' => [
             'IiifSearch\Controller\Search' => Controller\SearchController::class,
