@@ -147,12 +147,18 @@ class AnnotationSearchResult extends AbstractSimpleType
         $scaleX = $this->_result['image']['width'] / $this->_result['page']['width'];
         $scaleY = $this->_result['image']['height'] / $this->_result['page']['height'];
 
-        $x = $this->_result['zone']['left'] + mb_stripos($this->_result['zone']['text'], $this->_result['chars'])
+        if (strlen($this->_result['chars'])) {
+            $x = $this->_result['zone']['left'] + mb_stripos($this->_result['zone']['text'], $this->_result['chars'])
             / mb_strlen($this->_result['zone']['text']) * $this->_result['zone']['width'];
-        $y = $this->_result['zone']['top'];
-
-        $w = round($this->_result['zone']['width'] * ((mb_strlen($this->_result['chars']) + 1) / mb_strlen($this->_result['zone']['text']))) ;
-        $h = $this->_result['zone']['height'];
+            $y = $this->_result['zone']['top'];
+            $w = round($this->_result['zone']['width'] * ((mb_strlen($this->_result['chars']) + 1) / mb_strlen($this->_result['zone']['text']))) ;
+            $h = $this->_result['zone']['height'];
+        } else {
+            $x = $this->_result['zone']['left'];
+            $y = $this->_result['zone']['top'];
+            $w = $this->_result['zone']['width'];;
+            $h = $this->_result['zone']['height'];
+        }
 
         $this->_box['x'] = round($x * $scaleX);
         $this->_box['y'] = round($y * $scaleY);

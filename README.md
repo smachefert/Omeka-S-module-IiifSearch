@@ -25,7 +25,7 @@ Installation
 
 ```sh
 cd omeka-s/modules
-git clone git@github.com:bubdxm/Omeka-S-module-IiifSearch.git "IiifSearch"
+git clone git@github.com:symac/Omeka-S-module-IiifSearch.git "IiifSearch"
 ```
 
 - Enable it from Omeka admin → Modules → IiifSearch -> install
@@ -70,6 +70,7 @@ TODO
 
 - [ ] Auto complete.
 - [ ] Store data (word positions) as media data or item data or in a specific table or in Solr to speed up queries, in particular when alto are many.
+- [ ] Fix utf8 issues with dom.
 
 
 Troubleshooting

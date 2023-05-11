@@ -2,10 +2,22 @@
 
 namespace IiifSearch\View\Helper;
 
+use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 
 class FixUtf8 extends AbstractHelper
 {
+    /**
+     * @var \Laminas\Log\Logger
+     */
+    protected $logger;
+
+    public function __construct(
+        Logger $logger
+    ) {
+        $this->logger = $logger;
+    }
+
     /**
      * Some utf-8 files, generally edited under Windows, should be cleaned.
      *
@@ -25,11 +37,16 @@ class FixUtf8 extends AbstractHelper
      * generallly free (libre).
      *
      * @see https://stackoverflow.com/questions/1401317/remove-non-utf8-characters-from-string#1401716
+     *
+     * Helper available in:
+     * @see \EasyAdmin\Mvc\Controller\Plugin\SpecifyMediaType::fixUtf8()
+     * @see \IiifServer\Mvc\Controller\Plugin\FixUtf8
+     * @see \IiifSearch\View\Helper\FixUtf8
      */
     public function __invoke($string): string
     {
         $string = (string) $string;
-        if (!$string) {
+        if (!strlen($string)) {
             return $string;
         }
 
@@ -66,7 +83,7 @@ REGEX;
         $count = 0;
         $result = preg_replace_callback($regex, $utf8replacer, $string, -1, $count);
         if ($count && $string !== $result) {
-            $this->getView()->get('logger')->warn(sprintf(
+            $this->logger->warn(sprintf(
                 'Warning: some files contain invalid unicode characters and cannot be searched quickly.' // @translate
             ));
         }

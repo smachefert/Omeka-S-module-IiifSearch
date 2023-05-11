@@ -83,6 +83,7 @@ class Module extends AbstractModule
         $manifest = $event->getParam('manifest');
 
         // Manage last or recent version of module Iiif Server.
+        // TODO Why profile is /0/?
         $isVersion2 = !is_object($manifest);
         if ($isVersion2) {
             $manifest['service'][] = [
@@ -123,15 +124,14 @@ class Module extends AbstractModule
      */
     public function getConfigForm(PhpRenderer $renderer)
     {
-        $translate = $renderer->plugin('translate');
-
         $services = $this->getServiceLocator();
 
         $settings = $services->get('Omeka\Settings');
         $form = $services->get('FormElementManager')->get(ConfigForm::class);
-        $value = $settings->get("iiifsearch_minimum_query_length", 3);
         $params = [];
-        $params["iiifsearch_minimum_query_length"] = $value;
+        $params['iiifsearch_minimum_query_length'] = $settings->get('iiifsearch_minimum_query_length', 3);
+        $params['iiifsearch_xml_image_match'] = $settings->get('iiifsearch_xml_image_match', 'order');
+        $params['iiifsearch_xml_fix_mode'] = $settings->get('iiifsearch_xml_fix_mode', 'no');
         $form->init();
         $form->setData($params);
         return $renderer->formCollection($form);
@@ -147,7 +147,9 @@ class Module extends AbstractModule
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
         $params = $controller->getRequest()->getPost();
-        $settings->set("iiifsearch_minimum_query_length", intval($params["iiifsearch_minimum_query_length"]));
+        $settings->set('iiifsearch_minimum_query_length', intval($params['iiifsearch_minimum_query_length']));
+        $settings->set('iiifsearch_xml_image_match', $params['iiifsearch_xml_image_match']);
+        $settings->set('iiifsearch_xml_fix_mode', $params['iiifsearch_xml_fix_mode']);
     }
 
     /**

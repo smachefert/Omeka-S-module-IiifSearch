@@ -16,11 +16,14 @@ return [
         ],
     ],
     'view_helpers' => [
-        'invokables' => [
-            'fixUtf8' => View\Helper\FixUtf8::class,
-        ],
         'factories' => [
+            'fixUtf8' => Service\ViewHelper\FixUtf8Factory::class,
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
+        ],
+    ],
+    'form_elements' => [
+        'invokables' => [
+            Form\ConfigForm::class => Form\ConfigForm::class,
         ],
     ],
     'controllers' => [
@@ -93,11 +96,12 @@ return [
             ],
         ],
     ],
-    'iiifserver' => [
+    'iiifsearch' => [
         'config' => [
-            // This parameter may be overridden in your local config.
-            // Disabled by default for performance.
-            'iiifserver_enable_utf8_fix' => false,
+            'iiifsearch_minimum_query_length' => 3,
+            'iiifsearch_disable_search_media_values' => false,
+            'iiifsearch_xml_image_match' => 'order',
+            'iiifsearch_xml_fix_mode' => 'no',
         ],
-    ]
+    ],
 ];
