@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use DerivativeMedia\View\Helper\HasDerivative;
 use DOMDocument;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
@@ -53,6 +54,11 @@ class IiifSearch extends AbstractHelper
      * @var \IiifServer\Mvc\Controller\Plugin\ImageSize
      */
     protected $imageSize;
+
+    /**
+     * @var \DerivativeMedia\View\Helper\HasDerivative
+     */
+    protected $hasDerivative;
 
     /**
      * Full path to the files.
@@ -107,6 +113,7 @@ class IiifSearch extends AbstractHelper
         FixUtf8 $fixUtf8,
         XmlAltoSingle $xmlAltoSingle,
         ?ImageSize $imageSize,
+        ?HasDerivative $hasDerivative,
         string $basePath,
         bool $searchMediaValues,
         string $xmlImageMatch,
@@ -117,6 +124,7 @@ class IiifSearch extends AbstractHelper
         $this->fixUtf8 = $fixUtf8;
         $this->xmlAltoSingle = $xmlAltoSingle;
         $this->imageSize = $imageSize;
+        $this->hasDerivative = $hasDerivative;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
         $this->xmlImageMatch = $xmlImageMatch;
@@ -735,7 +743,27 @@ class IiifSearch extends AbstractHelper
         // The media type is already checked.
         $this->mediaType = $this->firstXmlFile->mediaType();
 
+        $toCache = false;
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
+            // Check if the file is cached via module DerivativeMedia.
+            if ($this->hasDerivative) {
+                $derivative = $this->hasDerivative->__invoke($this->item, 'alto');
+                if ($derivative) {
+                    $filepath = $this->basePath . '/' . $derivative['alto']['file'];
+                    if ($derivative['alto']['ready']) {
+                        $xml = @simplexml_load_file($filepath);
+                        if ($xml) {
+                            return $xml;
+                        }
+                        $toCache = true;
+                    }
+                    if (!$derivative['alto']['in_progress']) {
+                        $toCache = true;
+                    }
+                }
+                // Else derivative is not enabled in module DerivativeMedia.
+            }
+
             // For compatibility, the process require all filepath and media id.
             // Files are already checked.
             $mediaData = [];
@@ -757,7 +785,18 @@ class IiifSearch extends AbstractHelper
                     'size' => $media->size(),
                 ];
             }
-            return $this->xmlAltoSingle->__invoke($this->item, null, $mediaData);
+
+            $xml = $this->xmlAltoSingle->__invoke($this->item, null, $mediaData);
+
+            if ($xml && $toCache) {
+                // Ensure dirpath. Don't keep issue, it's only cache.
+                if (!file_exists(dirname($filepath))) {
+                    @mkdir(dirname($filepath), 0775, true);
+                }
+                @$xml->asXML($filepath);
+            }
+
+            return $xml;
         }
 
         // Get local file if any, else url (there is only one file here).
