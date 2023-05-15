@@ -45,6 +45,11 @@ class IiifSearch extends AbstractHelper
     protected $fixUtf8;
 
     /**
+     * @var \IiifSearch\View\Helper\XmlAltoSingle
+     */
+    protected $xmlAltoSingle;
+
+    /**
      * @var \IiifServer\Mvc\Controller\Plugin\ImageSize
      */
     protected $imageSize;
@@ -100,6 +105,7 @@ class IiifSearch extends AbstractHelper
         Logger $logger,
         ApiManager $api,
         FixUtf8 $fixUtf8,
+        XmlAltoSingle $xmlAltoSingle,
         ?ImageSize $imageSize,
         string $basePath,
         bool $searchMediaValues,
@@ -109,6 +115,7 @@ class IiifSearch extends AbstractHelper
         $this->logger = $logger;
         $this->api = $api;
         $this->fixUtf8 = $fixUtf8;
+        $this->xmlAltoSingle = $xmlAltoSingle;
         $this->imageSize = $imageSize;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
@@ -729,7 +736,28 @@ class IiifSearch extends AbstractHelper
         $this->mediaType = $this->firstXmlFile->mediaType();
 
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
-            return $this->mergeXmlAlto();
+            // For compatibility, the process require all filepath and media id.
+            // Files are already checked.
+            $mediaData = [];
+            foreach ($this->xmlFiles as $media) {
+                $mediaId = $media->id();
+                $filename = $media->filename();
+                $filepath = $this->basePath . '/original/' . $filename;
+                $mediaType = $media->mediaType();
+                $mainType = strtok($mediaType, '/');
+                $extension = $media->extension();
+                $mediaData[$mediaId] = [
+                    'id' => $mediaId,
+                    'source' => $media->source(),
+                    'filename' => $filename,
+                    'filepath' => $filepath,
+                    'mediatype' => $mediaType,
+                    'maintype' => $mainType,
+                    'extension' => $extension,
+                    'size' => $media->size(),
+                ];
+            }
+            return $this->xmlAltoSingle->__invoke($this->item, null, $mediaData);
         }
 
         // Get local file if any, else url (there is only one file here).
@@ -810,82 +838,6 @@ class IiifSearch extends AbstractHelper
         $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
         $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
         return $xmlContent;
-    }
-
-    /**
-     * @todo Cache the merged alto files.
-     *
-     * @todo Use the alto page indexes if available (but generally via mets).
-     */
-    protected function mergeXmlAlto(): ?SimpleXMLElement
-    {
-        // Only alto is managed currently.
-        if ($this->mediaType !== 'application/alto+xml') {
-            return null;
-        }
-
-        // Merge all alto files into one.
-        // This is a search engine with positions for strings, so only the
-        // layout is needed. Get metadata from first file.
-
-        /**
-         * DOM is used because SimpleXml cannot add xml nodes (only strings).
-         *
-         * @var \SimpleXMLElement $alto
-         * @var \SimpleXMLElement $altoLayout
-         * @var \DOMElement $altoLayoutDom
-         */
-        $alto = null;
-        $altoLayout = null;
-        $altoLayoutDom = null;
-
-        $first = true;
-        foreach ($this->xmlFiles as $xmlFileMedia) {
-            // Get local file if any, else url.
-            $filepath = ($filename = $xmlFileMedia->filename())
-                ? $this->basePath . '/original/' . $filename
-                : $xmlFileMedia->originalUrl();
-
-            $currentXml = $this->loadXmlFromFilepath($filepath, false);
-            if (!$currentXml) {
-                $this->logger->err(sprintf(
-                    'Error: Cannot get XML content from media #%d.', // @translate
-                    $xmlFileMedia->id()
-                ));
-                if (!$alto) {
-                    return null;
-                }
-                // Insert an empty page to keep page indexes.
-                $altoLayout->addChild('Page');
-                continue;
-            }
-
-            if ($first) {
-                $first = false;
-                $alto = $currentXml;
-                $altoLayout = $alto->Layout;
-                if (!$altoLayout || !$altoLayout->count()) {
-                    return null;
-                }
-                $altoLayoutDom = dom_import_simplexml($altoLayout);
-                $currentXmlFirstPage = $altoLayout->Page;
-                if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
-                    $altoLayout->addChild('Page');
-                }
-                continue;
-            }
-
-            $currentXmlFirstPage = $currentXml->Layout->Page;
-            if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
-                $altoLayout->addChild('Page');
-                continue;
-            }
-
-            $currentXmlDomPage = dom_import_simplexml($currentXmlFirstPage);
-            $altoLayoutDom->appendChild($altoLayoutDom->ownerDocument->importNode($currentXmlDomPage, true));
-        }
-
-        return $alto;
     }
 
     /**
