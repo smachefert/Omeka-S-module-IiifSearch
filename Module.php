@@ -102,7 +102,6 @@ class Module extends AbstractModule
                     'profile' => 'http://iiif.io/api/search/0/search',
                     'label' => 'Search within this manifest', // @translate
                 ]))
-                /*
                 ->appendService(new \IiifServer\Iiif\Service($resource, [
                     '@context' => 'http://iiif.io/api/search/1/context.json',
                     'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
@@ -110,7 +109,6 @@ class Module extends AbstractModule
                     'profile' => 'http://iiif.io/api/search/1/search',
                     'label' => 'Search within this manifest', // @translate
                 ]))
-                */
             ;
         }
 
