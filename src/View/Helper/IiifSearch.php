@@ -740,6 +740,10 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
+        if (!$this->firstXmlFile) {
+            return null;
+        }
+
         // The media type is already checked.
         $this->mediaType = $this->firstXmlFile->mediaType();
 
