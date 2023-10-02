@@ -38,24 +38,34 @@ class JsonLd extends AbstractPlugin
     {
         $controller = $this->getController();
 
+        /**
+         * @var \Laminas\Http\PhpEnvironment\Request $request
+         * @var \Laminas\Http\PhpEnvironment\Response $response
+         * @var \Laminas\Http\Headers $headers
+         */
         $request = $controller->getRequest();
         $response = $controller->getResponse();
+        $headers = $response->getHeaders();
 
         // According to specification, the response should be json, except if
         // client asks json-ld.
         $accept = $request->getHeader('Accept');
         if ($accept && $accept->hasMediaType('application/ld+json')) {
-            $response->getHeaders()->addHeaderLine('Content-Type', 'application/ld+json; charset=utf-8', true);
+            $headers->addHeaderLine('Content-Type', 'application/ld+json; charset=utf-8', true);
         }
         // Default to json with a link to json-ld.
         else {
             // TODO Remove json ld keys if client ask json.
-            $response->getHeaders()->addHeaderLine('Content-Type', 'application/json; charset=utf-8', true);
-            $response->getHeaders()->addHeaderLine('Link', '<http://iiif.io/api/image/2/context.json>; rel="http://www.w3.org/ns/json-ld#context"; type="application/ld+json"', true);
+            $headers
+                ->addHeaderLine('Content-Type', 'application/json; charset=utf-8', true)
+                ->addHeaderLine('Link', '<http://iiif.io/api/image/2/context.json>; rel="http://www.w3.org/ns/json-ld#context"; type="application/ld+json"', true);
         }
 
         // Header for CORS, required for access of IIIF.
-        $response->getHeaders()->addHeaderLine('Access-Control-Allow-Origin', '*');
+        if ($controller->settings()->get('iiifserver_manifest_append_cors_headers')) {
+            $headers->addHeaderLine('Access-Control-Allow-Origin', '*');
+        }
+
         //$response->clearBody();
         $body = json_encode($data, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $response->setContent($body);
