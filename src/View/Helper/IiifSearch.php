@@ -614,22 +614,23 @@ class IiifSearch extends AbstractHelper
     protected function prepareSearchOrder(): self
     {
         foreach ($this->item->media() as $media) {
+            $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[] = $media;
+                $this->xmlFiles[$mediaId] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
-                        $mediaType, $media->id(), $media->originalUrl()
+                        $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[] = $media;
+                $this->xmlFiles[$mediaId] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
-                    $this->imageSizes[] = [
-                        'id' => $media->id(),
+                    $this->imageSizes[$mediaId] = [
+                        'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
                         'source' => $media->source(),
@@ -637,19 +638,19 @@ class IiifSearch extends AbstractHelper
                 }
                 // Info stored by Iiif Server.
                 elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $this->imageSizes[] = [
-                        'id' => $media->id(),
+                    $this->imageSizes[$mediaId] = [
+                        'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
                         'source' => $media->source(),
                     ];
                 } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
-                    $size = ['id' => $media->id()];
+                    $size = ['id' => $mediaId];
                     $size += $this->imageSize
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
                     $size['source'] = $media->source();
-                    $this->imageSizes[] = $size;
+                    $this->imageSizes[$mediaId] = $size;
                 }
             }
         }
