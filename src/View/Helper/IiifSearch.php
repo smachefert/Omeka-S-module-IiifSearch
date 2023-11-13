@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use DerivativeMedia\View\Helper\HasDerivative;
 use DOMDocument;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
@@ -45,9 +46,19 @@ class IiifSearch extends AbstractHelper
     protected $fixUtf8;
 
     /**
+     * @var \IiifSearch\View\Helper\XmlAltoSingle
+     */
+    protected $xmlAltoSingle;
+
+    /**
      * @var \IiifServer\Mvc\Controller\Plugin\ImageSize
      */
     protected $imageSize;
+
+    /**
+     * @var \DerivativeMedia\View\Helper\HasDerivative
+     */
+    protected $hasDerivative;
 
     /**
      * Full path to the files.
@@ -100,7 +111,9 @@ class IiifSearch extends AbstractHelper
         Logger $logger,
         ApiManager $api,
         FixUtf8 $fixUtf8,
+        XmlAltoSingle $xmlAltoSingle,
         ?ImageSize $imageSize,
+        ?HasDerivative $hasDerivative,
         string $basePath,
         bool $searchMediaValues,
         string $xmlImageMatch,
@@ -109,7 +122,9 @@ class IiifSearch extends AbstractHelper
         $this->logger = $logger;
         $this->api = $api;
         $this->fixUtf8 = $fixUtf8;
+        $this->xmlAltoSingle = $xmlAltoSingle;
         $this->imageSize = $imageSize;
+        $this->hasDerivative = $hasDerivative;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
         $this->xmlImageMatch = $xmlImageMatch;
@@ -599,22 +614,23 @@ class IiifSearch extends AbstractHelper
     protected function prepareSearchOrder(): self
     {
         foreach ($this->item->media() as $media) {
+            $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[] = $media;
+                $this->xmlFiles[$mediaId] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
-                        $mediaType, $media->id(), $media->originalUrl()
+                        $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[] = $media;
+                $this->xmlFiles[$mediaId] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
-                    $this->imageSizes[] = [
-                        'id' => $media->id(),
+                    $this->imageSizes[$mediaId] = [
+                        'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
                         'source' => $media->source(),
@@ -622,19 +638,19 @@ class IiifSearch extends AbstractHelper
                 }
                 // Info stored by Iiif Server.
                 elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $this->imageSizes[] = [
-                        'id' => $media->id(),
+                    $this->imageSizes[$mediaId] = [
+                        'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
                         'source' => $media->source(),
                     ];
                 } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
-                    $size = ['id' => $media->id()];
+                    $size = ['id' => $mediaId];
                     $size += $this->imageSize
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
                     $size['source'] = $media->source();
-                    $this->imageSizes[] = $size;
+                    $this->imageSizes[$mediaId] = $size;
                 }
             }
         }
@@ -725,11 +741,67 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
+        if (!$this->firstXmlFile) {
+            return null;
+        }
+
         // The media type is already checked.
         $this->mediaType = $this->firstXmlFile->mediaType();
 
+        $toCache = false;
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
-            return $this->mergeXmlAlto();
+            // Check if the file is cached via module DerivativeMedia.
+            if ($this->hasDerivative) {
+                $derivative = $this->hasDerivative->__invoke($this->item, 'alto');
+                if ($derivative) {
+                    $filepath = $this->basePath . '/' . $derivative['alto']['file'];
+                    if ($derivative['alto']['ready']) {
+                        $xml = @simplexml_load_file($filepath);
+                        if ($xml) {
+                            return $xml;
+                        }
+                        $toCache = true;
+                    }
+                    if (!$derivative['alto']['in_progress']) {
+                        $toCache = true;
+                    }
+                }
+                // Else derivative is not enabled in module DerivativeMedia.
+            }
+
+            // For compatibility, the process require all filepath and media id.
+            // Files are already checked.
+            $mediaData = [];
+            foreach ($this->xmlFiles as $media) {
+                $mediaId = $media->id();
+                $filename = $media->filename();
+                $filepath = $this->basePath . '/original/' . $filename;
+                $mediaType = $media->mediaType();
+                $mainType = strtok($mediaType, '/');
+                $extension = $media->extension();
+                $mediaData[$mediaId] = [
+                    'id' => $mediaId,
+                    'source' => $media->source(),
+                    'filename' => $filename,
+                    'filepath' => $filepath,
+                    'mediatype' => $mediaType,
+                    'maintype' => $mainType,
+                    'extension' => $extension,
+                    'size' => $media->size(),
+                ];
+            }
+
+            $xml = $this->xmlAltoSingle->__invoke($this->item, null, $mediaData);
+
+            if ($xml && $toCache) {
+                // Ensure dirpath. Don't keep issue, it's only cache.
+                if (!file_exists(dirname($filepath))) {
+                    @mkdir(dirname($filepath), 0775, true);
+                }
+                @$xml->asXML($filepath);
+            }
+
+            return $xml;
         }
 
         // Get local file if any, else url (there is only one file here).
@@ -810,82 +882,6 @@ class IiifSearch extends AbstractHelper
         $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
         $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
         return $xmlContent;
-    }
-
-    /**
-     * @todo Cache the merged alto files.
-     *
-     * @todo Use the alto page indexes if available (but generally via mets).
-     */
-    protected function mergeXmlAlto(): ?SimpleXMLElement
-    {
-        // Only alto is managed currently.
-        if ($this->mediaType !== 'application/alto+xml') {
-            return null;
-        }
-
-        // Merge all alto files into one.
-        // This is a search engine with positions for strings, so only the
-        // layout is needed. Get metadata from first file.
-
-        /**
-         * DOM is used because SimpleXml cannot add xml nodes (only strings).
-         *
-         * @var \SimpleXMLElement $alto
-         * @var \SimpleXMLElement $altoLayout
-         * @var \DOMElement $altoLayoutDom
-         */
-        $alto = null;
-        $altoLayout = null;
-        $altoLayoutDom = null;
-
-        $first = true;
-        foreach ($this->xmlFiles as $xmlFileMedia) {
-            // Get local file if any, else url.
-            $filepath = ($filename = $xmlFileMedia->filename())
-                ? $this->basePath . '/original/' . $filename
-                : $xmlFileMedia->originalUrl();
-
-            $currentXml = $this->loadXmlFromFilepath($filepath, false);
-            if (!$currentXml) {
-                $this->logger->err(sprintf(
-                    'Error: Cannot get XML content from media #%d.', // @translate
-                    $xmlFileMedia->id()
-                ));
-                if (!$alto) {
-                    return null;
-                }
-                // Insert an empty page to keep page indexes.
-                $altoLayout->addChild('Page');
-                continue;
-            }
-
-            if ($first) {
-                $first = false;
-                $alto = $currentXml;
-                $altoLayout = $alto->Layout;
-                if (!$altoLayout || !$altoLayout->count()) {
-                    return null;
-                }
-                $altoLayoutDom = dom_import_simplexml($altoLayout);
-                $currentXmlFirstPage = $altoLayout->Page;
-                if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
-                    $altoLayout->addChild('Page');
-                }
-                continue;
-            }
-
-            $currentXmlFirstPage = $currentXml->Layout->Page;
-            if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
-                $altoLayout->addChild('Page');
-                continue;
-            }
-
-            $currentXmlDomPage = dom_import_simplexml($currentXmlFirstPage);
-            $altoLayoutDom->appendChild($altoLayoutDom->ownerDocument->importNode($currentXmlDomPage, true));
-        }
-
-        return $alto;
     }
 
     /**

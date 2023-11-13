@@ -19,6 +19,7 @@ return [
         'factories' => [
             'fixUtf8' => Service\ViewHelper\FixUtf8Factory::class,
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
+            'xmlAltoSingle' => Service\ViewHelper\XmlAltoSingleFactory::class,
         ],
     ],
     'form_elements' => [
@@ -93,6 +94,16 @@ return [
                         ],
                     ],
                 ],
+            ],
+        ],
+    ],
+    'translator' => [
+        'translation_file_patterns' => [
+            [
+                'type' => 'gettext',
+                'base_dir' => dirname(__DIR__) . '/language',
+                'pattern' => '%s.mo',
+                'text_domain' => null,
             ],
         ],
     ],

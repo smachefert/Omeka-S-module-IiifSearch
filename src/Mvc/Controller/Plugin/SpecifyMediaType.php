@@ -161,7 +161,7 @@ class SpecifyMediaType extends AbstractPlugin
         $dom = $this->loadAndFixXml();
         if (!$dom) {
             $message = new \Omeka\Stdlib\Message(
-                'The file "%1$s" (media #2$s) is not parsable by xml reader neither dom.', // @translate
+                'The file "%1$s" (media #%2$s) is not parsable by xml reader neither dom.', // @translate
                 $this->filepath, $this->getMediaIdFromFilePath()
             );
             $this->logger->err($message);
