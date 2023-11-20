@@ -3,6 +3,7 @@
 namespace IiifSearch\View\Helper;
 
 use DOMDocument;
+use Exception;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
@@ -152,7 +153,7 @@ class XmlAltoSingle extends AbstractHelper
             } else {
                 $currentXml = @simplexml_load_string($xmlContent);
             }
-        } catch (\Exception $e) {
+        } catch (Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML content is incorrect for media #%d.', // @translate
                 $resourceId ?: 0
@@ -171,18 +172,34 @@ class XmlAltoSingle extends AbstractHelper
         return $currentXml;
     }
 
+    /**
+     * Check if xml is valid.
+     *
+     * Copy in:
+     * @see \ExtractOcr\Job\ExtractOcr::fixXmlDom()
+     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlDom()
+     * @see \IiifSearch\View\Helper\XmlAltoSingle::fixXmlDom()
+     * @see \IiifServer\Iiif\TraitXml::fixXmlDom()
+     */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
         libxml_use_internal_errors(true);
+
         $dom = new DOMDocument('1.1', 'UTF-8');
         $dom->strictErrorChecking = false;
         $dom->validateOnParse = false;
         $dom->recover = true;
-        $dom->loadXML($xmlContent);
-        $currentXml = simplexml_import_dom($dom);
+        try {
+            $result = $dom->loadXML($xmlContent);
+            $result = $result ? simplexml_import_dom($dom) : null;
+        } catch (Exception $e) {
+            $result = null;
+        }
+
         libxml_clear_errors();
         libxml_use_internal_errors(false);
-        return $currentXml;
+
+        return $result;
     }
 
     /**

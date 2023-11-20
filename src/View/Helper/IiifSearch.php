@@ -4,6 +4,7 @@ namespace IiifSearch\View\Helper;
 
 use DerivativeMedia\View\Helper\HasDerivative;
 use DOMDocument;
+use Exception;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
@@ -897,20 +898,42 @@ class IiifSearch extends AbstractHelper
         return $currentXml;
     }
 
+    /**
+     * Check if xml is valid.
+     *
+     * Copy in:
+     * @see \ExtractOcr\Job\ExtractOcr::fixXmlDom()
+     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlDom()
+     * @see \IiifSearch\View\Helper\XmlAltoSingle::fixXmlDom()
+     * @see \IiifServer\Iiif\TraitXml::fixXmlDom()
+     */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
         libxml_use_internal_errors(true);
+
         $dom = new DOMDocument('1.1', 'UTF-8');
         $dom->strictErrorChecking = false;
         $dom->validateOnParse = false;
         $dom->recover = true;
-        $dom->loadXML($xmlContent);
-        $currentXml = simplexml_import_dom($dom);
+        try {
+            $result = $dom->loadXML($xmlContent);
+            $result = $result ? simplexml_import_dom($dom) : null;
+        } catch (Exception $e) {
+            $result = null;
+        }
+
         libxml_clear_errors();
         libxml_use_internal_errors(false);
-        return $currentXml;
+
+        return $result;
     }
 
+    /**
+     * Copy in:
+     * @see \ExtractOcr\Job\ExtractOcr::fixXmlPdf2Xml()
+     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlPdf2Xml()
+     * @see \IiifServer\Iiif\TraitXml::fixXmlPdf2Xml()
+     */
     protected function fixXmlPdf2Xml(string $xmlContent): string
     {
         // When the content is not a valid unicode text, a null is output.
