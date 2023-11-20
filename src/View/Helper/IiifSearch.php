@@ -136,7 +136,7 @@ class IiifSearch extends AbstractHelper
      *
      * @param ItemRepresentation $item
      * @return AnnotationList|null Null is returned if search is not supported
-     * for the resource.
+     * for the resource. The annotation list is empty when search has no result.
      */
     public function __invoke(ItemRepresentation $item): ?AnnotationList
     {
@@ -188,7 +188,7 @@ class IiifSearch extends AbstractHelper
      *              'motivation' => 'sc:painting',
      *              [
      *                  '@type' => 'cnt:ContentAsText',
-     *                  'chars' =>  corresponding match char list ,
+     *                  'chars' =>  corresponding match char list,
      *              ],
      *              'on' => canvas url with coordonate for IIIF Server module,
      *          ],
@@ -262,11 +262,11 @@ class IiifSearch extends AbstractHelper
         try {
             // The hit index.
             $hit = 0;
-
-            $index = -1;
+            // 0-based page index.
+            $indexXmlPage = -1;
             /** @var \SimpleXmlElement $xmlPage */
             foreach ($xml->Layout->Page as $xmlPage) {
-                ++$index;
+                ++$indexXmlPage;
                 $attributes = $xmlPage->attributes();
                 // Skip empty pages.
                 if (!$attributes->count()) {
@@ -276,24 +276,24 @@ class IiifSearch extends AbstractHelper
                 // TODO Check why casting to string is needed.
                 $page = [];
                 // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
-                $page['number'] = (string) ($index + 1);
+                $page['number'] = (string) ($indexXmlPage + 1);
                 $page['width'] = (string) @$attributes->WIDTH;
                 $page['height'] = (string) @$attributes->HEIGHT;
                 if (!$page['width'] || !$page['height']) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $index
+                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
-                $pageIndex = $index;
+                $pageIndex = $indexXmlPage;
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $index) {
+                if ($pageIndex !== $indexXmlPage) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $index
+                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
@@ -320,7 +320,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                                    $this->firstXmlFile->item()->id(), $index + 1
+                                    $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                                 ));
                                 continue;
                             }
@@ -352,7 +352,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML alto content may be invalid for item #%1$d, index #%2$d!', // @translate
-                $this->firstXmlFile->item()->id(), $index + 1
+                $this->firstXmlFile->item()->id(), $indexXmlPage + 1
             ));
             return null;
         }
@@ -387,9 +387,11 @@ class IiifSearch extends AbstractHelper
         $matches = [];
         try {
             $hit = 0;
-            $index = -1;
+            // 0-based page index.
+            $indexXmlPage = -1;
+            // There is one xml that contains text of each page.
             foreach ($xml->page as $xmlPage) {
-                ++$index;
+                ++$indexXmlPage;
                 $attributes = $xmlPage->attributes();
                 $page = [];
                 $page['number'] = (string) @$attributes->number;
@@ -398,26 +400,27 @@ class IiifSearch extends AbstractHelper
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $index
+                        $this->firstXmlFile->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $index) {
+                if ($pageIndex !== $indexXmlPage) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $index
+                        $this->firstXmlFile->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
                 $hits = [];
                 $hitMatches = [];
-                $rowIndex = -1;
+                // 0-based row index.
+                $indexXmlLine = -1;
                 foreach ($xmlPage->text as $xmlRow) {
-                    ++$rowIndex;
+                    ++$indexXmlLine;
                     $zone = [];
                     $zone['text'] = strip_tags($xmlRow->asXML());
                     foreach ($queryWords as $chars) {
@@ -433,7 +436,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
-                                    $this->firstXmlFile->id(), $pageIndex, $rowIndex
+                                    $this->firstXmlFile->id(), $indexXmlPage + 1, $indexXmlLine + 1
                                 ));
                                 continue;
                             }
@@ -475,13 +478,12 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-
     /**
      * Returns answers to a query on metadata.
      *
      * Media already returned with full text are not returned.
      *
-     *@see self::searchFulltext()
+     * @see self::searchFulltext()
      *
      * @return array|null
      *   Return resources (the pages) that match query for IIIF Search API.
@@ -495,7 +497,7 @@ class IiifSearch extends AbstractHelper
      *              'motivation' => 'sc:painting',
      *              [
      *                  '@type' => 'cnt:ContentAsText',
-     *                  'chars' =>  corresponding match char list ,
+     *                  'chars' =>  corresponding match char list,
      *              ],
      *              'on' => canvas url with coordonate for IIIF Server module,
      *          ],
@@ -666,14 +668,14 @@ class IiifSearch extends AbstractHelper
         $result = [];
 
         $xmls = [];
-        foreach ($this->xmlFiles as $index => $media) {
-            $xmls[$index] = pathinfo($media->source(), PATHINFO_FILENAME);
+        foreach ($this->xmlFiles as $indexXml => $media) {
+            $xmls[$indexXml] = pathinfo($media->source(), PATHINFO_FILENAME);
         }
 
-        foreach ($this->imageSizes as $index => $sizeData) {
+        foreach ($this->imageSizes as $indexImage => $sizeData) {
             $basename = pathinfo($sizeData['source'], PATHINFO_FILENAME);
             $xmlIndex = array_search($basename, $xmls);
-            $result[$index] = $xmlIndex === false
+            $result[$indexImage] = $xmlIndex === false
                 ? null
                 : $this->xmlFiles[$xmlIndex];
         }
