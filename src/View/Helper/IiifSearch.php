@@ -146,26 +146,42 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
-
         $view = $this->getView();
-        $query = (string) $view->params()->fromQuery('q');
+
+        $response = new AnnotationList;
+        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
+
+        $query = trim((string) $view->params()->fromQuery('q'));
+
+        if (!strlen($query)) {
+            $response->isValid(true);
+            return $response;
+        }
+
+        // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
 
         $result = $this->searchFulltext($query);
 
         if ($this->searchMediaValues) {
             $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
-            $result = $result === null && $resultValues === null
-                ? null
-                : array_merge($result ?? [], $resultValues ?? []);
+            if ($result === null && $resultValues === null) {
+                $response->isValid(true);
+                return $response;
+            } elseif ($result === null) {
+                $result = $resultValues;
+            } elseif ($resultValues === null || $resultValues['hit'] === 0) {
+                // Nothing to add to result.
+            } else {
+                $result['resources'] = array_merge($result['resources'], $resultValues['resources']);
+                $result['hit'] += $resultValues['hit'];
+            }
         }
 
-        $response = new AnnotationList;
-        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
-        if ($result) {
-            $response['resources'] = $result['resources'];
-            $response['hits'] = $result['hits'];
+        if ($result && $result['hit']) {
+            $response['resources'] = $result['resources'] ?? [];
+            $response['hits'] = $result['hits'] ?? [];
         }
+
         $response->isValid(true);
         return $response;
     }
@@ -487,6 +503,8 @@ class IiifSearch extends AbstractHelper
      *
      * @return array|null
      *   Return resources (the pages) that match query for IIIF Search API.
+     *   Results have no key "hits" and image cannot be highlighted, since the
+     *   result is not present in the text, but in the metadata.
      *
      * ```php
      * [
@@ -512,6 +530,29 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        // Only media is needed.
+        $mediaQuery = [
+            'item_id' => $this->item->id(),
+            'fulltext_search' => $query,
+            // Position is not supported before v4.1.
+            'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
+            'sort_order' => 'asc',
+        ];
+
+        // TODO Remove files that are not images early.
+        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+        $mediaIds = array_diff($mediaIds, $iiifMediaIds);
+        if (!$mediaIds) {
+            return null;
+        }
+
+        $imageSizesById = [];
+        foreach ($this->imageSizes as $index => $imageData) {
+            $imageData['index'] = $index;
+            $imageSizesById[$imageData['id']] = $imageData;
+        }
+        $imageIndexById = array_column($imageSizesById, 'index', 'id');
+
         // A search result is an annotation on the canvas of the original item,
         // so an url managed by the iiif server.
         $iiifUrl = $this->getView()->plugin('iiifUrl');
@@ -524,33 +565,16 @@ class IiifSearch extends AbstractHelper
             'type' => 'canvas',
         ]) . '/p';
 
-        $resource = $this->item;
-
-        $imageSizesById = [];
-        foreach ($this->imageSizes as $index => $imageData) {
-            $imageData['index'] = $index;
-            $imageSizesById[$imageData['id']] = $imageData;
-        }
-        $imageIndexById = array_column($imageSizesById, 'index', 'id');
-
-        // Only media is needed.
-        $mediaQuery = [
-            'item_id' => $this->item->id(),
-            'fulltext_search' => $query,
-            // Position is not supported before v4.1.
-            'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
-            'sort_order' => 'asc',
+        $result = [
+            'resources' => [],
+            'hit' => 0,
         ];
-        $result = [];
-        $chars = '';
-        // TODO Remove files that are not images in result.
-        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
-        foreach (array_diff($mediaIds, $iiifMediaIds) as $id) {
+        foreach ($mediaIds as $id) {
             // Skip files that are not images.
             if (!isset($imageIndexById[$id])) {
                 continue;
             }
-            ++$hit;
+            ++$result['hit'];
             $image = $imageSizesById[$id];
             $zone = [
                 'text' => '',
@@ -568,8 +592,6 @@ class IiifSearch extends AbstractHelper
             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
         }
-
-        $result['hit'] = $hit;
 
         return $result;
     }
@@ -619,19 +641,19 @@ class IiifSearch extends AbstractHelper
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[$mediaId] = $media;
+                $this->xmlFiles[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
                         $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[$mediaId] = $media;
+                $this->xmlFiles[] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
-                    $this->imageSizes[$mediaId] = [
+                    $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
@@ -640,7 +662,7 @@ class IiifSearch extends AbstractHelper
                 }
                 // Info stored by Iiif Server.
                 elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $this->imageSizes[$mediaId] = [
+                    $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
@@ -652,7 +674,7 @@ class IiifSearch extends AbstractHelper
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
                     $size['source'] = $media->source();
-                    $this->imageSizes[$mediaId] = $size;
+                    $this->imageSizes[] = $size;
                 }
             }
         }
