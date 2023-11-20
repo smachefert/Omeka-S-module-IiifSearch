@@ -737,9 +737,14 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
+     * Load xml of the item.
+     *
+     * When there are multiple xml alto, they are merged into a single
+     * multi-pages xml content.
+     *
      * @see \IiifServer\Iiif\TraitXml::loadXml()
      *
-     * @todo The format pdf2xml can be replaced by an alto multi-pages, even if the format is quicker for search, but less precise for positions.
+     * @todo The format pdf2xml in ExtractOcr can be replaced by an alto multi-pages, even if the format is quicker for search, but less precise for positions.
      */
     protected function loadXml(): ?SimpleXMLElement
     {
@@ -751,6 +756,7 @@ class IiifSearch extends AbstractHelper
         $this->mediaType = $this->firstXmlFile->mediaType();
 
         $toCache = false;
+        // Merge all xml
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
             // Check if the file is cached via module DerivativeMedia.
             if ($this->hasDerivative) {
@@ -820,12 +826,18 @@ class IiifSearch extends AbstractHelper
     {
         $xmlContent = file_get_contents($filepath);
 
+        $xmlContent = mb_convert_encoding(
+            $xmlContent,
+            'UTF-8',
+            mb_detect_encoding($xmlContent, mb_detect_order(), true) ?: mb_internal_encoding()
+        );
+
         try {
             if ($this->xmlFixMode === 'dom') {
                 if ($isPdf2Xml) {
                     $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
                 }
-                $xmlContent = $this->fixXmlDom($xmlContent);
+                $currentXml = $this->fixXmlDom($xmlContent);
             } elseif ($this->xmlFixMode === 'regex') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
                 if ($isPdf2Xml) {
@@ -879,9 +891,16 @@ class IiifSearch extends AbstractHelper
 
     protected function fixXmlPdf2Xml(string $xmlContent): string
     {
-        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
-        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
-        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+        // When the content is not a valid unicode text, a null is output.
+        // Replace all series of spaces by a single space.
+        $xmlContent = preg_replace('~\s{2,}~S', ' ', $xmlContent) ?? $xmlContent;
+        // Remove bold and italic.
+        $xmlContent = preg_replace('~</?[bi]>~S', '', $xmlContent) ?? $xmlContent;
+        // Remove fontspecs, useless for search and sometime incorrect with old
+        // versions of pdftohtml. Exemple with pdftohtml 0.71 (debian 10):
+        // <fontspec id="^C
+        // <fontspec id=" " size="^P" family="PBPMTB+ArialUnicodeMS" color="#000000"/>
+        $xmlContent = preg_replace('~<fontspec id=".*\n~S', '', $xmlContent) ?? $xmlContent;
         $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
         return $xmlContent;
     }
