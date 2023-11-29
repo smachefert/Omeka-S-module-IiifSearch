@@ -4,6 +4,7 @@ namespace IiifSearch\View\Helper;
 
 use DerivativeMedia\View\Helper\HasDerivative;
 use DOMDocument;
+use Exception;
 use IiifSearch\Iiif\AnnotationList;
 use IiifSearch\Iiif\AnnotationSearchResult;
 use IiifSearch\Iiif\SearchHit;
@@ -136,7 +137,7 @@ class IiifSearch extends AbstractHelper
      *
      * @param ItemRepresentation $item
      * @return AnnotationList|null Null is returned if search is not supported
-     * for the resource.
+     * for the resource. The annotation list is empty when search has no result.
      */
     public function __invoke(ItemRepresentation $item): ?AnnotationList
     {
@@ -146,26 +147,42 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
-        // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
-
         $view = $this->getView();
-        $query = (string) $view->params()->fromQuery('q');
+
+        $response = new AnnotationList;
+        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
+
+        $query = trim((string) $view->params()->fromQuery('q'));
+
+        if (!strlen($query)) {
+            $response->isValid(true);
+            return $response;
+        }
+
+        // TODO Add a warning when the number of images is not the same than the number of pages. But it may be complex because images are not really managed with xml files, so warn somewhere else.
 
         $result = $this->searchFulltext($query);
 
         if ($this->searchMediaValues) {
             $resultValues = $this->searchMediaValues($query, $result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
-            $result = $result === null && $resultValues === null
-                ? null
-                : array_merge($result ?? [], $resultValues ?? []);
+            if ($result === null && $resultValues === null) {
+                $response->isValid(true);
+                return $response;
+            } elseif ($result === null) {
+                $result = $resultValues;
+            } elseif ($resultValues === null || $resultValues['hit'] === 0) {
+                // Nothing to add to result.
+            } else {
+                $result['resources'] = array_merge($result['resources'], $resultValues['resources']);
+                $result['hit'] += $resultValues['hit'];
+            }
         }
 
-        $response = new AnnotationList;
-        $response->initOptions(['requestUri' => $view->serverUrl(true)]);
-        if ($result) {
-            $response['resources'] = $result['resources'];
-            $response['hits'] = $result['hits'];
+        if ($result && $result['hit']) {
+            $response['resources'] = $result['resources'] ?? [];
+            $response['hits'] = $result['hits'] ?? [];
         }
+
         $response->isValid(true);
         return $response;
     }
@@ -188,7 +205,7 @@ class IiifSearch extends AbstractHelper
      *              'motivation' => 'sc:painting',
      *              [
      *                  '@type' => 'cnt:ContentAsText',
-     *                  'chars' =>  corresponding match char list ,
+     *                  'chars' =>  corresponding match char list,
      *              ],
      *              'on' => canvas url with coordonate for IIIF Server module,
      *          ],
@@ -262,11 +279,11 @@ class IiifSearch extends AbstractHelper
         try {
             // The hit index.
             $hit = 0;
-
-            $index = -1;
+            // 0-based page index.
+            $indexXmlPage = -1;
             /** @var \SimpleXmlElement $xmlPage */
             foreach ($xml->Layout->Page as $xmlPage) {
-                ++$index;
+                ++$indexXmlPage;
                 $attributes = $xmlPage->attributes();
                 // Skip empty pages.
                 if (!$attributes->count()) {
@@ -276,24 +293,24 @@ class IiifSearch extends AbstractHelper
                 // TODO Check why casting to string is needed.
                 $page = [];
                 // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
-                $page['number'] = (string) ($index + 1);
+                $page['number'] = (string) ($indexXmlPage + 1);
                 $page['width'] = (string) @$attributes->WIDTH;
                 $page['height'] = (string) @$attributes->HEIGHT;
                 if (!$page['width'] || !$page['height']) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $index
+                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
-                $pageIndex = $index;
+                $pageIndex = $indexXmlPage;
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $index) {
+                if ($pageIndex !== $indexXmlPage) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $index
+                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
@@ -320,7 +337,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                                    $this->firstXmlFile->item()->id(), $index + 1
+                                    $this->firstXmlFile->item()->id(), $indexXmlPage + 1
                                 ));
                                 continue;
                             }
@@ -352,7 +369,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML alto content may be invalid for item #%1$d, index #%2$d!', // @translate
-                $this->firstXmlFile->item()->id(), $index + 1
+                $this->firstXmlFile->item()->id(), $indexXmlPage + 1
             ));
             return null;
         }
@@ -387,9 +404,11 @@ class IiifSearch extends AbstractHelper
         $matches = [];
         try {
             $hit = 0;
-            $index = -1;
+            // 0-based page index.
+            $indexXmlPage = -1;
+            // There is one xml that contains text of each page.
             foreach ($xml->page as $xmlPage) {
-                ++$index;
+                ++$indexXmlPage;
                 $attributes = $xmlPage->attributes();
                 $page = [];
                 $page['number'] = (string) @$attributes->number;
@@ -398,26 +417,27 @@ class IiifSearch extends AbstractHelper
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $index
+                        $this->firstXmlFile->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $index) {
+                if ($pageIndex !== $indexXmlPage) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $index
+                        $this->firstXmlFile->id(), $indexXmlPage + 1
                     ));
                     continue;
                 }
 
                 $hits = [];
                 $hitMatches = [];
-                $rowIndex = -1;
+                // 0-based row index.
+                $indexXmlLine = -1;
                 foreach ($xmlPage->text as $xmlRow) {
-                    ++$rowIndex;
+                    ++$indexXmlLine;
                     $zone = [];
                     $zone['text'] = strip_tags($xmlRow->asXML());
                     foreach ($queryWords as $chars) {
@@ -433,7 +453,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
-                                    $this->firstXmlFile->id(), $pageIndex, $rowIndex
+                                    $this->firstXmlFile->id(), $indexXmlPage + 1, $indexXmlLine + 1
                                 ));
                                 continue;
                             }
@@ -475,16 +495,17 @@ class IiifSearch extends AbstractHelper
         return $result;
     }
 
-
     /**
      * Returns answers to a query on metadata.
      *
      * Media already returned with full text are not returned.
      *
-     *@see self::searchFulltext()
+     * @see self::searchFulltext()
      *
      * @return array|null
      *   Return resources (the pages) that match query for IIIF Search API.
+     *   Results have no key "hits" and image cannot be highlighted, since the
+     *   result is not present in the text, but in the metadata.
      *
      * ```php
      * [
@@ -495,7 +516,7 @@ class IiifSearch extends AbstractHelper
      *              'motivation' => 'sc:painting',
      *              [
      *                  '@type' => 'cnt:ContentAsText',
-     *                  'chars' =>  corresponding match char list ,
+     *                  'chars' =>  corresponding match char list,
      *              ],
      *              'on' => canvas url with coordonate for IIIF Server module,
      *          ],
@@ -510,6 +531,29 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        // Only media is needed.
+        $mediaQuery = [
+            'item_id' => $this->item->id(),
+            'fulltext_search' => $query,
+            // Position is not supported before v4.1.
+            'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
+            'sort_order' => 'asc',
+        ];
+
+        // TODO Remove files that are not images early.
+        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+        $mediaIds = array_diff($mediaIds, $iiifMediaIds);
+        if (!$mediaIds) {
+            return null;
+        }
+
+        $imageSizesById = [];
+        foreach ($this->imageSizes as $index => $imageData) {
+            $imageData['index'] = $index;
+            $imageSizesById[$imageData['id']] = $imageData;
+        }
+        $imageIndexById = array_column($imageSizesById, 'index', 'id');
+
         // A search result is an annotation on the canvas of the original item,
         // so an url managed by the iiif server.
         $iiifUrl = $this->getView()->plugin('iiifUrl');
@@ -522,33 +566,16 @@ class IiifSearch extends AbstractHelper
             'type' => 'canvas',
         ]) . '/p';
 
-        $resource = $this->item;
-
-        $imageSizesById = [];
-        foreach ($this->imageSizes as $index => $imageData) {
-            $imageData['index'] = $index;
-            $imageSizesById[$imageData['id']] = $imageData;
-        }
-        $imageIndexById = array_column($imageSizesById, 'index', 'id');
-
-        // Only media is needed.
-        $mediaQuery = [
-            'item_id' => $this->item->id(),
-            'fulltext_search' => $query,
-            // Position is not supported before v4.1.
-            'sort_by' => version_compare(\Omeka\Module::VERSION, '4.1.0', '<') ? 'id' : 'position',
-            'sort_order' => 'asc',
+        $result = [
+            'resources' => [],
+            'hit' => 0,
         ];
-        $result = [];
-        $chars = '';
-        // TODO Remove files that are not images in result.
-        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
-        foreach (array_diff($mediaIds, $iiifMediaIds) as $id) {
+        foreach ($mediaIds as $id) {
             // Skip files that are not images.
             if (!isset($imageIndexById[$id])) {
                 continue;
             }
-            ++$hit;
+            ++$result['hit'];
             $image = $imageSizesById[$id];
             $zone = [
                 'text' => '',
@@ -566,8 +593,6 @@ class IiifSearch extends AbstractHelper
             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
         }
-
-        $result['hit'] = $hit;
 
         return $result;
     }
@@ -617,19 +642,19 @@ class IiifSearch extends AbstractHelper
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[$mediaId] = $media;
+                $this->xmlFiles[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
                         $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[$mediaId] = $media;
+                $this->xmlFiles[] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
-                    $this->imageSizes[$mediaId] = [
+                    $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
@@ -638,7 +663,7 @@ class IiifSearch extends AbstractHelper
                 }
                 // Info stored by Iiif Server.
                 elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $this->imageSizes[$mediaId] = [
+                    $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
@@ -650,7 +675,7 @@ class IiifSearch extends AbstractHelper
                         ? $this->imageSize->__invoke($media, 'original')
                         : $this->imageSizeLocal($media);
                     $size['source'] = $media->source();
-                    $this->imageSizes[$mediaId] = $size;
+                    $this->imageSizes[] = $size;
                 }
             }
         }
@@ -666,14 +691,14 @@ class IiifSearch extends AbstractHelper
         $result = [];
 
         $xmls = [];
-        foreach ($this->xmlFiles as $index => $media) {
-            $xmls[$index] = pathinfo($media->source(), PATHINFO_FILENAME);
+        foreach ($this->xmlFiles as $indexXml => $media) {
+            $xmls[$indexXml] = pathinfo($media->source(), PATHINFO_FILENAME);
         }
 
-        foreach ($this->imageSizes as $index => $sizeData) {
+        foreach ($this->imageSizes as $indexImage => $sizeData) {
             $basename = pathinfo($sizeData['source'], PATHINFO_FILENAME);
             $xmlIndex = array_search($basename, $xmls);
-            $result[$index] = $xmlIndex === false
+            $result[$indexImage] = $xmlIndex === false
                 ? null
                 : $this->xmlFiles[$xmlIndex];
         }
@@ -735,9 +760,14 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
+     * Load xml of the item.
+     *
+     * When there are multiple xml alto, they are merged into a single
+     * multi-pages xml content.
+     *
      * @see \IiifServer\Iiif\TraitXml::loadXml()
      *
-     * @todo The format pdf2xml can be replaced by an alto multi-pages, even if the format is quicker for search, but less precise for positions.
+     * @todo The format pdf2xml in ExtractOcr can be replaced by an alto multi-pages, even if the format is quicker for search, but less precise for positions.
      */
     protected function loadXml(): ?SimpleXMLElement
     {
@@ -749,6 +779,7 @@ class IiifSearch extends AbstractHelper
         $this->mediaType = $this->firstXmlFile->mediaType();
 
         $toCache = false;
+        // Merge all xml
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
             // Check if the file is cached via module DerivativeMedia.
             if ($this->hasDerivative) {
@@ -818,12 +849,18 @@ class IiifSearch extends AbstractHelper
     {
         $xmlContent = file_get_contents($filepath);
 
+        $xmlContent = mb_convert_encoding(
+            $xmlContent,
+            'UTF-8',
+            mb_detect_encoding($xmlContent, mb_detect_order(), true) ?: mb_internal_encoding()
+        );
+
         try {
             if ($this->xmlFixMode === 'dom') {
                 if ($isPdf2Xml) {
                     $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
                 }
-                $xmlContent = $this->fixXmlDom($xmlContent);
+                $currentXml = $this->fixXmlDom($xmlContent);
             } elseif ($this->xmlFixMode === 'regex') {
                 $xmlContent = $this->fixUtf8->__invoke($xmlContent);
                 if ($isPdf2Xml) {
@@ -861,25 +898,54 @@ class IiifSearch extends AbstractHelper
         return $currentXml;
     }
 
+    /**
+     * Check if xml is valid.
+     *
+     * Copy in:
+     * @see \ExtractOcr\Job\ExtractOcr::fixXmlDom()
+     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlDom()
+     * @see \IiifSearch\View\Helper\XmlAltoSingle::fixXmlDom()
+     * @see \IiifServer\Iiif\TraitXml::fixXmlDom()
+     */
     protected function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
         libxml_use_internal_errors(true);
+
         $dom = new DOMDocument('1.1', 'UTF-8');
         $dom->strictErrorChecking = false;
         $dom->validateOnParse = false;
         $dom->recover = true;
-        $dom->loadXML($xmlContent);
-        $currentXml = simplexml_import_dom($dom);
+        try {
+            $result = $dom->loadXML($xmlContent);
+            $result = $result ? simplexml_import_dom($dom) : null;
+        } catch (Exception $e) {
+            $result = null;
+        }
+
         libxml_clear_errors();
         libxml_use_internal_errors(false);
-        return $currentXml;
+
+        return $result;
     }
 
+    /**
+     * Copy in:
+     * @see \ExtractOcr\Job\ExtractOcr::fixXmlPdf2Xml()
+     * @see \IiifSearch\View\Helper\IiifSearch::fixXmlPdf2Xml()
+     * @see \IiifServer\Iiif\TraitXml::fixXmlPdf2Xml()
+     */
     protected function fixXmlPdf2Xml(string $xmlContent): string
     {
-        $xmlContent = preg_replace('/\s{2,}/ui', ' ', $xmlContent);
-        $xmlContent = preg_replace('/<\/?b>/ui', '', $xmlContent);
-        $xmlContent = preg_replace('/<\/?i>/ui', '', $xmlContent);
+        // When the content is not a valid unicode text, a null is output.
+        // Replace all series of spaces by a single space.
+        $xmlContent = preg_replace('~\s{2,}~S', ' ', $xmlContent) ?? $xmlContent;
+        // Remove bold and italic.
+        $xmlContent = preg_replace('~</?[bi]>~S', '', $xmlContent) ?? $xmlContent;
+        // Remove fontspecs, useless for search and sometime incorrect with old
+        // versions of pdftohtml. Exemple with pdftohtml 0.71 (debian 10):
+        // <fontspec id="^C
+        // <fontspec id=" " size="^P" family="PBPMTB+ArialUnicodeMS" color="#000000"/>
+        $xmlContent = preg_replace('~<fontspec id=".*\n~S', '', $xmlContent) ?? $xmlContent;
         $xmlContent = str_replace('<!doctype pdf2xml system "pdf2xml.dtd">', '<!DOCTYPE pdf2xml SYSTEM "pdf2xml.dtd">', $xmlContent);
         return $xmlContent;
     }
