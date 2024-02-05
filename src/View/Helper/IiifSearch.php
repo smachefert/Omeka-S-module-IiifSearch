@@ -32,14 +32,14 @@ class IiifSearch extends AbstractHelper
     protected $minimumQueryLength = 3;
 
     /**
-     * @var \Laminas\Log\Logger
-     */
-    protected $logger;
-
-    /**
      * @var \Omeka\Api\Manager
      */
     protected $api;
+
+    /**
+     * @var \DerivativeMedia\View\Helper\DerivativeList
+     */
+    protected $derivativeList;
 
     /**
      * @var \IiifServer\Mvc\Controller\Plugin\FixUtf8
@@ -47,19 +47,19 @@ class IiifSearch extends AbstractHelper
     protected $fixUtf8;
 
     /**
-     * @var \IiifSearch\View\Helper\XmlAltoSingle
-     */
-    protected $xmlAltoSingle;
-
-    /**
      * @var \IiifServer\Mvc\Controller\Plugin\ImageSize
      */
     protected $imageSize;
 
     /**
-     * @var \DerivativeMedia\View\Helper\DerivativeList
+     * @var \Laminas\Log\Logger
      */
-    protected $derivativeList;
+    protected $logger;
+
+    /**
+     * @var \IiifSearch\View\Helper\XmlAltoSingle
+     */
+    protected $xmlAltoSingle;
 
     /**
      * Full path to the files.
@@ -76,12 +76,12 @@ class IiifSearch extends AbstractHelper
     /**
      * @var string
      */
-    protected $xmlImageMatch;
+    protected $xmlFixMode;
 
     /**
      * @var string
      */
-    protected $xmlFixMode;
+    protected $xmlImageMatch;
 
     /**
      * @var ItemRepresentation
@@ -91,22 +91,22 @@ class IiifSearch extends AbstractHelper
     /**
      * @var \Omeka\Api\Representation\MediaRepresentation[]
      */
-    protected $xmlFiles;
+    protected $mediaXml;
 
     /**
      * @var \Omeka\Api\Representation\MediaRepresentation
      */
-    protected $firstXmlFile;
-
-    /**
-     * @var string
-     */
-    protected $mediaType;
+    protected $mediaXmlFirst;
 
     /**
      * @var array
      */
     protected $imageSizes;
+
+    /**
+     * @var string
+     */
+    protected $mediaType;
 
     public function __construct(
         Logger $logger,
@@ -280,10 +280,10 @@ class IiifSearch extends AbstractHelper
             // The hit index.
             $hit = 0;
             // 0-based page index.
-            $indexXmlPage = -1;
+            $indexPageXml = -1;
             /** @var \SimpleXmlElement $xmlPage */
             foreach ($xml->Layout->Page as $xmlPage) {
-                ++$indexXmlPage;
+                ++$indexPageXml;
                 $attributes = $xmlPage->attributes();
                 // Skip empty pages.
                 if (!$attributes->count()) {
@@ -293,24 +293,24 @@ class IiifSearch extends AbstractHelper
                 // TODO Check why casting to string is needed.
                 $page = [];
                 // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
-                $page['number'] = (string) ($indexXmlPage + 1);
+                $page['number'] = (string) ($indexPageXml + 1);
                 $page['width'] = (string) @$attributes->WIDTH;
                 $page['height'] = (string) @$attributes->HEIGHT;
                 if (!$page['width'] || !$page['height']) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
 
-                $pageIndex = $indexXmlPage;
+                $pageIndex = $indexPageXml;
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $indexXmlPage) {
+                if ($pageIndex !== $indexPageXml) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
@@ -337,7 +337,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                                    $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                                    $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                                 ));
                                 continue;
                             }
@@ -369,7 +369,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML alto content may be invalid for item #%1$d, index #%2$d!', // @translate
-                $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
             ));
             return null;
         }
@@ -405,10 +405,10 @@ class IiifSearch extends AbstractHelper
         try {
             $hit = 0;
             // 0-based page index.
-            $indexXmlPage = -1;
+            $indexPageXml = -1;
             // There is one xml that contains text of each page.
             foreach ($xml->page as $xmlPage) {
-                ++$indexXmlPage;
+                ++$indexPageXml;
                 $attributes = $xmlPage->attributes();
                 $page = [];
                 $page['number'] = (string) @$attributes->number;
@@ -417,17 +417,17 @@ class IiifSearch extends AbstractHelper
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
 
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $indexXmlPage) {
+                if ($pageIndex !== $indexPageXml) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
@@ -453,7 +453,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
-                                    $this->firstXmlFile->id(), $indexXmlPage + 1, $indexXmlLine + 1
+                                    $this->mediaXmlFirst->id(), $indexPageXml + 1, $indexXmlLine + 1
                                 ));
                                 continue;
                             }
@@ -485,7 +485,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: PDF to XML conversion failed for media file #%d!', // @translate
-                $this->firstXmlFile->id()
+                $this->mediaXmlFirst->id()
             ));
             return null;
         }
@@ -615,14 +615,14 @@ class IiifSearch extends AbstractHelper
      */
     protected function prepareSearch(): bool
     {
-        $this->xmlFiles = [];
+        $this->mediaXml = [];
         $this->imageSizes = [];
 
         $this->prepareSearchOrder();
 
-        $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
+        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
-        $result = $this->firstXmlFile
+        $result = $this->mediaXmlFirst
             && count($this->imageSizes);
 
         if (!$result) {
@@ -642,13 +642,13 @@ class IiifSearch extends AbstractHelper
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
             if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[] = $media;
+                $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
                         $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[] = $media;
+                $this->mediaXml[] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
@@ -691,7 +691,7 @@ class IiifSearch extends AbstractHelper
         $result = [];
 
         $xmls = [];
-        foreach ($this->xmlFiles as $indexXml => $media) {
+        foreach ($this->mediaXml as $indexXml => $media) {
             $xmls[$indexXml] = pathinfo($media->source(), PATHINFO_FILENAME);
         }
 
@@ -700,12 +700,12 @@ class IiifSearch extends AbstractHelper
             $xmlIndex = array_search($basename, $xmls);
             $result[$indexImage] = $xmlIndex === false
                 ? null
-                : $this->xmlFiles[$xmlIndex];
+                : $this->mediaXml[$xmlIndex];
         }
 
-        $this->xmlFiles = $result;
+        $this->mediaXml = $result;
 
-        $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
+        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         return $this;
     }
@@ -771,16 +771,16 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
-        if (!$this->firstXmlFile) {
+        if (!$this->mediaXmlFirst) {
             return null;
         }
 
         // The media type is already checked.
-        $this->mediaType = $this->firstXmlFile->mediaType();
+        $this->mediaType = $this->mediaXmlFirst->mediaType();
 
         $toCache = false;
         // Merge all xml
-        if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
+        if ($this->mediaType === 'application/alto+xml' && count($this->mediaXml) > 1) {
             // Check if the file is cached via module DerivativeMedia.
             if ($this->derivativeList) {
                 $derivative = $this->derivativeList->__invoke($this->item, ['type' => 'alto']);
@@ -803,7 +803,7 @@ class IiifSearch extends AbstractHelper
             // For compatibility, the process require all filepath and media id.
             // Files are already checked.
             $mediaData = [];
-            foreach ($this->xmlFiles as $media) {
+            foreach ($this->mediaXml as $media) {
                 $mediaId = $media->id();
                 $filename = $media->filename();
                 $filepath = $this->basePath . '/original/' . $filename;
@@ -836,9 +836,9 @@ class IiifSearch extends AbstractHelper
         }
 
         // Get local file if any, else url (there is only one file here).
-        $filepath = ($filename = $this->firstXmlFile->filename())
+        $filepath = ($filename = $this->mediaXmlFirst->filename())
             ? $this->basePath . '/original/' . $filename
-            : $this->firstXmlFile->originalUrl();
+            : $this->mediaXmlFirst->originalUrl();
 
         $isPdf2Xml = $this->mediaType === 'application/vnd.pdf2xml+xml';
 
@@ -882,7 +882,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML content is incorrect for media #%d.', // @translate
-                $this->firstXmlFile->id()
+                $this->mediaXmlFirst->id()
             ));
             return null;
         }
@@ -890,7 +890,7 @@ class IiifSearch extends AbstractHelper
         if (!$currentXml) {
             $this->logger->err(sprintf(
                 'Error: XML content seems empty for media #%d.', // @translate
-                $this->firstXmlFile->id()
+                $this->mediaXmlFirst->id()
             ));
             return null;
         }
