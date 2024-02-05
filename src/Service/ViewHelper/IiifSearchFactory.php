@@ -21,7 +21,7 @@ class IiifSearchFactory
             $helpers->get('fixUtf8'),
             $helpers->get('xmlAltoSingle'),
             $plugins->has('imageSize') ? $plugins->get('imageSize') : null,
-            $helpers->has('hasDerivative') ? $helpers->get('hasDerivative') : null,
+            $helpers->has('derivativeList') ? $helpers->get('derivativeList') : null,
             $basePath,
             !$settings->get('iiifsearch_disable_search_media_values'),
             $settings->get('iiifsearch_xml_image_match', 'order'),

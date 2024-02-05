@@ -2,7 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
-use DerivativeMedia\View\Helper\HasDerivative;
+use DerivativeMedia\View\Helper\DerivativeList;
 use DOMDocument;
 use Exception;
 use IiifSearch\Iiif\AnnotationList;
@@ -57,9 +57,9 @@ class IiifSearch extends AbstractHelper
     protected $imageSize;
 
     /**
-     * @var \DerivativeMedia\View\Helper\HasDerivative
+     * @var \DerivativeMedia\View\Helper\DerivativeList
      */
-    protected $hasDerivative;
+    protected $derivativeList;
 
     /**
      * Full path to the files.
@@ -114,7 +114,7 @@ class IiifSearch extends AbstractHelper
         FixUtf8 $fixUtf8,
         XmlAltoSingle $xmlAltoSingle,
         ?ImageSize $imageSize,
-        ?HasDerivative $hasDerivative,
+        ?DerivativeList $derivativeList,
         string $basePath,
         bool $searchMediaValues,
         string $xmlImageMatch,
@@ -125,7 +125,7 @@ class IiifSearch extends AbstractHelper
         $this->fixUtf8 = $fixUtf8;
         $this->xmlAltoSingle = $xmlAltoSingle;
         $this->imageSize = $imageSize;
-        $this->hasDerivative = $hasDerivative;
+        $this->derivativeList = $derivativeList;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
         $this->xmlImageMatch = $xmlImageMatch;
@@ -782,8 +782,8 @@ class IiifSearch extends AbstractHelper
         // Merge all xml
         if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
             // Check if the file is cached via module DerivativeMedia.
-            if ($this->hasDerivative) {
-                $derivative = $this->hasDerivative->__invoke($this->item, 'alto');
+            if ($this->derivativeList) {
+                $derivative = $this->derivativeList->__invoke($this->item, ['type' => 'alto']);
                 if ($derivative) {
                     $filepath = $this->basePath . '/' . $derivative['alto']['file'];
                     if ($derivative['alto']['ready']) {
