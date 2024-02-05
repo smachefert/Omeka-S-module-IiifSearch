@@ -288,7 +288,8 @@ class IiifSearch extends AbstractHelper
 
         $resource = $this->item;
         try {
-            // The hit index.
+            // The hit index in the full resource, used to build search result
+            // uris.
             $hit = 0;
             // 0-based page index.
             $indexPageXml = -1;
@@ -356,6 +357,7 @@ class IiifSearch extends AbstractHelper
                             ++$hit;
 
                             $image = $this->imageSizes[$pageIndex];
+
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
@@ -379,7 +381,7 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: XML alto content may be invalid for item #%1$d, index #%2$d!', // @translate
+                'Error: XML alto content may be invalid for item #%1$d, index #%2$d.', // @translate
                 $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
             ));
             return null;
@@ -414,6 +416,8 @@ class IiifSearch extends AbstractHelper
         $resource = $this->item;
         $matches = [];
         try {
+            // The hit index in the full resource, used to build search result
+            // uris.
             $hit = 0;
             // 0-based page index.
             $indexPageXml = -1;
@@ -445,8 +449,10 @@ class IiifSearch extends AbstractHelper
 
                 $hits = [];
                 $hitMatches = [];
+
                 // 0-based row index.
                 $indexXmlLine = -1;
+
                 foreach ($xmlPage->text as $xmlRow) {
                     ++$indexXmlLine;
                     $zone = [];
@@ -472,6 +478,7 @@ class IiifSearch extends AbstractHelper
                             ++$hit;
 
                             $image = $this->imageSizes[$pageIndex];
+
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
@@ -495,7 +502,7 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: PDF to XML conversion failed for item #%1$d, media file #%2$d!', // @translate
+                'Error: PDF to XML conversion failed for item #%1$d, media file #%2$d.', // @translate
                 $this->mediaXmlFirst->item()->id(), $this->mediaXmlFirst->id()
             ));
             return null;
@@ -509,23 +516,30 @@ class IiifSearch extends AbstractHelper
     protected function searchFulltextTsv($file, $queryWords) :?array
     {
         // Extract whole tsv.
-        $tsvRows = [];
         $handle = fopen($file, 'r');
         if ($handle === false) {
             $this->logger->err(sprintf(
-                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d!', // @translate
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
                 $this->item->id(), $this->mediaTsv->id()
             ));
             return null;
         }
 
+        $wordPositions = [];
         while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
-            $tsvRows[] = $data;
+            $wordPositions[$data[0]] = $data[1];
         }
 
         // In tsv, the words are more cleaned than xml during extract ocr process.
-        foreach ($queryWords as $key => $queryWord) {
-            $queryWords[$key] = $this->slugify($queryWord);
+        $queryWordsByWords = [];
+        foreach ($queryWords as $queryWord) {
+            $word = $this->slugify($queryWord);
+            $queryWordsByWords[$word] = $word;
+        }
+
+        $wordPositions = array_intersect_key($wordPositions, $queryWordsByWords);
+        if (!count($wordPositions)) {
+            return null;
         }
 
         // TODO Manage multiple terms in search (OR): requires a tsv file formatted with one row by word, so set an option in ExtractOcr.
@@ -545,96 +559,90 @@ class IiifSearch extends AbstractHelper
             'hit' => 0,
         ];
 
-        // A search result is an annotation on the canvas of the original item,
-        // so an url managed by the iiif server.
-        $view = $this->getView();
-        $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'annotation',
-            'name' => 'search-result',
-        ]) . '/';
-
-        $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
-            'type' => 'canvas',
-        ]) . '/p';
-
         $resource = $this->item;
+
         try {
+            // The hit index in the full resource, used to build search result
+            // uris.
             $hit = 0;
             $page = 0;
             // 0-based page index.
             $indexPageTsv = -1;
 
-            $pages = [];
-            $tsvRow = 1;
+            // Because the tsv is not structured by page, store results then
+            // normalize response. The two-steps process is simpler and allows
+            // to keep the hits in the right order.
+            $results = [];
 
-            // Search each word in rows from tsv.
-            foreach ($queryWords as $word) {
-                $found = [];
-                foreach ($tsvRows as $tsvRowIndex => $tsvRow) {
-                    $test = array_search($word, $tsvRow);
-                    if ($test === 0) {
-                        $found[$tsvRowIndex] = $tsvRow[1];
+            // All words are already found.
+            foreach ($wordPositions as $chars => $positions) {
+                $zone = [];
+                $zone['text'] = $chars;
+                foreach (explode(';', $positions) as $position) {
+                    $pageIndex = strtok($position, ':');
+                    $zone['left'] = strtok(',');
+                    $zone['top'] = strtok(',');
+                    $zone['width'] = strtok(',');
+                    $zone['height'] = strtok(',');
+
+                    if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
+                        $this->logger->warn(sprintf(
+                            'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s.', // @translate
+                            $this->mediaTsv->item()->id(), $this->mediaTsv->id(), $indexPageTsv + 1, $chars
+                        ));
+                        continue;
                     }
-                }
 
-                if (!count($found)) {
-                    continue;
-                }
+                    ++$hit;
 
-                foreach ($found as $positions) {
-                    $zone = [];
-                    $zone['text'] = $word;
-                    $chars = '';
+                    // Images are 0-based, but pageIndex is 1-based.
+                    $image = $this->imageSizes[$pageIndex - 1];
 
-                    $resultats = explode(';', $positions);
+                    $page = [];
+                    $page['number'] = (string) $pageIndex;
+                    $page['width'] = (string) $image['width'];
+                    $page['height'] = (string) $image['height'];
 
-                    foreach ($resultats as $resultat) {
-                        $pageIndex = strtok($resultat, ':');
-                        $zone['left'] = strtok(',');
-                        $zone['top'] = strtok(',');
-                        $zone['width'] = strtok(',');
-                        $zone['height'] = strtok(',');
-
-                        // Store results by page.
-                        if (array_key_exists($pageIndex, $pages)) {
-                            $pages[$pageIndex]++;
-                        } else {
-                            $pages[$pageIndex] = 1;
-                        }
-
-                        if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
-                            $this->logger->warn(sprintf(
-                                'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, row %4$d.', // @translate
-                                $this->mediaTsv->item()->id(), $this->mediaTsv->id(), $indexPageTsv + 1, $tsvRowIndex + 1
-                            ));
-                            continue;
-                        }
-
-                        ++$hit;
-
-                        // Images are 0-based, but pageIndex is 1-based.
-                        $image = $this->imageSizes[$pageIndex - 1];
-                        $page = [];
-                        $page['number'] = (string) $pageIndex;
-                        $page['width'] = (string) $image['width'];
-                        $page['height'] = (string) $image['height'];
-
-                        $searchResult = new AnnotationSearchResult;
-                        $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
-                        $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
-                        $result['media_ids'][] = $image['id'];
-
-                        $hits[] = $searchResult->id();
-                        // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                        // TODO Get the text before first and last hit of the page.
-                        $hitMatches[] = $word;
-                    }
+                    $results[$pageIndex][$hit]['resource'] = $resource;
+                    $results[$pageIndex][$hit]['image'] = $image;
+                    $results[$pageIndex][$hit]['page'] = $page;
+                    $results[$pageIndex][$hit]['zone'] = $zone;
+                    $results[$pageIndex][$hit]['chars'] = $chars;
+                    $results[$pageIndex][$hit]['hit'] = $hit;
                 }
             }
 
-            // Add hits per page.
-            asort($pages);
-            foreach ($pages as $pageIndex) {
+            // A search result is an annotation on the canvas of the original item,
+            // so an url managed by the iiif server.
+            $view = $this->getView();
+            $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+                'type' => 'annotation',
+                'name' => 'search-result',
+            ]) . '/';
+
+            $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+                'type' => 'canvas',
+            ]) . '/p';
+
+            // The variable is reinit below, so store total first.
+            $result['hit'] = $hit;
+
+            // Add hits per page for all pages.
+            ksort($results);
+            foreach ($results as $pageIndex => $resultHits) {
+                $hits = [];
+                foreach ($resultHits as $hit => $resultHit) {
+                    $searchResult = new AnnotationSearchResult;
+                    $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                    $result['resources'][] = $searchResult->setResult($resultHit);
+                    $result['media_ids'][] = $resultHit['image']['id'];
+
+                    $hits[] = $searchResult->id();
+                    // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                    // TODO Get the text before first and last hit of the page.
+                    $hitMatches[] = $resultHit['chars'];
+                }
+
                 $searchHit = new SearchHit;
                 $searchHit['annotations'] = $hits;
                 $searchHit['match'] = implode(' ', array_unique($hitMatches));
@@ -642,13 +650,11 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d!', // @translate
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
                 $this->mediaTsv->item()->id(), $this->mediaTsv->id()
             ));
             return null;
         }
-
-        $result['hit'] = $hit;
 
         return $result;
     }
