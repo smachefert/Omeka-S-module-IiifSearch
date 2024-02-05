@@ -61,3 +61,10 @@ if (version_compare($oldVersion, '3.4.4', '<')) {
     );
     $messenger->addSuccess($message);
 }
+
+if (version_compare($oldVersion, '3.4.6', '<')) {
+    $message = new Message(
+        'The module supports the tsv format for quicker search results. See module Extract OCR.' // @translate
+    );
+    $messenger->addSuccess($message);
+}
