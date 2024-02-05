@@ -24,6 +24,7 @@ class IiifSearch extends AbstractHelper
     protected $supportedMediaTypes = [
         'application/alto+xml',
         'application/vnd.pdf2xml+xml',
+        'text/tab-separated-values',
     ];
 
     /**
@@ -87,6 +88,11 @@ class IiifSearch extends AbstractHelper
      * @var ItemRepresentation
      */
     protected $item;
+
+    /**
+     * @var \Omeka\Api\Representation\MediaRepresentation
+     */
+    protected $mediaTsv;
 
     /**
      * @var \Omeka\Api\Representation\MediaRepresentation[]
@@ -233,6 +239,11 @@ class IiifSearch extends AbstractHelper
         $queryWords = $this->formatQuery($query);
         if (empty($queryWords)) {
             return null;
+        }
+
+        if ($this->mediaType === 'text/tab-separated-values') {
+            $filepath = $this->basePath . '/original/' . $this->mediaTsv->filename();
+            return $this->searchFullTextTsv($filepath, $queryWords);
         }
 
         $xml = $this->loadXml();
@@ -484,8 +495,155 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: PDF to XML conversion failed for media file #%d!', // @translate
-                $this->mediaXmlFirst->id()
+                'Error: PDF to XML conversion failed for item #%1$d, media file #%2$d!', // @translate
+                $this->mediaXmlFirst->item()->id(), $this->mediaXmlFirst->id()
+            ));
+            return null;
+        }
+
+        $result['hit'] = $hit;
+
+        return $result;
+    }
+
+    protected function searchFulltextTsv($file, $queryWords) :?array
+    {
+        // Extract whole tsv.
+        $tsvRows = [];
+        $handle = fopen($file, 'r');
+        if ($handle === false) {
+            $this->logger->err(sprintf(
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d!', // @translate
+                $this->item->id(), $this->mediaTsv->id()
+            ));
+            return null;
+        }
+
+        while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+            $tsvRows[] = $data;
+        }
+
+        // In tsv, the words are more cleaned than xml during extract ocr process.
+        foreach ($queryWords as $key => $queryWord) {
+            $queryWords[$key] = $this->slugify($queryWord);
+        }
+
+        // TODO Manage multiple terms in search (OR): requires a tsv file formatted with one row by word, so set an option in ExtractOcr.
+        /*
+        $search = [];
+        $tok = strtok($query, ' ');
+        while ($tok !== false) {
+            $search[] = $tok;
+            $tok = strtok(' ');
+        }
+         */
+
+        $result = [
+            'resources' => [],
+            'hits' => [],
+            'media_ids' => [],
+            'hit' => 0,
+        ];
+
+        // A search result is an annotation on the canvas of the original item,
+        // so an url managed by the iiif server.
+        $view = $this->getView();
+        $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'annotation',
+            'name' => 'search-result',
+        ]) . '/';
+
+        $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+            'type' => 'canvas',
+        ]) . '/p';
+
+        $resource = $this->item;
+        try {
+            $hit = 0;
+            $page = 0;
+            // 0-based page index.
+            $indexPageTsv = -1;
+
+            $pages = [];
+            $tsvRow = 1;
+
+            // Search each word in rows from tsv.
+            foreach ($queryWords as $word) {
+                $found = [];
+                foreach ($tsvRows as $tsvRowIndex => $tsvRow) {
+                    $test = array_search($word, $tsvRow);
+                    if ($test === 0) {
+                        $found[$tsvRowIndex] = $tsvRow[1];
+                    }
+                }
+
+                if (!count($found)) {
+                    continue;
+                }
+
+                foreach ($found as $positions) {
+                    $zone = [];
+                    $zone['text'] = $word;
+                    $chars = '';
+
+                    $resultats = explode(';', $positions);
+
+                    foreach ($resultats as $resultat) {
+                        $pageIndex = strtok($resultat, ':');
+                        $zone['left'] = strtok(',');
+                        $zone['top'] = strtok(',');
+                        $zone['width'] = strtok(',');
+                        $zone['height'] = strtok(',');
+
+                        // Store results by page.
+                        if (array_key_exists($pageIndex, $pages)) {
+                            $pages[$pageIndex]++;
+                        } else {
+                            $pages[$pageIndex] = 1;
+                        }
+
+                        if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
+                            $this->logger->warn(sprintf(
+                                'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, row %4$d.', // @translate
+                                $this->mediaTsv->item()->id(), $this->mediaTsv->id(), $indexPageTsv + 1, $tsvRowIndex + 1
+                            ));
+                            continue;
+                        }
+
+                        ++$hit;
+
+                        // Images are 0-based, but pageIndex is 1-based.
+                        $image = $this->imageSizes[$pageIndex - 1];
+                        $page = [];
+                        $page['number'] = (string) $pageIndex;
+                        $page['width'] = (string) $image['width'];
+                        $page['height'] = (string) $image['height'];
+
+                        $searchResult = new AnnotationSearchResult;
+                        $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                        $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
+                        $result['media_ids'][] = $image['id'];
+
+                        $hits[] = $searchResult->id();
+                        // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                        // TODO Get the text before first and last hit of the page.
+                        $hitMatches[] = $word;
+                    }
+                }
+            }
+
+            // Add hits per page.
+            asort($pages);
+            foreach ($pages as $pageIndex) {
+                $searchHit = new SearchHit;
+                $searchHit['annotations'] = $hits;
+                $searchHit['match'] = implode(' ', array_unique($hitMatches));
+                $result['hits'][] = $searchHit;
+            }
+        } catch (\Exception $e) {
+            $this->logger->err(sprintf(
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d!', // @translate
+                $this->mediaTsv->item()->id(), $this->mediaTsv->id()
             ));
             return null;
         }
@@ -600,6 +758,7 @@ class IiifSearch extends AbstractHelper
     /**
      * Check if the item support search and init the xml files.
      *
+     * There may be one tsv file for the whole item.
      * There may be one xml for all pages (pdf2xml).
      * There may be one xml by page.
      * There may be missing alto to some images.
@@ -622,6 +781,11 @@ class IiifSearch extends AbstractHelper
 
         $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
+        if ($this->mediaTsv) {
+            $this->mediaType = 'text/tab-separated-values';
+            return true;
+        }
+
         $result = $this->mediaXmlFirst
             && count($this->imageSizes);
 
@@ -641,7 +805,11 @@ class IiifSearch extends AbstractHelper
         foreach ($this->item->media() as $media) {
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
-            if (in_array($mediaType, $this->supportedMediaTypes)) {
+            if ($mediaType === 'text/tab-separated-values') {
+                $this->mediaTsv = $media;
+                $this->mediaType = 'text/tab-separated-values';
+            } elseif (in_array($mediaType, $this->supportedMediaTypes)) {
+                // The supported media types are only xml here.
                 $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
@@ -960,5 +1128,26 @@ class IiifSearch extends AbstractHelper
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
+    }
+
+    /**
+     * Transform the given string into a valid URL slug
+     *
+     * @param string $input
+     * @return string
+     */
+    protected function slugify($input)
+    {
+        if (extension_loaded('intl')) {
+            $transliterator = \Transliterator::createFromRules(':: NFD; :: [:Nonspacing Mark:] Remove; :: NFC;');
+            $slug = $transliterator->transliterate($input);
+        } elseif (extension_loaded('iconv')) {
+            $slug = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $input);
+        } else {
+            $slug = $input;
+        }
+        $slug = mb_strtolower($slug, 'UTF-8');
+
+        return $slug;
     }
 }

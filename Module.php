@@ -61,6 +61,7 @@ class Module extends AbstractModule
         $searchMediaTypes = [
             'application/alto+xml',
             'application/vnd.pdf2xml+xml',
+            'text/tab-separated-values',
         ];
         foreach ($resource->media() as $media) {
             $mediaType = $media->mediaType();
