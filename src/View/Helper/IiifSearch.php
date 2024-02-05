@@ -754,7 +754,7 @@ class IiifSearch extends AbstractHelper
             }
         }
         if (count($chars) > 1) {
-            $chars[] = preg_quote($queryWords, '/');
+            $chars[] = preg_quote(implode(' ', $queryWords), '/');
         }
         return $chars;
     }
