@@ -156,7 +156,7 @@ class AnnotationSearchResult extends AbstractSimpleType
         } else {
             $x = $this->_result['zone']['left'];
             $y = $this->_result['zone']['top'];
-            $w = $this->_result['zone']['width'];;
+            $w = $this->_result['zone']['width'];
             $h = $this->_result['zone']['height'];
         }
 

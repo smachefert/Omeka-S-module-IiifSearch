@@ -2,15 +2,15 @@
 
 namespace IiifSearch;
 
+use IiifSearch\Form\ConfigForm;
 use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
-use Laminas\Mvc\MvcEvent;
-use Laminas\ServiceManager\ServiceLocatorInterface;
-use Omeka\Module\AbstractModule;
-
 use Laminas\Mvc\Controller\AbstractController;
-use IiifSearch\Form\ConfigForm;
+use Laminas\Mvc\MvcEvent;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
 use Laminas\View\Renderer\PhpRenderer;
+use Omeka\Module\AbstractModule;
 
 class Module extends AbstractModule
 {
