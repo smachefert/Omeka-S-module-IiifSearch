@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2023-10-30 00:00+0000\n"
+"POT-Creation-Date: 2024-02-05 00:00+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -65,7 +65,13 @@ msgstr ""
 msgid "A new option allows to fix bad xml and invalid utf-8 characters."
 msgstr ""
 
-#: Module.php:93 Module.php:103 Module.php:110
+#: data/scripts/upgrade.php:67
+msgid ""
+"The module supports the tsv format for quicker search results. See module "
+"Extract OCR."
+msgstr ""
+
+#: Module.php:94 Module.php:107 Module.php:114
 msgid "Search within this manifest"
 msgstr ""
 
@@ -94,43 +100,54 @@ msgid ""
 "searched quickly."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:284
+#: src/View/Helper/IiifSearch.php:313
 #, php-format
 msgid "Incomplete data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:295 src/View/Helper/IiifSearch.php:322
+#: src/View/Helper/IiifSearch.php:324 src/View/Helper/IiifSearch.php:351
 #, php-format
 msgid "Inconsistent data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:354
+#: src/View/Helper/IiifSearch.php:384
 #, php-format
-msgid "Error: XML alto content may be invalid for item #%1$d, index #%2$d!"
+msgid "Error: XML alto content may be invalid for item #%1$d, index #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:400
+#: src/View/Helper/IiifSearch.php:434
 #, php-format
 msgid "Incomplete data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:410
+#: src/View/Helper/IiifSearch.php:444
 #, php-format
 msgid "Inconsistent data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:435
+#: src/View/Helper/IiifSearch.php:472
 #, php-format
 msgid ""
 "Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:467
+#: src/View/Helper/IiifSearch.php:505
 #, php-format
-msgid "Error: PDF to XML conversion failed for media file #%d!"
+msgid "Error: PDF to XML conversion failed for item #%1$d, media file #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:622
+#: src/View/Helper/IiifSearch.php:522 src/View/Helper/IiifSearch.php:653
+#, php-format
+msgid "Error: PDF to TSV conversion failed for item #%1$d, media #%2$d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:590
+#, php-format
+msgid ""
+"Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:822
 #, php-format
 msgid ""
 "Warning: Xml format \"%1$s\" of media #%2$d is not precise. It may be "
@@ -138,17 +155,17 @@ msgid ""
 "type."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:846 src/View/Helper/XmlAltoSingle.php:157
+#: src/View/Helper/IiifSearch.php:1058 src/View/Helper/XmlAltoSingle.php:158
 #, php-format
 msgid "Error: XML content is incorrect for media #%d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:854 src/View/Helper/XmlAltoSingle.php:165
+#: src/View/Helper/IiifSearch.php:1066 src/View/Helper/XmlAltoSingle.php:166
 #, php-format
 msgid "Error: XML content seems empty for media #%d."
 msgstr ""
 
-#: src/View/Helper/XmlAltoSingle.php:210
+#: src/View/Helper/XmlAltoSingle.php:227
 #, php-format
 msgid "Error: Cannot get XML content from media #%d."
 msgstr ""

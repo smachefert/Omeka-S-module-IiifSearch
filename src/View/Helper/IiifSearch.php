@@ -2,7 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
-use DerivativeMedia\View\Helper\HasDerivative;
+use DerivativeMedia\View\Helper\DerivativeList;
 use DOMDocument;
 use Exception;
 use IiifSearch\Iiif\AnnotationList;
@@ -24,6 +24,7 @@ class IiifSearch extends AbstractHelper
     protected $supportedMediaTypes = [
         'application/alto+xml',
         'application/vnd.pdf2xml+xml',
+        'text/tab-separated-values',
     ];
 
     /**
@@ -32,14 +33,14 @@ class IiifSearch extends AbstractHelper
     protected $minimumQueryLength = 3;
 
     /**
-     * @var \Laminas\Log\Logger
-     */
-    protected $logger;
-
-    /**
      * @var \Omeka\Api\Manager
      */
     protected $api;
+
+    /**
+     * @var \DerivativeMedia\View\Helper\DerivativeList
+     */
+    protected $derivativeList;
 
     /**
      * @var \IiifServer\Mvc\Controller\Plugin\FixUtf8
@@ -47,19 +48,19 @@ class IiifSearch extends AbstractHelper
     protected $fixUtf8;
 
     /**
-     * @var \IiifSearch\View\Helper\XmlAltoSingle
-     */
-    protected $xmlAltoSingle;
-
-    /**
      * @var \IiifServer\Mvc\Controller\Plugin\ImageSize
      */
     protected $imageSize;
 
     /**
-     * @var \DerivativeMedia\View\Helper\HasDerivative
+     * @var \Laminas\Log\Logger
      */
-    protected $hasDerivative;
+    protected $logger;
+
+    /**
+     * @var \IiifSearch\View\Helper\XmlAltoSingle
+     */
+    protected $xmlAltoSingle;
 
     /**
      * Full path to the files.
@@ -76,12 +77,12 @@ class IiifSearch extends AbstractHelper
     /**
      * @var string
      */
-    protected $xmlImageMatch;
+    protected $xmlFixMode;
 
     /**
      * @var string
      */
-    protected $xmlFixMode;
+    protected $xmlImageMatch;
 
     /**
      * @var ItemRepresentation
@@ -89,24 +90,29 @@ class IiifSearch extends AbstractHelper
     protected $item;
 
     /**
+     * @var \Omeka\Api\Representation\MediaRepresentation
+     */
+    protected $mediaTsv;
+
+    /**
      * @var \Omeka\Api\Representation\MediaRepresentation[]
      */
-    protected $xmlFiles;
+    protected $mediaXml;
 
     /**
      * @var \Omeka\Api\Representation\MediaRepresentation
      */
-    protected $firstXmlFile;
-
-    /**
-     * @var string
-     */
-    protected $mediaType;
+    protected $mediaXmlFirst;
 
     /**
      * @var array
      */
     protected $imageSizes;
+
+    /**
+     * @var string
+     */
+    protected $mediaType;
 
     public function __construct(
         Logger $logger,
@@ -114,7 +120,7 @@ class IiifSearch extends AbstractHelper
         FixUtf8 $fixUtf8,
         XmlAltoSingle $xmlAltoSingle,
         ?ImageSize $imageSize,
-        ?HasDerivative $hasDerivative,
+        ?DerivativeList $derivativeList,
         string $basePath,
         bool $searchMediaValues,
         string $xmlImageMatch,
@@ -125,7 +131,7 @@ class IiifSearch extends AbstractHelper
         $this->fixUtf8 = $fixUtf8;
         $this->xmlAltoSingle = $xmlAltoSingle;
         $this->imageSize = $imageSize;
-        $this->hasDerivative = $hasDerivative;
+        $this->derivativeList = $derivativeList;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
         $this->xmlImageMatch = $xmlImageMatch;
@@ -235,6 +241,11 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        if ($this->mediaType === 'text/tab-separated-values') {
+            $filepath = $this->basePath . '/original/' . $this->mediaTsv->filename();
+            return $this->searchFullTextTsv($filepath, $queryWords);
+        }
+
         $xml = $this->loadXml();
         if (empty($xml)) {
             return null;
@@ -277,13 +288,14 @@ class IiifSearch extends AbstractHelper
 
         $resource = $this->item;
         try {
-            // The hit index.
+            // The hit index in the full resource, used to build search result
+            // uris.
             $hit = 0;
             // 0-based page index.
-            $indexXmlPage = -1;
+            $indexPageXml = -1;
             /** @var \SimpleXmlElement $xmlPage */
             foreach ($xml->Layout->Page as $xmlPage) {
-                ++$indexXmlPage;
+                ++$indexPageXml;
                 $attributes = $xmlPage->attributes();
                 // Skip empty pages.
                 if (!$attributes->count()) {
@@ -293,24 +305,24 @@ class IiifSearch extends AbstractHelper
                 // TODO Check why casting to string is needed.
                 $page = [];
                 // $page['number'] = (string) ((@$attributes->PHYSICAL_IMG_NR) + 1);
-                $page['number'] = (string) ($indexXmlPage + 1);
+                $page['number'] = (string) ($indexPageXml + 1);
                 $page['width'] = (string) @$attributes->WIDTH;
                 $page['height'] = (string) @$attributes->HEIGHT;
                 if (!$page['width'] || !$page['height']) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
 
-                $pageIndex = $indexXmlPage;
+                $pageIndex = $indexPageXml;
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $indexXmlPage) {
+                if ($pageIndex !== $indexPageXml) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
@@ -337,7 +349,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from item #%1$s, page %2$s.', // @translate
-                                    $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                                    $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
                                 ));
                                 continue;
                             }
@@ -345,6 +357,7 @@ class IiifSearch extends AbstractHelper
                             ++$hit;
 
                             $image = $this->imageSizes[$pageIndex];
+
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
@@ -368,8 +381,8 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: XML alto content may be invalid for item #%1$d, index #%2$d!', // @translate
-                $this->firstXmlFile->item()->id(), $indexXmlPage + 1
+                'Error: XML alto content may be invalid for item #%1$d, index #%2$d.', // @translate
+                $this->mediaXmlFirst->item()->id(), $indexPageXml + 1
             ));
             return null;
         }
@@ -403,12 +416,14 @@ class IiifSearch extends AbstractHelper
         $resource = $this->item;
         $matches = [];
         try {
+            // The hit index in the full resource, used to build search result
+            // uris.
             $hit = 0;
             // 0-based page index.
-            $indexXmlPage = -1;
+            $indexPageXml = -1;
             // There is one xml that contains text of each page.
             foreach ($xml->page as $xmlPage) {
-                ++$indexXmlPage;
+                ++$indexPageXml;
                 $attributes = $xmlPage->attributes();
                 $page = [];
                 $page['number'] = (string) @$attributes->number;
@@ -417,25 +432,27 @@ class IiifSearch extends AbstractHelper
                 if (!strlen($page['number']) || !strlen($page['width']) || !strlen($page['height'])) {
                     $this->logger->warn(sprintf(
                         'Incomplete data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
 
                 // Should be the same than index.
                 $pageIndex = $page['number'] - 1;
-                if ($pageIndex !== $indexXmlPage) {
+                if ($pageIndex !== $indexPageXml) {
                     $this->logger->warn(sprintf(
                         'Inconsistent data for xml file from pdf media #%1$s, page %2$s.', // @translate
-                        $this->firstXmlFile->id(), $indexXmlPage + 1
+                        $this->mediaXmlFirst->id(), $indexPageXml + 1
                     ));
                     continue;
                 }
 
                 $hits = [];
                 $hitMatches = [];
+
                 // 0-based row index.
                 $indexXmlLine = -1;
+
                 foreach ($xmlPage->text as $xmlRow) {
                     ++$indexXmlLine;
                     $zone = [];
@@ -453,7 +470,7 @@ class IiifSearch extends AbstractHelper
                             if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
                                 $this->logger->warn(sprintf(
                                     'Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s.', // @translate
-                                    $this->firstXmlFile->id(), $indexXmlPage + 1, $indexXmlLine + 1
+                                    $this->mediaXmlFirst->id(), $indexPageXml + 1, $indexXmlLine + 1
                                 ));
                                 continue;
                             }
@@ -461,6 +478,7 @@ class IiifSearch extends AbstractHelper
                             ++$hit;
 
                             $image = $this->imageSizes[$pageIndex];
+
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
                             $result['resources'][] = $searchResult->setResult(compact('resource', 'image', 'page', 'zone', 'chars', 'hit'));
@@ -484,13 +502,159 @@ class IiifSearch extends AbstractHelper
             }
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
-                'Error: PDF to XML conversion failed for media file #%d!', // @translate
-                $this->firstXmlFile->id()
+                'Error: PDF to XML conversion failed for item #%1$d, media file #%2$d.', // @translate
+                $this->mediaXmlFirst->item()->id(), $this->mediaXmlFirst->id()
             ));
             return null;
         }
 
         $result['hit'] = $hit;
+
+        return $result;
+    }
+
+    protected function searchFulltextTsv($file, $queryWords) :?array
+    {
+        // Extract whole tsv.
+        $handle = fopen($file, 'r');
+        if ($handle === false) {
+            $this->logger->err(sprintf(
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
+                $this->item->id(), $this->mediaTsv->id()
+            ));
+            return null;
+        }
+
+        $wordPositions = [];
+        while (($data = fgetcsv($handle, 1000000, "\t", chr(0), chr(0))) !== false) {
+            $wordPositions[$data[0]] = $data[1];
+        }
+
+        // In tsv, the words are more cleaned than xml during extract ocr process.
+        $queryWordsByWords = [];
+        foreach ($queryWords as $queryWord) {
+            $word = $this->slugify($queryWord);
+            $queryWordsByWords[$word] = $word;
+        }
+
+        $wordPositions = array_intersect_key($wordPositions, $queryWordsByWords);
+        if (!count($wordPositions)) {
+            return null;
+        }
+
+        // TODO Manage multiple terms in search (OR): requires a tsv file formatted with one row by word, so set an option in ExtractOcr.
+        /*
+        $search = [];
+        $tok = strtok($query, ' ');
+        while ($tok !== false) {
+            $search[] = $tok;
+            $tok = strtok(' ');
+        }
+         */
+
+        $result = [
+            'resources' => [],
+            'hits' => [],
+            'media_ids' => [],
+            'hit' => 0,
+        ];
+
+        $resource = $this->item;
+
+        try {
+            // The hit index in the full resource, used to build search result
+            // uris.
+            $hit = 0;
+            $page = 0;
+            // 0-based page index.
+            $indexPageTsv = -1;
+
+            // Because the tsv is not structured by page, store results then
+            // normalize response. The two-steps process is simpler and allows
+            // to keep the hits in the right order.
+            $results = [];
+
+            // All words are already found.
+            foreach ($wordPositions as $chars => $positions) {
+                $zone = [];
+                $zone['text'] = $chars;
+                foreach (explode(';', $positions) as $position) {
+                    $pageIndex = strtok($position, ':');
+                    $zone['left'] = strtok(',');
+                    $zone['top'] = strtok(',');
+                    $zone['width'] = strtok(',');
+                    $zone['height'] = strtok(',');
+
+                    if (!strlen($zone['top']) || !strlen($zone['left']) || !$zone['width'] || !$zone['height']) {
+                        $this->logger->warn(sprintf(
+                            'Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s.', // @translate
+                            $this->mediaTsv->item()->id(), $this->mediaTsv->id(), $indexPageTsv + 1, $chars
+                        ));
+                        continue;
+                    }
+
+                    ++$hit;
+
+                    // Images are 0-based, but pageIndex is 1-based.
+                    $image = $this->imageSizes[$pageIndex - 1];
+
+                    $page = [];
+                    $page['number'] = (string) $pageIndex;
+                    $page['width'] = (string) $image['width'];
+                    $page['height'] = (string) $image['height'];
+
+                    $results[$pageIndex][$hit]['resource'] = $resource;
+                    $results[$pageIndex][$hit]['image'] = $image;
+                    $results[$pageIndex][$hit]['page'] = $page;
+                    $results[$pageIndex][$hit]['zone'] = $zone;
+                    $results[$pageIndex][$hit]['chars'] = $chars;
+                    $results[$pageIndex][$hit]['hit'] = $hit;
+                }
+            }
+
+            // A search result is an annotation on the canvas of the original item,
+            // so an url managed by the iiif server.
+            $view = $this->getView();
+            $baseResultUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+                'type' => 'annotation',
+                'name' => 'search-result',
+            ]) . '/';
+
+            $baseCanvasUrl = $view->iiifUrl($this->item, 'iiifserver/uri', null, [
+                'type' => 'canvas',
+            ]) . '/p';
+
+            // The variable is reinit below, so store total first.
+            $result['hit'] = $hit;
+
+            // Add hits per page for all pages.
+            ksort($results);
+            foreach ($results as $pageIndex => $resultHits) {
+                $hits = [];
+                foreach ($resultHits as $hit => $resultHit) {
+                    $searchResult = new AnnotationSearchResult;
+                    $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
+                    $result['resources'][] = $searchResult->setResult($resultHit);
+                    $result['media_ids'][] = $resultHit['image']['id'];
+
+                    $hits[] = $searchResult->id();
+                    // TODO Get matches as whole world and all matches in last time (preg_match_all).
+                    // TODO Get the text before first and last hit of the page.
+                    $hitMatches[] = $resultHit['chars'];
+                }
+
+                $searchHit = new SearchHit;
+                $searchHit['annotations'] = $hits;
+                $searchHit['match'] = implode(' ', array_unique($hitMatches));
+                $result['hits'][] = $searchHit;
+            }
+        } catch (\Exception $e) {
+            $this->logger->err(sprintf(
+                'Error: PDF to TSV conversion failed for item #%1$d, media #%2$d.', // @translate
+                $this->mediaTsv->item()->id(), $this->mediaTsv->id()
+            ));
+            return null;
+        }
 
         return $result;
     }
@@ -600,6 +764,7 @@ class IiifSearch extends AbstractHelper
     /**
      * Check if the item support search and init the xml files.
      *
+     * There may be one tsv file for the whole item.
      * There may be one xml for all pages (pdf2xml).
      * There may be one xml by page.
      * There may be missing alto to some images.
@@ -615,14 +780,19 @@ class IiifSearch extends AbstractHelper
      */
     protected function prepareSearch(): bool
     {
-        $this->xmlFiles = [];
+        $this->mediaXml = [];
         $this->imageSizes = [];
 
         $this->prepareSearchOrder();
 
-        $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
+        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
-        $result = $this->firstXmlFile
+        if ($this->mediaTsv) {
+            $this->mediaType = 'text/tab-separated-values';
+            return true;
+        }
+
+        $result = $this->mediaXmlFirst
             && count($this->imageSizes);
 
         if (!$result) {
@@ -641,14 +811,18 @@ class IiifSearch extends AbstractHelper
         foreach ($this->item->media() as $media) {
             $mediaId = $media->id();
             $mediaType = $media->mediaType();
-            if (in_array($mediaType, $this->supportedMediaTypes)) {
-                $this->xmlFiles[] = $media;
+            if ($mediaType === 'text/tab-separated-values') {
+                $this->mediaTsv = $media;
+                $this->mediaType = 'text/tab-separated-values';
+            } elseif (in_array($mediaType, $this->supportedMediaTypes)) {
+                // The supported media types are only xml here.
+                $this->mediaXml[] = $media;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(
                     sprintf('Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
                         $mediaType, $mediaId, $media->originalUrl()
                 ));
-                $this->xmlFiles[] = $media;
+                $this->mediaXml[] = $media;
             } else {
                 // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
                 $mediaData = $media->mediaData();
@@ -691,7 +865,7 @@ class IiifSearch extends AbstractHelper
         $result = [];
 
         $xmls = [];
-        foreach ($this->xmlFiles as $indexXml => $media) {
+        foreach ($this->mediaXml as $indexXml => $media) {
             $xmls[$indexXml] = pathinfo($media->source(), PATHINFO_FILENAME);
         }
 
@@ -700,12 +874,12 @@ class IiifSearch extends AbstractHelper
             $xmlIndex = array_search($basename, $xmls);
             $result[$indexImage] = $xmlIndex === false
                 ? null
-                : $this->xmlFiles[$xmlIndex];
+                : $this->mediaXml[$xmlIndex];
         }
 
-        $this->xmlFiles = $result;
+        $this->mediaXml = $result;
 
-        $this->firstXmlFile = count($this->xmlFiles) ? reset($this->xmlFiles) : null;
+        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         return $this;
     }
@@ -754,7 +928,7 @@ class IiifSearch extends AbstractHelper
             }
         }
         if (count($chars) > 1) {
-            $chars[] = preg_quote($queryWords, '/');
+            $chars[] = preg_quote(implode(' ', $queryWords), '/');
         }
         return $chars;
     }
@@ -771,19 +945,19 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
-        if (!$this->firstXmlFile) {
+        if (!$this->mediaXmlFirst) {
             return null;
         }
 
         // The media type is already checked.
-        $this->mediaType = $this->firstXmlFile->mediaType();
+        $this->mediaType = $this->mediaXmlFirst->mediaType();
 
         $toCache = false;
         // Merge all xml
-        if ($this->mediaType === 'application/alto+xml' && count($this->xmlFiles) > 1) {
+        if ($this->mediaType === 'application/alto+xml' && count($this->mediaXml) > 1) {
             // Check if the file is cached via module DerivativeMedia.
-            if ($this->hasDerivative) {
-                $derivative = $this->hasDerivative->__invoke($this->item, 'alto');
+            if ($this->derivativeList) {
+                $derivative = $this->derivativeList->__invoke($this->item, ['type' => 'alto']);
                 if ($derivative) {
                     $filepath = $this->basePath . '/' . $derivative['alto']['file'];
                     if ($derivative['alto']['ready']) {
@@ -803,7 +977,7 @@ class IiifSearch extends AbstractHelper
             // For compatibility, the process require all filepath and media id.
             // Files are already checked.
             $mediaData = [];
-            foreach ($this->xmlFiles as $media) {
+            foreach ($this->mediaXml as $media) {
                 $mediaId = $media->id();
                 $filename = $media->filename();
                 $filepath = $this->basePath . '/original/' . $filename;
@@ -836,9 +1010,9 @@ class IiifSearch extends AbstractHelper
         }
 
         // Get local file if any, else url (there is only one file here).
-        $filepath = ($filename = $this->firstXmlFile->filename())
+        $filepath = ($filename = $this->mediaXmlFirst->filename())
             ? $this->basePath . '/original/' . $filename
-            : $this->firstXmlFile->originalUrl();
+            : $this->mediaXmlFirst->originalUrl();
 
         $isPdf2Xml = $this->mediaType === 'application/vnd.pdf2xml+xml';
 
@@ -882,7 +1056,7 @@ class IiifSearch extends AbstractHelper
         } catch (\Exception $e) {
             $this->logger->err(sprintf(
                 'Error: XML content is incorrect for media #%d.', // @translate
-                $this->firstXmlFile->id()
+                $this->mediaXmlFirst->id()
             ));
             return null;
         }
@@ -890,7 +1064,7 @@ class IiifSearch extends AbstractHelper
         if (!$currentXml) {
             $this->logger->err(sprintf(
                 'Error: XML content seems empty for media #%d.', // @translate
-                $this->firstXmlFile->id()
+                $this->mediaXmlFirst->id()
             ));
             return null;
         }
@@ -960,5 +1134,26 @@ class IiifSearch extends AbstractHelper
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
+    }
+
+    /**
+     * Transform the given string into a valid URL slug
+     *
+     * @param string $input
+     * @return string
+     */
+    protected function slugify($input)
+    {
+        if (extension_loaded('intl')) {
+            $transliterator = \Transliterator::createFromRules(':: NFD; :: [:Nonspacing Mark:] Remove; :: NFC;');
+            $slug = $transliterator->transliterate($input);
+        } elseif (extension_loaded('iconv')) {
+            $slug = iconv('UTF-8', 'ASCII//TRANSLIT//IGNORE', $input);
+        } else {
+            $slug = $input;
+        }
+        $slug = mb_strtolower($slug, 'UTF-8');
+
+        return $slug;
     }
 }

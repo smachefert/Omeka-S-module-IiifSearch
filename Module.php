@@ -2,15 +2,15 @@
 
 namespace IiifSearch;
 
+use IiifSearch\Form\ConfigForm;
 use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
-use Laminas\Mvc\MvcEvent;
-use Laminas\ServiceManager\ServiceLocatorInterface;
-use Omeka\Module\AbstractModule;
-
 use Laminas\Mvc\Controller\AbstractController;
-use IiifSearch\Form\ConfigForm;
+use Laminas\Mvc\MvcEvent;
+
+use Laminas\ServiceManager\ServiceLocatorInterface;
 use Laminas\View\Renderer\PhpRenderer;
+use Omeka\Module\AbstractModule;
 
 class Module extends AbstractModule
 {
@@ -61,6 +61,7 @@ class Module extends AbstractModule
         $searchMediaTypes = [
             'application/alto+xml',
             'application/vnd.pdf2xml+xml',
+            'text/tab-separated-values',
         ];
         foreach ($resource->media() as $media) {
             $mediaType = $media->mediaType();
@@ -95,10 +96,13 @@ class Module extends AbstractModule
         } else {
             $manifest
                 // Use of "@" is slightly more compatible with old viewers.
+                // The context is not required.
+                // The SearchService0 is not an official service, but managed by
+                // old versions of Universal Viewer and used by Wellcome library.
                 ->appendService(new \IiifServer\Iiif\Service($resource, [
                     '@context' => 'http://iiif.io/api/search/0/context.json',
                     '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
-                    '@type' => 'SearchService1',
+                    '@type' => 'SearchService0',
                     'profile' => 'http://iiif.io/api/search/0/search',
                     'label' => 'Search within this manifest', // @translate
                 ]))

@@ -21,7 +21,7 @@ class ConfigForm extends Form
                 'attributes' => [
                     'id' => 'iiifsearch_minimum_query_length',
                     'min' => 1,
-                    'value' => 3
+                    'value' => 3,
                 ],
             ])
 
