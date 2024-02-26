@@ -108,26 +108,34 @@ class Module extends AbstractModule
                 'label' => 'Search within this manifest', // @translate
             ];
         } else {
-            $manifest
-                // Use of "@" is slightly more compatible with old viewers.
-                // The context is not required.
-                // The SearchService0 is not an official service, but managed by
-                // old versions of Universal Viewer and used by Wellcome library.
-                ->appendService(new \IiifServer\Iiif\Service($resource, [
-                    '@context' => 'http://iiif.io/api/search/0/context.json',
-                    '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
-                    '@type' => 'SearchService0',
-                    'profile' => 'http://iiif.io/api/search/0/search',
-                    'label' => 'Search within this manifest', // @translate
-                ]))
-                ->appendService(new \IiifServer\Iiif\Service($resource, [
-                    '@context' => 'http://iiif.io/api/search/1/context.json',
-                    'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
-                    'type' => 'SearchService1',
-                    'profile' => 'http://iiif.io/api/search/1/search',
-                    'label' => 'Search within this manifest', // @translate
-                ]))
-            ;
+            // Use of "@" is slightly more compatible with old viewers.
+            // The context is not required.
+            // The SearchService0 is not an official service, but managed by
+            // old versions of Universal Viewer and used by Wellcome library.
+            $service0 = [
+                '@context' => 'http://iiif.io/api/search/0/context.json',
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
+                '@type' => 'SearchService0',
+                'profile' => 'http://iiif.io/api/search/0/search',
+                'label' => 'Search within this manifest', // @translate
+            ];
+            $service1 = [
+                '@context' => 'http://iiif.io/api/search/1/context.json',
+                'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
+                'type' => 'SearchService1',
+                'profile' => 'http://iiif.io/api/search/1/search',
+                'label' => 'Search within this manifest', // @translate
+            ];
+            // Check version of module IiifServer.
+            if (method_exists($manifest, 'getPropertyRequirements')) {
+                $manifest['service'][] = new \IiifServer\Iiif\Service($service0);
+                $manifest['service'][] = new \IiifServer\Iiif\Service($service1);
+            } else {
+                $manifest
+                    ->appendService(new \IiifServer\Iiif\Service($resource, $service0))
+                    ->appendService(new \IiifServer\Iiif\Service($resource, $service1))
+                ;
+            }
         }
 
         $event->setParam('manifest', $manifest);
