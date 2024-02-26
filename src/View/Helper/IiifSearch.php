@@ -722,7 +722,11 @@ class IiifSearch extends AbstractHelper
         ];
 
         // TODO Remove files that are not images early.
-        $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+        try {
+            $mediaIds = $this->api->search('media', $mediaQuery, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+        } catch (Exception $e) {
+            return null;
+        }
         $mediaIds = array_diff($mediaIds, $iiifMediaIds);
         if (!$mediaIds) {
             return null;
