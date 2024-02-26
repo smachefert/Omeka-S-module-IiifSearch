@@ -814,6 +814,17 @@ class IiifSearch extends AbstractHelper
         } else {
             // Normally, it is useless to prepare a quick search file as xml.
             // The precise media-type is set later.
+            $this->simpleFilepath = $this->basePath . '/pdf2xml/' . $this->item->id() . '.xml';
+            if (file_exists($this->simpleFilepath)) {
+                $this->mediaType = 'application/xml';
+                return true;
+            }
+            $this->simpleFilepath = $this->basePath . '/alto/' . $this->item->id() . '.alto.xml';
+            if (file_exists($this->simpleFilepath)) {
+                $this->mediaType = 'application/xml';
+                return true;
+            }
+            // For compatibility with previous version. To be removed.
             $this->simpleFilepath = $this->basePath . '/iiif-search/' . $this->item->id() . '.xml';
             if (file_exists($this->simpleFilepath)) {
                 $this->mediaType = 'application/xml';
