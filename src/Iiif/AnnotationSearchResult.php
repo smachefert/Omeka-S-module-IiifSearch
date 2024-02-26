@@ -144,8 +144,14 @@ class AnnotationSearchResult extends AbstractSimpleType
             return $this;
         }
 
-        $scaleX = $this->_result['image']['width'] / $this->_result['page']['width'];
-        $scaleY = $this->_result['image']['height'] / $this->_result['page']['height'];
+        // The scale is the image size divided by the page size.
+        // Manage the case where some image data are missing.
+        $imageWidth = $this->_result['image']['width'] ?: $this->_result['page']['width'];
+        $imageHeight = $this->_result['image']['height'] ?: $this->_result['page']['height'];
+        $pageWidth = $this->_result['page']['width'] ?: $this->_result['image']['width'];
+        $pageHeight = $this->_result['page']['height'] ?: $this->_result['image']['height'];
+        $scaleX = $imageWidth && $pageWidth ? $imageWidth / $pageWidth : 1;
+        $scaleY = $imageHeight && $pageHeight ? $imageHeight / $pageHeight : 1;
 
         if (strlen($this->_result['chars'])) {
             $x = $this->_result['zone']['left'] + mb_stripos($this->_result['zone']['text'], $this->_result['chars'])

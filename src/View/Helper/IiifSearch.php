@@ -484,7 +484,12 @@ class IiifSearch extends AbstractHelper
 
                             ++$hit;
 
-                            $image = $this->imageSizes[$pageIndex];
+                            // Manage the case where some image data are missing.
+                            $image = $this->imageSizes[$pageIndex] ?? [
+                                'id' => null,
+                                'width' => null,
+                                'height' => null,
+                            ];
 
                             $searchResult = new AnnotationSearchResult;
                             $searchResult->initOptions(['baseResultUrl' => $baseResultUrl, 'baseCanvasUrl' => $baseCanvasUrl]);
@@ -603,7 +608,12 @@ class IiifSearch extends AbstractHelper
                     ++$hit;
 
                     // Images are 0-based, but pageIndex is 1-based.
-                    $image = $this->imageSizes[$pageIndex - 1];
+                    // Manage the case where some image data are missing.
+                    $image = $this->imageSizes[$pageIndex - 1] ?? [
+                        'id' => null,
+                        'width' => null,
+                        'height' => null,
+                    ];
 
                     $page = [];
                     $page['number'] = (string) $pageIndex;
