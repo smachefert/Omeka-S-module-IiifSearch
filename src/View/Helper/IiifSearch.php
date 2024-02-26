@@ -114,6 +114,11 @@ class IiifSearch extends AbstractHelper
      */
     protected $mediaType;
 
+    /**
+     * @var string|null
+     */
+    protected $simpleFilepath;
+
     public function __construct(
         Logger $logger,
         ApiManager $api,
@@ -242,7 +247,9 @@ class IiifSearch extends AbstractHelper
         }
 
         if ($this->mediaType === 'text/tab-separated-values') {
-            $filepath = $this->basePath . '/original/' . $this->mediaTsv->filename();
+            $filepath = $this->simpleFilepath
+                ? $this->simpleFilepath
+                : $this->basePath . '/original/' . $this->mediaTsv->filename();
             return $this->searchFullTextTsv($filepath, $queryWords);
         }
 
@@ -770,6 +777,7 @@ class IiifSearch extends AbstractHelper
      * There may be missing alto to some images.
      * There may be only xml files in the items.
      * Alto allows one xml by page or one xml for all pages too.
+     * The data file may be stored in a file, not a media.
      *
      * So get the exact list matching images (if any) to avoid bad page indexes.
      *
@@ -784,6 +792,21 @@ class IiifSearch extends AbstractHelper
         $this->imageSizes = [];
 
         $this->prepareSearchOrder();
+
+        $this->simpleFilepath = $this->basePath . '/iiif-search/' . $this->item->id() . '.tsv';
+        if (file_exists($this->simpleFilepath)) {
+            $this->mediaType = 'text/tab-separated-values';
+            return true;
+        } else {
+            // Normally, it is useless to prepare a quick search file as xml.
+            // The precise media-type is set later.
+            $this->simpleFilepath = $this->basePath . '/iiif-search/' . $this->item->id() . '.xml';
+            if (file_exists($this->simpleFilepath)) {
+                $this->mediaType = 'application/xml';
+                return true;
+            }
+        }
+        $this->simpleFilepath = null;
 
         $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
@@ -945,6 +968,10 @@ class IiifSearch extends AbstractHelper
      */
     protected function loadXml(): ?SimpleXMLElement
     {
+        if ($this->simpleFilepath) {
+            return $this->loadXmlFromFilepath($this->simpleFilepath, null);
+        }
+
         if (!$this->mediaXmlFirst) {
             return null;
         }
@@ -1019,7 +1046,7 @@ class IiifSearch extends AbstractHelper
         return $this->loadXmlFromFilepath($filepath, $isPdf2Xml);
     }
 
-    protected function loadXmlFromFilepath(string $filepath, bool $isPdf2Xml = false): ?SimpleXMLElement
+    protected function loadXmlFromFilepath(string $filepath, ?bool $isPdf2Xml = false): ?SimpleXMLElement
     {
         $xmlContent = file_get_contents($filepath);
 
@@ -1028,6 +1055,12 @@ class IiifSearch extends AbstractHelper
             'UTF-8',
             mb_detect_encoding($xmlContent, mb_detect_order(), true) ?: mb_internal_encoding()
         );
+
+        // The media type is not set earlier, so set it now.
+        $hasNoMedia = $isPdf2Xml === null;
+        if ($hasNoMedia) {
+            $isPdf2Xml = mb_strpos(mb_substr($xmlContent, 0, 500), 'pdf2xml');
+        }
 
         try {
             if ($this->xmlFixMode === 'dom') {
@@ -1054,18 +1087,32 @@ class IiifSearch extends AbstractHelper
                 $currentXml = @simplexml_load_string($xmlContent);
             }
         } catch (\Exception $e) {
-            $this->logger->err(sprintf(
-                'Error: XML content is incorrect for media #%d.', // @translate
-                $this->mediaXmlFirst->id()
-            ));
+            if ($hasNoMedia || !$this->mediaXmlFirst) {
+                $this->logger->err(sprintf(
+                    'Error: XML content is incorrect for item #%d.', // @translate
+                    $this->item->id()
+                ));
+            } else {
+                $this->logger->err(sprintf(
+                    'Error: XML content is incorrect for media #%d.', // @translate
+                    $this->mediaXmlFirst->id()
+                ));
+            }
             return null;
         }
 
         if (!$currentXml) {
-            $this->logger->err(sprintf(
-                'Error: XML content seems empty for media #%d.', // @translate
-                $this->mediaXmlFirst->id()
-            ));
+            if ($hasNoMedia || !$this->mediaXmlFirst) {
+                $this->logger->err(sprintf(
+                    'Error: XML content seems empty for item #%d.', // @translate
+                    $this->item->id()
+                ));
+            } else {
+                $this->logger->err(sprintf(
+                    'Error: XML content seems empty for media #%d.', // @translate
+                    $this->mediaXmlFirst->id()
+                ));
+            }
             return null;
         }
 
