@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020-2023 Daniel Berthereau
+ * Copyright 2020-2024 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -38,7 +38,7 @@ use JsonSerializable;
  * Whatever the array is filled with, it returns always a valid json IIIF object.
  * Default values can be set too.
  *
- * @todo Use JsonLdSerializable?
+ * @todo Implements JsonLdSerializable.
  *
  * @author Daniel Berthereau
  */
@@ -93,7 +93,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
         });
         $output = array_intersect_key($output, $allowedKeys);
 
-        // Remove useless key/values: There is no null, ot it's an error.
+        // Remove useless key/values: There is no null, or it's an error.
         $output = array_filter($output, function ($v) {
             return !is_null($v);
         });

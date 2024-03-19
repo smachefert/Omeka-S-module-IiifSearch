@@ -56,22 +56,36 @@ class Module extends AbstractModule
 
         $resource = $event->getParam('resource');
 
-        // Checking if resource has at least an XML file that will allow search.
-        $searchServiceAvailable = false;
-        $searchMediaTypes = [
-            'application/alto+xml',
-            'application/vnd.pdf2xml+xml',
-            'text/tab-separated-values',
-        ];
-        foreach ($resource->media() as $media) {
-            $mediaType = $media->mediaType();
-            if (in_array($mediaType, $searchMediaTypes)) {
-                $searchServiceAvailable = true;
-                break;
+        // Check first if there is a simple file with data (see module ExtractOcr).
+        $services = $this->getServiceLocator();
+        $config = $services->get('Config');
+        $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+        $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.tsv';
+        if (!file_exists($simpleFilepath)) {
+            $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.xml';
+            if (!file_exists($simpleFilepath)) {
+                $simpleFilepath = null;
             }
         }
-        if (!$searchServiceAvailable) {
-            return;
+
+        // Else check if resource has at least one XML file for search.
+        if (!$simpleFilepath) {
+            $searchServiceAvailable = false;
+            $searchMediaTypes = [
+                'application/alto+xml',
+                'application/vnd.pdf2xml+xml',
+                'text/tab-separated-values',
+            ];
+            foreach ($resource->media() as $media) {
+                $mediaType = $media->mediaType();
+                if (in_array($mediaType, $searchMediaTypes)) {
+                    $searchServiceAvailable = true;
+                    break;
+                }
+            }
+            if (!$searchServiceAvailable) {
+                return;
+            }
         }
 
         $plugins = $this->getServiceLocator()->get('ViewHelperManager');
@@ -94,26 +108,34 @@ class Module extends AbstractModule
                 'label' => 'Search within this manifest', // @translate
             ];
         } else {
-            $manifest
-                // Use of "@" is slightly more compatible with old viewers.
-                // The context is not required.
-                // The SearchService0 is not an official service, but managed by
-                // old versions of Universal Viewer and used by Wellcome library.
-                ->appendService(new \IiifServer\Iiif\Service($resource, [
-                    '@context' => 'http://iiif.io/api/search/0/context.json',
-                    '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
-                    '@type' => 'SearchService0',
-                    'profile' => 'http://iiif.io/api/search/0/search',
-                    'label' => 'Search within this manifest', // @translate
-                ]))
-                ->appendService(new \IiifServer\Iiif\Service($resource, [
-                    '@context' => 'http://iiif.io/api/search/1/context.json',
-                    'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
-                    'type' => 'SearchService1',
-                    'profile' => 'http://iiif.io/api/search/1/search',
-                    'label' => 'Search within this manifest', // @translate
-                ]))
-            ;
+            // Use of "@" is slightly more compatible with old viewers.
+            // The context is not required.
+            // The SearchService0 is not an official service, but managed by
+            // old versions of Universal Viewer and used by Wellcome library.
+            $service0 = [
+                '@context' => 'http://iiif.io/api/search/0/context.json',
+                '@id' => $urlHelper('iiifsearch', ['id' => $identifier], ['force_canonical' => true]),
+                '@type' => 'SearchService0',
+                'profile' => 'http://iiif.io/api/search/0/search',
+                'label' => 'Search within this manifest', // @translate
+            ];
+            $service1 = [
+                '@context' => 'http://iiif.io/api/search/1/context.json',
+                'id' => $urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]),
+                'type' => 'SearchService1',
+                'profile' => 'http://iiif.io/api/search/1/search',
+                'label' => 'Search within this manifest', // @translate
+            ];
+            // Check version of module IiifServer.
+            if (method_exists($manifest, 'getPropertyRequirements')) {
+                $manifest['service'][] = new \IiifServer\Iiif\Service($service0);
+                $manifest['service'][] = new \IiifServer\Iiif\Service($service1);
+            } else {
+                $manifest
+                    ->appendService(new \IiifServer\Iiif\Service($resource, $service0))
+                    ->appendService(new \IiifServer\Iiif\Service($resource, $service1))
+                ;
+            }
         }
 
         $event->setParam('manifest', $manifest);
