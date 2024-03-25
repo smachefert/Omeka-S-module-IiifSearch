@@ -7,7 +7,6 @@ use Laminas\EventManager\Event;
 use Laminas\EventManager\SharedEventManagerInterface;
 use Laminas\Mvc\Controller\AbstractController;
 use Laminas\Mvc\MvcEvent;
-
 use Laminas\ServiceManager\ServiceLocatorInterface;
 use Laminas\View\Renderer\PhpRenderer;
 use Omeka\Module\AbstractModule;
@@ -62,9 +61,16 @@ class Module extends AbstractModule
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
         $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.tsv';
         if (!file_exists($simpleFilepath)) {
-            $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.xml';
+            $simpleFilepath = $basePath . '/alto/' . $resource->id() . '.alto.xml';
             if (!file_exists($simpleFilepath)) {
-                $simpleFilepath = null;
+                $simpleFilepath = $basePath . '/pdf2xml/' . $resource->id() . '.xml';
+                if (!file_exists($simpleFilepath)) {
+                    // Old path before ExctractOcr 3.4.7.
+                    $simpleFilepath = $basePath . '/iiif-search/' . $resource->id() . '.xml';
+                    if (!file_exists($simpleFilepath)) {
+                        $simpleFilepath = null;
+                    }
+                }
             }
         }
 
@@ -166,7 +172,7 @@ class Module extends AbstractModule
      *
      * @param  mixed $controller
      */
-    public function handleConfigForm(AbstractController $controller)
+    public function handleConfigForm(AbstractController $controller): void
     {
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
