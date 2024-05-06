@@ -816,12 +816,12 @@ class IiifSearch extends AbstractHelper
             // The precise media-type is set later.
             $this->simpleFilepath = $this->basePath . '/pdf2xml/' . $this->item->id() . '.xml';
             if (file_exists($this->simpleFilepath)) {
-                $this->mediaType = 'application/xml';
+                $this->mediaType = 'application/vnd.pdf2xml+xml';
                 return true;
             }
             $this->simpleFilepath = $this->basePath . '/alto/' . $this->item->id() . '.alto.xml';
             if (file_exists($this->simpleFilepath)) {
-                $this->mediaType = 'application/xml';
+                $this->mediaType = 'application/alto+xml';
                 return true;
             }
             // For compatibility with previous version. To be removed.
