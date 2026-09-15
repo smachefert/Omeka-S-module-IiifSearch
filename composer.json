@@ -1,0 +1,48 @@
+{
+    "name": "daniel-km/omeka-s-module-iiif-search",
+    "type": "omeka-s-module",
+    "description": "Module for Omeka S: Search api for IIIF compliant viewers (Universal Viewer, Mirador, etc.)",
+    "keywords": [
+        "Omeka S",
+        "Omeka S module",
+        "iiif",
+        "search"
+    ],
+    "license": "GPL-3.0-or-later",
+    "homepage": "https://github.com/bubdxm/Omeka-S-module-IiifSearch",
+    "authors": [
+        {
+            "name": "Xavier Muller",
+            "email": "xavier.muller@etu.u-bordeaux.fr"
+        },
+        {
+            "name": "Symac",
+            "email": "web@geobib.fr"
+        },
+        {
+            "name": "Daniel Berthereau",
+            "email": "Daniel.packagist@Berthereau.net"
+        }
+    ],
+    "support": {
+        "issues": "https://github.com/bubdxm/Omeka-S-module-IiifSearch/-/issues",
+        "forum": "https://forum.omeka.org/"
+    },
+    "_require (not set until Omeka S merges PR #2412)": {
+        "omeka/omeka-s": "^4.0"
+    },
+    "autoload": {
+        "psr-4": {
+            "IiifSearch\\": "src/"
+        }
+    },
+    "autoload-dev": {
+        "psr-4": {
+            "IiifSearchTest\\": "tests/IiifSearchTest/"
+        }
+    },
+    "extra": {
+        "installer-name": "IiifSearch",
+        "configurable": true
+    }
+}

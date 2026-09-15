@@ -1,7 +1,7 @@
 <?php declare(strict_types=1);
 
 /*
- * Copyright 2020-2024 Daniel Berthereau
+ * Copyright 2020-2026 Daniel Berthereau
  *
  * This software is governed by the CeCILL license under French law and abiding
  * by the rules of distribution of free software. You can use, modify and/or
@@ -31,6 +31,7 @@ namespace IiifSearch\Iiif;
 
 use ArrayObject;
 use JsonSerializable;
+use Omeka\Stdlib\Message;
 
 /**
  * Manage the IIIF objects.
@@ -69,7 +70,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
      */
     protected $_options = [];
 
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         $input = $data
             ? array_replace($this->_storage, $data)
@@ -107,10 +108,11 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
 
     public function jsonSerialize(): array
     {
+        $content = $this->getContent();
         // The validity check updates the content.
-        $this->isValid(true);
+        $this->isValidContent($content, true);
         // TODO Remove useless context from sub-objects. And other copied data (homepage, etc.).
-        return (array) $this->getContent();
+        return $content;
     }
 
     /**
@@ -122,8 +124,11 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
      */
     public function isValid(bool $throwException = false): bool
     {
-        $output = $this->getContent();
+        return $this->isValidContent($this->getContent(), $throwException);
+    }
 
+    protected function isValidContent(array $output, bool $throwException = false): bool
+    {
         // Check if all required data are present.
         $requiredKeys = array_filter($this->_keys, function ($v) {
             return $v === self::REQUIRED;
@@ -146,7 +151,7 @@ abstract class AbstractSimpleType extends ArrayObject implements JsonSerializabl
             if ($e) {
                 $message = $e->getMessage();
             } else {
-                $message = sprintf(
+                $message = new Message(
                     'Missing required keys for object type "%1$s": "%2$s".', // @translate
                     @$this['@type'], implode('", "', $missingKeys)
                 );

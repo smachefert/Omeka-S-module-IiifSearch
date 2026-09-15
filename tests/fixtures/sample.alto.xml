@@ -1,0 +1,48 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<alto xmlns="http://www.loc.gov/standards/alto/ns-v3#"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://www.loc.gov/standards/alto/ns-v3# http://www.loc.gov/standards/alto/v3/alto-3-1.xsd">
+  <Description>
+    <MeasurementUnit>pixel</MeasurementUnit>
+    <sourceImageInformation>
+      <fileName>test_page.tif</fileName>
+    </sourceImageInformation>
+    <OCRProcessing ID="OCR_0">
+      <ocrProcessingStep>
+        <processingSoftware>
+          <softwareName>tesseract 5.3.0</softwareName>
+        </processingSoftware>
+      </ocrProcessingStep>
+    </OCRProcessing>
+  </Description>
+  <Layout>
+    <Page ID="page_1" WIDTH="2480" HEIGHT="3508" PHYSICAL_IMG_NR="1">
+      <PrintSpace HPOS="0" VPOS="0" WIDTH="2480" HEIGHT="3508">
+        <TextBlock ID="block_1_1" HPOS="100" VPOS="100" WIDTH="520" HEIGHT="40">
+          <TextLine ID="line_1_1" HPOS="100" VPOS="100" WIDTH="520" HEIGHT="40">
+            <String ID="word_1_1" CONTENT="The" HPOS="100" VPOS="100" WIDTH="100" HEIGHT="40"/>
+            <SP WIDTH="20" HPOS="200" VPOS="100"/>
+            <String ID="word_1_2" CONTENT="quick" HPOS="220" VPOS="100" WIDTH="160" HEIGHT="40"/>
+            <SP WIDTH="20" HPOS="380" VPOS="100"/>
+            <String ID="word_1_3" CONTENT="brown" HPOS="400" VPOS="100" WIDTH="130" HEIGHT="40"/>
+            <SP WIDTH="20" HPOS="530" VPOS="100"/>
+            <String ID="word_1_4" CONTENT="fox" HPOS="550" VPOS="100" WIDTH="70" HEIGHT="40"/>
+          </TextLine>
+        </TextBlock>
+      </PrintSpace>
+    </Page>
+    <Page ID="page_2" WIDTH="2480" HEIGHT="3508" PHYSICAL_IMG_NR="2">
+      <PrintSpace HPOS="0" VPOS="0" WIDTH="2480" HEIGHT="3508">
+        <TextBlock ID="block_2_1" HPOS="100" VPOS="100" WIDTH="500" HEIGHT="40">
+          <TextLine ID="line_2_1" HPOS="100" VPOS="100" WIDTH="500" HEIGHT="40">
+            <String ID="word_2_1" CONTENT="Second" HPOS="100" VPOS="100" WIDTH="150" HEIGHT="40"/>
+            <SP WIDTH="20" HPOS="250" VPOS="100"/>
+            <String ID="word_2_2" CONTENT="page" HPOS="270" VPOS="100" WIDTH="120" HEIGHT="40"/>
+            <SP WIDTH="20" HPOS="390" VPOS="100"/>
+            <String ID="word_2_3" CONTENT="fox" HPOS="540" VPOS="100" WIDTH="60" HEIGHT="40"/>
+          </TextLine>
+        </TextBlock>
+      </PrintSpace>
+    </Page>
+  </Layout>
+</alto>

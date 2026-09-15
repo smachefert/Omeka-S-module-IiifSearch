@@ -27,7 +27,9 @@
  * knowledge of the CeCILL license and that you accept its terms.
  */
 
-namespace IiifSearch\Iiif;
+namespace IiifSearch\Iiif\Search1;
+
+use IiifSearch\Iiif\AbstractSimpleType;
 
 /**
  * @link https://iiif.io/api/search/1.0/#presentation-api-compatible-responses
@@ -41,7 +43,7 @@ namespace IiifSearch\Iiif;
 class AnnotationList extends AbstractSimpleType
 {
     protected $_storage = [
-        '@context' => 'http://iiif.io/api/search/0/context.json',
+        '@context' => 'http://iiif.io/api/search/1/context.json',
         '@id' => null,
         '@type' => 'sc:AnnotationList',
         'within' => null,
@@ -62,7 +64,7 @@ class AnnotationList extends AbstractSimpleType
         'hits' => self::RECOMMENDED,
     ];
 
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         // Parent is required to init data.
         parent::__construct($data);

@@ -27,7 +27,9 @@
  * knowledge of the CeCILL license and that you accept its terms.
  */
 
-namespace IiifSearch\Iiif;
+namespace IiifSearch\Iiif\Search1;
+
+use IiifSearch\Iiif\AbstractSimpleType;
 
 /**
  * @todo Normalize for iiif 2.1/3.0.
@@ -62,7 +64,7 @@ class SearchHit extends AbstractSimpleType
         'after' => self::RECOMMENDED,
     ];
 
-    public function __construct(array $data = null)
+    public function __construct(?array $data = null)
     {
         // Parent is required to init data.
         parent::__construct($data);

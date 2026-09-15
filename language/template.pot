@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2024-02-05 00:00+0000\n"
+"POT-Creation-Date: 2026-08-31 00:00+0000\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -17,81 +17,170 @@ msgstr ""
 "Content-Type: text/plain; charset=UTF-8\n"
 "Content-Transfer-Encoding: 8bit\n"
 
-#: src/Controller/SearchController.php:24
+#: data/scripts/upgrade.php:38 data/scripts/upgrade.php:47
+#: data/scripts/upgrade.php:56 Module.php:163 Module.php:171
+#, php-format
+msgid "The module %1$s should be upgraded to version %2$s or later."
+msgstr ""
+
+#: data/scripts/upgrade.php:42 data/scripts/upgrade.php:51
+#: data/scripts/upgrade.php:60
+msgid "Missing requirement. Unable to upgrade."
+msgstr ""
+
+#: Module.php:622
+msgid "Process"
+msgstr ""
+
+#: Module.php:905
+msgid ""
+"The base uri is not set (key [file_store][local][base_uri]) in the config "
+"file of Omeka \"config/local.config.php\". It must be set for now in order "
+"to process background jobs."
+msgstr ""
+
+#: src/Controller/SearchController.php:20
+#: src/Controller/SearchController.php:29
 msgid "Missing or empty query."
 msgstr ""
 
-#: src/Controller/SearchController.php:38
-#, php-format
-msgid ""
-"Search is not supported for resource #%d (missing XML and/or image files)."
+#: src/Controller/SearchController.php:49
+msgid "Resource not found or unavailable."
 msgstr ""
 
-#: src/Controller/SearchController.php:51
+#: src/Controller/SearchController.php:60
+msgid "Search is not available for this resource."
+msgstr ""
+
+#: src/Controller/SearchController.php:73
 msgid "Direct request to annotation-list is not implemented."
 msgstr ""
 
-#: data/scripts/upgrade.php:32
+#: data/scripts/upgrade.php:69
 msgid ""
 "XML Alto is supported natively: just upload the files as media to search "
 "inside it."
 msgstr ""
 
-#: data/scripts/upgrade.php:36
+#: data/scripts/upgrade.php:73
 msgid ""
 "The xml media-type should be a precise one: either \"application/alto+xml\" "
 "or \"application/vnd.pdf2xml+xml\", not \"text/xml\" or \"application/xml\"."
 msgstr ""
 
-#: data/scripts/upgrade.php:40
+#: data/scripts/upgrade.php:77
 msgid ""
 "New files are automatically managed, but you may need modules Bulk Edit or "
 "Easy Admin to fix old ones, if any."
 msgstr ""
 
-#: data/scripts/upgrade.php:44
+#: data/scripts/upgrade.php:81
 #, php-format
 msgid ""
 "Badly formatted xml files may be fixed dynamically, but it will affect "
 "performance. See %1$sreadme%2$s."
 msgstr ""
 
-#: data/scripts/upgrade.php:56
+#: data/scripts/upgrade.php:93
 msgid ""
 "A new option allows to include media metadata in search, not only full text."
 msgstr ""
 
-#: data/scripts/upgrade.php:60
+#: data/scripts/upgrade.php:97
 msgid "A new option allows to fix bad xml and invalid utf-8 characters."
 msgstr ""
 
-#: data/scripts/upgrade.php:67
+#: data/scripts/upgrade.php:104
 msgid ""
 "The module supports the tsv format for quicker search results. See module "
 "Extract OCR."
 msgstr ""
 
-#: Module.php:94 Module.php:107 Module.php:114
+#: data/scripts/upgrade.php:111
+msgid ""
+"The module allows to do an exact search when the input is wrapped with "
+"double quotes. If wanted and if you use a tsv index, a reindexation with "
+"ExtractOcr is needed."
+msgstr ""
+
+#: data/scripts/upgrade.php:124
+msgid ""
+"The module now supports IIIF Content Search 2.0 at /iiif-search/{id}/search/"
+"1 or /iiif-search/{id}/search/2. The existing endpoint /iiif-search/{id}/"
+"search is kept as defaut."
+msgstr ""
+
+#: data/scripts/upgrade.php:148
+msgid ""
+"The module now manages extraction of texts without the need of the module "
+"Extract OCR. Furthermore, most of the use cases are now managed "
+"automatically: digital objects, item without alto, with an alto multi-pages "
+"or with alto by page, item without pdf or with a pdf or with multiple pdf by "
+"page, various naming convention."
+msgstr ""
+
+#: Module.php:191
+msgid "Module Extract OCR uninstalled: features are now in IIIF Search."
+msgstr ""
+
+#: Module.php:401 Module.php:412 Module.php:421
 msgid "Search within this manifest"
 msgstr ""
 
-#: src/Mvc/Controller/Plugin/SpecifyMediaType.php:149
-#, php-format
-msgid ""
-"Xml parsing error level %1$s, code %2$s, for file \"%3$s\" (media #%4$s), "
-"line %5$s, column %6$s: %7$s"
+#: Module.php:512
+msgid "ALTO XML"
 msgstr ""
 
-#: src/Mvc/Controller/Plugin/SpecifyMediaType.php:164
-#, php-format
+#: Module.php:575
 msgid ""
-"The file \"%1$s\" (media #%2$s) is not parsable by xml reader neither dom."
+"The command-line utility pdftotext is not available; OCR extraction will be "
+"disabled until package poppler-utils is installed."
 msgstr ""
 
-#: src/Mvc/Controller/Plugin/SpecifyMediaType.php:282
+#: Module.php:580
 msgid ""
-"Warning: some files contain invalid unicode characters and cannot be "
-"processed directly."
+"The command-line utility pdftohtml is not available; OCR extraction will be "
+"disabled until package poppler-utils is installed."
+msgstr ""
+
+#: Module.php:589
+#, php-format
+msgid ""
+"The directory \"%s\" is not writeable; OCR extraction features may not work."
+msgstr ""
+
+#: Module.php:637
+#, php-format
+msgid ""
+"Creating Extract OCR files in background (job %1$s#%2$s%3$s, %4$slogs%3$s)."
+msgstr ""
+
+#: Module.php:792
+msgid "IIIF Search: Extract ocr from files"
+msgstr ""
+
+#: Module.php:800
+msgid "Options to extract OCR"
+msgstr ""
+
+#: Module.php:811 src/Form/ConfigForm.php:302 src/Form/ConfigForm.php:311
+msgid "Extract OCR job"
+msgstr ""
+
+#: Module.php:813 src/Form/ConfigForm.php:313
+msgid "Only already extracted (improve extraction)"
+msgstr ""
+
+#: Module.php:814 src/Form/ConfigForm.php:314
+msgid "Only missing extracted medias"
+msgstr ""
+
+#: Module.php:815 src/Form/ConfigForm.php:315
+msgid "All medias"
+msgstr ""
+
+#: Module.php:827 src/Form/ConfigForm.php:327
+msgid "Item ids"
 msgstr ""
 
 #: src/View/Helper/FixUtf8.php:87
@@ -100,54 +189,80 @@ msgid ""
 "searched quickly."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:313
+#: src/View/Helper/IiifSearch.php:426
 #, php-format
 msgid "Incomplete data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:324 src/View/Helper/IiifSearch.php:351
+#: src/View/Helper/IiifSearch.php:437 src/View/Helper/IiifSearch.php:464
 #, php-format
 msgid "Inconsistent data for xml file from item #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:384
+#: src/View/Helper/IiifSearch.php:495
 #, php-format
 msgid "Error: XML alto content may be invalid for item #%1$d, index #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:434
+#: src/View/Helper/IiifSearch.php:537
+#, php-format
+msgid "Error: hOCR content is empty for item #%d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:573
+#, php-format
+msgid "Incomplete data for hOCR file from item #%1$s, page %2$s."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:611
+#, php-format
+msgid "Inconsistent data for hOCR file from item #%1$s, page %2$s."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:644
+#, php-format
+msgid "Error: hOCR content may be invalid for item #%1$d, page #%2$d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:716
 #, php-format
 msgid "Incomplete data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:444
+#: src/View/Helper/IiifSearch.php:726
 #, php-format
 msgid "Inconsistent data for xml file from pdf media #%1$s, page %2$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:472
+#: src/View/Helper/IiifSearch.php:755
 #, php-format
 msgid ""
 "Inconsistent data for xml file from pdf media #%1$s, page %2$s, row %3$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:505
+#: src/View/Helper/IiifSearch.php:791
 #, php-format
 msgid "Error: PDF to XML conversion failed for item #%1$d, media file #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:522 src/View/Helper/IiifSearch.php:653
+#: src/View/Helper/IiifSearch.php:808 src/View/Helper/IiifSearch.php:1051
 #, php-format
 msgid "Error: PDF to TSV conversion failed for item #%1$d, media #%2$d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:590
+#: src/View/Helper/IiifSearch.php:871
 #, php-format
 msgid ""
 "Inconsistent data for item #%1$d, tsv media #%2$d, page %3$d, word %4$s."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:822
+#: src/View/Helper/IiifSearch.php:993
+#, php-format
+msgid ""
+"Inconsistent data for item #%1$d, tsv media #%2$d, page %3$s, word %4$s."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:1265
 #, php-format
 msgid ""
 "Warning: Xml format \"%1$s\" of media #%2$d is not precise. It may be "
@@ -155,56 +270,593 @@ msgid ""
 "type."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:1058 src/View/Helper/XmlAltoSingle.php:158
+#: src/View/Helper/IiifSearch.php:1635
+#, php-format
+msgid "Error: XML content is incorrect for item #%d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:1640 src/View/Helper/XmlAltoSingle.php:238
 #, php-format
 msgid "Error: XML content is incorrect for media #%d."
 msgstr ""
 
-#: src/View/Helper/IiifSearch.php:1066 src/View/Helper/XmlAltoSingle.php:166
+#: src/View/Helper/IiifSearch.php:1650
+#, php-format
+msgid "Error: XML content seems empty for item #%d."
+msgstr ""
+
+#: src/View/Helper/IiifSearch.php:1655 src/View/Helper/XmlAltoSingle.php:246
 #, php-format
 msgid "Error: XML content seems empty for media #%d."
 msgstr ""
 
-#: src/View/Helper/XmlAltoSingle.php:227
+#: src/View/Helper/XmlAltoSingle.php:291
 #, php-format
 msgid "Error: Cannot get XML content from media #%d."
 msgstr ""
 
-#: src/Form/ConfigForm.php:19
+#: src/Job/PairingAudit.php:39
+#, php-format
+msgid "Cannot create audit directory \"%s\"."
+msgstr ""
+
+#: src/Job/PairingAudit.php:48
+#, php-format
+msgid "Cannot open audit file \"%s\" for writing."
+msgstr ""
+
+#: src/Job/PairingAudit.php:86
+#, php-format
+msgid "%1$d items will be audited; pairing mode: %2$s."
+msgstr ""
+
+#: src/Job/PairingAudit.php:93
+#, php-format
+msgid "Audit stopped after %1$d items."
+msgstr ""
+
+#: src/Job/PairingAudit.php:166
+#, php-format
+msgid "Pairing audit written to %s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:191
+msgid ""
+"The command-line utility pdftotext is not available. Install the package "
+"poppler-utils."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:199
+msgid ""
+"The command-line utility pdftohtml is not available. Install the package "
+"poppler-utils."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:207
+msgid ""
+"The temporary directory \"files/temp\" is not writeable. Fix rights or "
+"create it manually."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:215
+msgid "The base uri is unknown."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:259
+msgid "No extract format to process."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:269
+msgid ""
+"The php extension \"xml\" or \"xsl\" is required to extract text as xml alto."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:280
+msgid "The directory is not writeable."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:310
+msgid "The option to store text is set, but no property is defined."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:327
+msgid ""
+"Option \"reocr pdf without text layer\" is enabled but ocrmypdf is not "
+"available; pdf without text will be skipped."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:335
+msgid ""
+"Option \"ocr images\" is enabled but tesseract is not available; image-only "
+"items will be skipped."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:409
+msgid "No item with a pdf or alto to process."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:416
+#, php-format
+msgid "Formats of xml files to create: %s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:423
+#, php-format
+msgid "Creating Extract OCR files for %d PDF only if they already exist."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:428
+#, php-format
+msgid "Creating Extract OCR files for %d PDF, only if they do not exist yet."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:433
+#, php-format
+msgid ""
+"Creating Extract OCR files for %d PDF, xml files will be overridden or "
+"created."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:439
+#, php-format
+msgid "Mode of extraction \"%s\" is not managed."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:469
+#, php-format
+msgid "Processing format %1$d/%2$d: %3$s (%4$s)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:490
+msgid "End of processing formats."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:524
+#, php-format
+msgid ""
+"The job \"Extract OCR\" was stopped: %1$d/%2$d resources processed, %3$d "
+"failed (%4$d without file, %5$d without text layer, %6$d with issue)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:529
+#, php-format
+msgid ""
+"The job \"Extract OCR\" was stopped: %1$d/%2$d resources processed, %3$d "
+"skipped, %4$d failed (%5$d without file, %6$d without text layer, %7$d with "
+"issue)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:567
+#, php-format
+msgid "Index #%1$d/%2$d: Extracting OCR for item #%3$d, media #%4$d \"%5$s\"."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:572
+#, php-format
+msgid ""
+"Index #%1$d/%2$d: Extracting OCR for item #%3$d (no pdf, using attached "
+"alto)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:583 src/Job/ExtractOcr.php:594
+#, php-format
+msgid "The existing %1$s was removed for item #%2$d."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:611
+#, php-format
+msgid "A file %1$s already exists, so item #%2$d is skipped."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:618
+#, php-format
+msgid "A file %1$s (media #%2$d) already exists, so item #%3$d is skipped."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:653
+#, php-format
+msgid "Item #%1$d: %2$d alto source(s) available, skipping alto generation."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:671
+#, php-format
+msgid "Item #%1$d: %2$d pdf medias will be concatenated for extraction."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:680
+#, php-format
+msgid "Item #%1$d: no pdf and no usable alto for format %2$s, skipped."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:696
+#, php-format
+msgid "The output %1$s for item #%2$d has no text content and is not created."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:703
+#, php-format
+msgid "Media #%1$d (item #%2$d) created for %3$s file."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:712
+#, php-format
+msgid "IIIF Search file for item #%1$d created for format %2$s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:717
+#, php-format
+msgid "Unable to store the IIIF Search file for item #%1$d for format %2$s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:752
+#, php-format
+msgid ""
+"These items have no pdf file (or no usable alto for the requested format): "
+"#%s"
+msgstr ""
+
+#: src/Job/ExtractOcr.php:759
+#, php-format
+msgid "These pdf files have no text layer: #%s"
+msgstr ""
+
+#: src/Job/ExtractOcr.php:766
+#, php-format
+msgid "These pdf files have issues when extracting content: #%s"
+msgstr ""
+
+#: src/Job/ExtractOcr.php:773
+#, php-format
+msgid ""
+"Processed %1$d/%2$d pdf files, %3$d files %4$s created, %5$d failed (%6$d "
+"without file, %7$d without text layer, %8$d with issue)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:778
+#, php-format
+msgid ""
+"Processed %1$d/%2$d pdf files, %3$d skipped, %4$d files %5$s, created, %6$d "
+"failed (%7$d without file, %8$d without text layer, %9$d with issue)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:835
+#, php-format
+msgid "Missing pdf file (media #%1$d)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:874
+#, php-format
+msgid "File %1$s was not created for media #%2$s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:927
+#, php-format
+msgid "PDF media #%1$s has no text layer: running ocrmypdf."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:933
+#, php-format
+msgid "ocrmypdf failed for pdf media #%1$s; falling back to original pdf."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1301
+#, php-format
+msgid "Image media #%1$d: file missing, skipped for tesseract."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1321
+#, php-format
+msgid "tesseract failed for image media #%1$d."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1332
+#, php-format
+msgid ""
+"Item #%1$d: %2$d alto file(s) generated via tesseract under files/alto/."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1409
+#, php-format
+msgid "Missing ALTO file \"%s\"."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1420
+#, php-format
+msgid "Missing ALTO file (media #%1$d)."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1465
+#, php-format
+msgid "Item #%1$d: pairing method %2$s, coverage %3$s."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1542 src/Job/ExtractOcr.php:1631
+#: src/Job/ExtractOcr.php:1666 src/Job/ExtractOcr.php:1767
+#, php-format
+msgid "Unable to open file \"%s\" for writing."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1921
+#, php-format
+msgid ""
+"File cannot be saved in temporary directory \"%1$s\" (temp file: \"%2$s\")"
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1951
+#, php-format
+msgid "The directory \"%s\" is not writeable."
+msgstr ""
+
+#: src/Job/ExtractOcr.php:1962
+#, php-format
+msgid "The directory \"%1$s\" is not writeable: %2$s."
+msgstr ""
+
+#: src/Form/ConfigForm.php:16
+msgid "OCR"
+msgstr ""
+
+#: src/Form/ConfigForm.php:29
+msgid "IIIF Content Search API versions"
+msgstr ""
+
+#: src/Form/ConfigForm.php:30
+msgid ""
+"Versions of the Search API exposed in IIIF manifests. Endpoints remain "
+"available regardless: /search and /search/1 for v1, /search/2 for v2."
+msgstr ""
+
+#: src/Form/ConfigForm.php:32
+msgid "Search API 1.0"
+msgstr ""
+
+#: src/Form/ConfigForm.php:33
+msgid "Search API 2.0"
+msgstr ""
+
+#: src/Form/ConfigForm.php:47
 msgid "Minimum query length"
 msgstr ""
 
-#: src/Form/ConfigForm.php:35
+#: src/Form/ConfigForm.php:64
 msgid "Disable search in media values"
 msgstr ""
 
-#: src/Form/ConfigForm.php:48
-msgid "Match images and xmls when they are multiple"
+#: src/Form/ConfigForm.php:80
+msgid ""
+"Match images and xmls when they are multiple (deprecated, use the page "
+"pairing mode below)"
 msgstr ""
 
-#: src/Form/ConfigForm.php:50
+#: src/Form/ConfigForm.php:82
 msgid "Media order (page_001.jpg, alto_001.xml, page_002.jpg, alto_002.xml, …)"
 msgstr ""
 
-#: src/Form/ConfigForm.php:51
+#: src/Form/ConfigForm.php:83
 msgid ""
 "Media source base filename (page_001.jpg, page_002.jpg, page_002.xml, "
 "page_001.xml…)"
 msgstr ""
 
-#: src/Form/ConfigForm.php:65
+#: src/Form/ConfigForm.php:98
 msgid "Fix bad xml and invalid utf-8 characters"
 msgstr ""
 
-#: src/Form/ConfigForm.php:68
+#: src/Form/ConfigForm.php:101
 msgid "Via DOM (quick)"
 msgstr ""
 
-#: src/Form/ConfigForm.php:69
+#: src/Form/ConfigForm.php:102
 msgid "Via regex (slow)"
 msgstr ""
 
-#: src/Iiif/AbstractSimpleType.php:150
+#: src/Form/ConfigForm.php:117
+msgid ""
+"Inject ALTO seeAlso and annotations on each canvas when a multipage ALTO XML "
+"media is attached"
+msgstr ""
+
+#: src/Form/ConfigForm.php:132
+msgid ""
+"Match multipage ALTO Page to canvas (deprecated, use the page pairing mode "
+"below)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:134
+msgid "Media order (Page n matches the n-th non-ALTO media)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:135
+msgid "Page/@PHYSICAL_IMG_NR (1-based)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:136
+msgid "Page/@ID matches media file basename"
+msgstr ""
+
+#: src/Form/ConfigForm.php:150
+msgid "Create file for formats"
+msgstr ""
+
+#: src/Form/ConfigForm.php:151
+msgid "For more info on formats, see readme."
+msgstr ""
+
+#: src/Form/ConfigForm.php:153
+msgid ""
+"tsv with original order of words (quick and exact search for iiif search)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:154
+msgid "tsv grouped by word (very quick search for iiif search, small index)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:155
+msgid "xml alto (slow search, ocr transcription for iiif server)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:156 src/Form/ConfigForm.php:173
+msgid "pdf2xml"
+msgstr ""
+
+#: src/Form/ConfigForm.php:168
+msgid "Create media for formats"
+msgstr ""
+
+#: src/Form/ConfigForm.php:170
+msgid "tsv with original order of words"
+msgstr ""
+
+#: src/Form/ConfigForm.php:171
+msgid "tsv grouped by word"
+msgstr ""
+
+#: src/Form/ConfigForm.php:172
+msgid "xml alto"
+msgstr ""
+
+#: src/Form/ConfigForm.php:185
+msgid "Store the raw text in a property of a resource"
+msgstr ""
+
+#: src/Form/ConfigForm.php:186
+msgid "Text cannot be stored in item when an item is manually edited."
+msgstr ""
+
+#: src/Form/ConfigForm.php:190
+msgid "Pdf media"
+msgstr ""
+
+#: src/Form/ConfigForm.php:191
+msgid "Tsv or Xml media if any"
+msgstr ""
+
+#: src/Form/ConfigForm.php:203
+msgid "Property to save pdf raw text (not recommended)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:204
+msgid ""
+"To save content makes it searchable anywhere. It is recommended to use "
+"\"bibo:content\". Note that it will increase the noise in the results, "
+"unless you use a search engine. Furthermore, this option is not recommended "
+"when the text is too much big."
+msgstr ""
+
+#: src/Form/ConfigForm.php:211
+msgid "Select a media property…"
+msgstr ""
+
+#: src/Form/ConfigForm.php:219
+msgid "Language code of the content"
+msgstr ""
+
+#: src/Form/ConfigForm.php:230
+msgid "Create xml file even if there is no text content"
+msgstr ""
+
+#: src/Form/ConfigForm.php:231
+msgid ""
+"This option may be useful to keep the same order and number of pages and "
+"extracted texts."
+msgstr ""
+
+#: src/Form/ConfigForm.php:242
+msgid "Re-OCR pdf without text layer (requires ocrmypdf)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:243
+msgid ""
+"When a pdf has no extractable text, run ocrmypdf to add a text layer before "
+"extraction. Silently skipped when ocrmypdf is not installed."
+msgstr ""
+
+#: src/Form/ConfigForm.php:254
+msgid "OCR images without pdf nor alto via tesseract"
+msgstr ""
+
+#: src/Form/ConfigForm.php:255
+msgid ""
+"For items with only images (no pdf, no alto), run tesseract on each image to "
+"produce one alto file per page in files/alto/. Silently skipped when "
+"tesseract is not installed."
+msgstr ""
+
+#: src/Form/ConfigForm.php:266
+msgid "OCR language for ocrmypdf"
+msgstr ""
+
+#: src/Form/ConfigForm.php:267
+msgid ""
+"Tesseract language codes, e.g. \"fra+eng\". Used only when re-OCR is enabled."
+msgstr ""
+
+#: src/Form/ConfigForm.php:278
+msgid "Page to image pairing mode"
+msgstr ""
+
+#: src/Form/ConfigForm.php:279
+msgid ""
+"Strategy used to match each OCR page to its image. Auto runs a cascade of "
+"heuristics (METS, sourceImageInformation, basename, numeric, dimension, then "
+"sequential)."
+msgstr ""
+
+#: src/Form/ConfigForm.php:281
+msgid "Auto (recommended)"
+msgstr ""
+
+#: src/Form/ConfigForm.php:282
+msgid "Force METS structMap"
+msgstr ""
+
+#: src/Form/ConfigForm.php:283
+msgid "Force alto/hocr image hint"
+msgstr ""
+
+#: src/Form/ConfigForm.php:284
+msgid "Force basename"
+msgstr ""
+
+#: src/Form/ConfigForm.php:285
+msgid "Force basename + directory"
+msgstr ""
+
+#: src/Form/ConfigForm.php:286
+msgid "Force numeric token"
+msgstr ""
+
+#: src/Form/ConfigForm.php:287
+msgid "Force numeric token + directory"
+msgstr ""
+
+#: src/Form/ConfigForm.php:288
+msgid "Force aspect ratio"
+msgstr ""
+
+#: src/Form/ConfigForm.php:289
+msgid "Force sequential position"
+msgstr ""
+
+#: src/Form/ConfigForm.php:338
+msgid "Run in background"
+msgstr ""
+
+#: src/Iiif/AbstractSimpleType.php:155
 #, php-format
 msgid "Missing required keys for object type \"%1$s\": \"%2$s\"."
+msgstr ""
+
+#: src/Controller/SearchController.php:111
+#: src/Controller/SearchController.php:144
+msgid "Resource not found."
+msgstr ""
+
+#: src/Controller/SearchController.php:118
+#: src/Controller/SearchController.php:151
+msgid "No ALTO page available."
+msgstr ""
+
+#: src/Controller/SearchController.php:163
+msgid "Unable to build annotation page."
 msgstr ""
