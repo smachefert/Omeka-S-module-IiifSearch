@@ -2030,20 +2030,60 @@ class ExtractOcr extends AbstractJob
             if ($converter === null) {
                 $converter = new \IiifSearch\Stdlib\ToAltoConverter();
             }
-            if ($converter->convert($sourceFilepath, $cls, $targetPath)) {
+            if (!$converter->convert($sourceFilepath, $cls, $targetPath)) {
+                $this->logger->warn(new Message(
+                    'Item #%1$d: failed to materialize media #%2$d (%3$s) as alto.', // @translate
+                    $item->id(), $resource->id(), $cls
+                ));
+            } elseif (!$this->altoHasCoordinates($targetPath)) {
+                // A text without coordinates, like a tei without facsimile
+                // zones, cannot be used for search or annotations, and must not
+                // prevent the ocr of the images.
+                @unlink($targetPath);
+                $this->logger->info(new Message(
+                    'Item #%1$d: media #%2$d (%3$s) has no coordinates, so it is not used as ocr.', // @translate
+                    $item->id(), $resource->id(), $cls
+                ));
+            } else {
                 $sources[] = $targetPath;
                 $this->logger->info(new Message(
                     'Item #%1$d: media #%2$d (%3$s) materialized as %4$s.', // @translate
                     $item->id(), $resource->id(), $cls, basename($targetPath)
                 ));
-            } else {
-                $this->logger->warn(new Message(
-                    'Item #%1$d: failed to materialize media #%2$d (%3$s) as alto.', // @translate
-                    $item->id(), $resource->id(), $cls
-                ));
             }
         }
         return $sources;
+    }
+
+    /**
+     * Check if an alto file has at least one word with a position on a page.
+     */
+    protected function altoHasCoordinates(string $filepath): bool
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($filepath, null, LIBXML_NONET | LIBXML_PARSEHUGE)) {
+            return false;
+        }
+        $hasPageSize = false;
+        $result = false;
+        while (@$reader->read()) {
+            if ($reader->nodeType !== \XMLReader::ELEMENT) {
+                continue;
+            }
+            if ($reader->localName === 'Page') {
+                $hasPageSize = (float) $reader->getAttribute('WIDTH') > 0
+                    && (float) $reader->getAttribute('HEIGHT') > 0;
+            } elseif ($reader->localName === 'String'
+                && $hasPageSize
+                && (float) $reader->getAttribute('WIDTH') > 0
+                && (float) $reader->getAttribute('HEIGHT') > 0
+            ) {
+                $result = true;
+                break;
+            }
+        }
+        $reader->close();
+        return $result;
     }
 
     protected function getXmlMediaClassifier(): XmlMediaClassifier
