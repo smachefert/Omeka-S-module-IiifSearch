@@ -1255,6 +1255,30 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
+     * Execute a command, then check the connection to the database.
+     *
+     * The database server closes an idle connection (wait_timeout), for example
+     * during the ocr of a big pdf, so the connection is reopened when needed.
+     *
+     * @return string|false
+     */
+    protected function executeCommand(string $command)
+    {
+        $start = time();
+        $result = $this->cli->execute($command);
+        if (time() - $start >= 60) {
+            $connection = $this->entityManager->getConnection();
+            try {
+                $connection->executeQuery('SELECT 1');
+            } catch (\Throwable $e) {
+                // The connection is reopened on the next query.
+                $connection->close();
+            }
+        }
+        return $result;
+    }
+
+    /**
      * Check if the output of pdftotext contains text.
      *
      * The pages are separated by a form feed, that is not removed by trim(), so
@@ -1286,7 +1310,7 @@ class ExtractOcr extends AbstractJob
 
         // Quick probe: extract text to stdout. If empty, the pdf has no text
         // layer and is a candidate for ocrmypdf.
-        $probe = $this->cli->execute(sprintf('pdftotext -layout %1$s -', escapeshellarg($pdfFilepath)));
+        $probe = $this->executeCommand(sprintf('pdftotext -layout %1$s -', escapeshellarg($pdfFilepath)));
         if ($probe === false) {
             return ['filepath' => $pdfFilepath, 'tempFile' => null];
         }
@@ -1312,7 +1336,7 @@ class ExtractOcr extends AbstractJob
             'PDF media #%1$s has no text layer: running ocrmypdf.', // @translate
             $pdfMediaId === null ? '?' : (string) $pdfMediaId
         ));
-        $result = $this->cli->execute($command);
+        $result = $this->executeCommand($command);
         if ($result === false || !file_exists($ocrPath) || !filesize($ocrPath)) {
             $this->logger->warn(new Message(
                 'ocrmypdf failed for pdf media #%1$s; falling back to original pdf.', // @translate
@@ -1803,7 +1827,7 @@ class ExtractOcr extends AbstractJob
 
             $command = sprintf('pdftohtml -i -c -hidden -nodrm -enc "UTF-8" -xml %1$s %2$s',
                 escapeshellarg($pdfFilepath), escapeshellarg($pdfXmlPath));
-            $result = $this->cli->execute($command);
+            $result = $this->executeCommand($command);
             if ($result === false || !file_exists($pdfXmlPath) || !filesize($pdfXmlPath)) {
                 $tempPdfXml->delete();
                 return null;
@@ -1961,7 +1985,7 @@ class ExtractOcr extends AbstractJob
                 escapeshellarg($altoBase),
                 $langArg
             );
-            $result = $this->cli->execute($command);
+            $result = $this->executeCommand($command);
             if ($result === false || !file_exists($altoPath) || !filesize($altoPath)) {
                 $this->logger->warn(new Message(
                     'tesseract failed for image media #%1$d.', // @translate
@@ -2512,7 +2536,7 @@ class ExtractOcr extends AbstractJob
 
             $command = sprintf('pdftotext -bbox -layout %1$s %2$s',
                 escapeshellarg($pdfFilepath), escapeshellarg($xmlFilepath));
-            $result = $this->cli->execute($command);
+            $result = $this->executeCommand($command);
             if ($result === false) {
                 if ($tempPath && file_exists($tempPath)) {
                     $tempFile->delete();
@@ -2936,7 +2960,7 @@ class ExtractOcr extends AbstractJob
             $cmd = 'gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile='
                 . escapeshellarg($concatTemp) . ' '
                 . implode(' ', array_map('escapeshellarg', $sourcePaths));
-            $this->cli->execute($cmd);
+            $this->executeCommand($cmd);
             if (!file_exists($concatTemp) || !filesize($concatTemp)) {
                 $this->logger->warn(new Message(
                     'Item #%1$d: ghostscript concatenation failed; text-layer rebuild skipped.', // @translate
@@ -2952,7 +2976,7 @@ class ExtractOcr extends AbstractJob
         // Skip when the PDF already carries a text layer. pdftotext on the
         // input file: empty output (or whitespace only) ⇒ no text layer.
         $probeCmd = 'pdftotext ' . escapeshellarg($inputPath) . ' - 2>/dev/null';
-        $probe = (string) $this->cli->execute($probeCmd);
+        $probe = (string) $this->executeCommand($probeCmd);
         if ($this->hasText($probe)) {
             $this->logger->info(new Message(
                 'Item #%1$d: PDF already carries a text layer, text-layer rebuild skipped.', // @translate
@@ -2972,7 +2996,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
             . escapeshellarg($inputPath) . ' '
             . escapeshellarg($outputTemp) . ' 2>&1';
-        $output = (string) $this->cli->execute($cmd);
+        $output = (string) $this->executeCommand($cmd);
         if ($concatTemp) {
             @unlink($concatTemp);
         }
@@ -3156,7 +3180,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'img2pdf '
             . implode(' ', array_map('escapeshellarg', $imagePaths))
             . ' --output ' . escapeshellarg($bundleTemp) . ' 2>&1';
-        $bundleOut = (string) $this->cli->execute($cmd);
+        $bundleOut = (string) $this->executeCommand($cmd);
         if (!file_exists($bundleTemp) || !filesize($bundleTemp)) {
             $this->logger->err(new Message(
                 'Item #%1$d: img2pdf failed: %2$s', // @translate
@@ -3173,7 +3197,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
             . escapeshellarg($bundleTemp) . ' '
             . escapeshellarg($outputTemp) . ' 2>&1';
-        $output = (string) $this->cli->execute($cmd);
+        $output = (string) $this->executeCommand($cmd);
         @unlink($bundleTemp);
         if (!file_exists($outputTemp) || !filesize($outputTemp)) {
             $this->logger->err(new Message(
