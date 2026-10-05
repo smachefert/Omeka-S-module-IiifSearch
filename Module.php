@@ -934,6 +934,76 @@ class Module extends AbstractModule
         ));
     }
 
+    /**
+     * Check if each image of an item has its alto, and only them.
+     *
+     * @return bool|null Null when the images have no alto.
+     *
+     * @see \IiifSearch\Job\ExtractOcr::generateAltoFromImagesViaTesseract()
+     */
+    protected function hasUpToDateImageAltos(\Omeka\Entity\Item $item, string $basePath): ?bool
+    {
+        $altoPaths = glob(sprintf('%s/alto/%d-page-*.alto.xml', $basePath, $item->getId())) ?: [];
+        if (!$altoPaths) {
+            return null;
+        }
+        $page = 0;
+        foreach ($item->getMedia() as $media) {
+            if (strtok((string) $media->getMediaType(), '/') !== 'image' || !$media->hasOriginal()) {
+                continue;
+            }
+            ++$page;
+            $altoPath = sprintf('%s/alto/%d-page-%03d.alto.xml', $basePath, $item->getId(), $page);
+            if (!file_exists($altoPath)
+                || \IiifSearch\Stdlib\ToAltoConverter::sourceImageFilename($altoPath) !== $media->getFilename()
+            ) {
+                return false;
+            }
+        }
+        return count($altoPaths) === $page;
+    }
+
+    /**
+     * Check if a tei has zones with coordinates, so it can be used as ocr.
+     */
+    protected function teiHasCoordinates(string $filepath): bool
+    {
+        $content = is_readable($filepath) ? (string) file_get_contents($filepath) : '';
+        return (bool) preg_match('~<(?:\w+:)?zone\b[^>]*\b(?:ulx|points)\s*=~', $content);
+    }
+
+    /**
+     * Check if the table of contents of a tei should be stored in the item.
+     *
+     * @see \IiifSearch\Job\ExtractOcr::storeTeiStructure()
+     */
+    protected function isTeiStructureToStore(\Omeka\Entity\Item $item, $settings, string $basePath): bool
+    {
+        $term = $settings->get('iiifsearch_tei_structure_property')
+            ?? $this->getServiceLocator()->get('Config')['iiifsearch']['config']['iiifsearch_tei_structure_property'];
+        if (!$settings->get('iiifsearch_tei_structure_store') || !$term) {
+            return false;
+        }
+        // The structure is cached when it is extracted, even when empty.
+        $cachePath = sprintf('%s/iiif-search/%d.toc.json', $basePath, $item->getId());
+        if (!is_readable($cachePath)) {
+            return true;
+        }
+        $structure = json_decode((string) file_get_contents($cachePath), true)['structure'] ?? null;
+        if (!$structure) {
+            return false;
+        }
+        foreach ($item->getValues() as $value) {
+            $property = $value->getProperty();
+            if ($property->getVocabulary()->getPrefix() . ':' . $property->getLocalName() === $term
+                && trim((string) $value->getValue()) === $structure
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public function extractOcr(Event $event): void
     {
         $services = $this->getServiceLocator();
@@ -941,12 +1011,6 @@ class Module extends AbstractModule
         /** @var \Omeka\Entity\Item $item */
         $item = $response->getContent();
 
-        $extensions = [
-            \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'alto.xml',
-            \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'xml',
-            \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'tsv',
-            \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'tsv',
-        ];
         $settings = $services->get('Omeka\Settings');
         $formatToSetting = [
             \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'iiifsearch_extract_dests_tsv',
@@ -954,24 +1018,20 @@ class Module extends AbstractModule
             \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'iiifsearch_extract_dests_alto',
             \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'iiifsearch_extract_dests_pdf2xml',
         ];
-        $hasFileDest = false;
-        $hasResourceDest = false;
         $targetTypesFiles = [];
         $targetTypesMedia = [];
         foreach ($formatToSetting as $format => $key) {
             $dests = (array) ($settings->get($key) ?: []);
             if (in_array('file', $dests, true)) {
-                $hasFileDest = true;
                 $targetTypesFiles[] = $format;
             }
             if (in_array('media', $dests, true) || in_array('digital_object', $dests, true)) {
-                $hasResourceDest = true;
                 $targetTypesMedia[] = $format;
             }
         }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
         $targetContentStore = array_intersect($targetContentStore, ['item', 'pdf', 'extracted']);
-        if (!$hasFileDest && !$hasResourceDest && !$targetContentStore) {
+        if (!$targetTypesFiles && !$targetTypesMedia && !$targetContentStore) {
             return;
         }
 
@@ -982,83 +1042,122 @@ class Module extends AbstractModule
             return;
         }
 
-        $hasPdf = false;
+        // The job processes a pdf, a xml with an ocr (alto, hocr, pdf2xml, or
+        // tei with coordinates), or the images when they are ocerized. A tei is
+        // processed too when its table of contents is stored, but a xml that
+        // is not an ocr (ead, mets, tei without coordinates) produces no
+        // search file, so it would be processed at each save.
+        $xmlMediaTypes = [
+            'application/alto+xml',
+            'application/tei+xml',
+            'application/vnd.pdf2xml+xml',
+            'application/xml',
+            'text/vnd.hocr+html',
+            'text/xml',
+        ];
+        $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+        $ocrImages = (bool) $settings->get('iiifsearch_extract_ocr_images');
+        $pdfMedia = null;
+        $hasSource = false;
+        $hasTei = false;
+        $classifier = new \IiifSearch\Stdlib\XmlMediaClassifier();
         /** @var \Omeka\Entity\Media $media */
         foreach ($item->getMedia() as $media) {
-            $mediaType = $media->getMediaType();
-            $extension = strtolower((string) $media->getExtension());
-            if ($mediaType === 'application/pdf' && $extension === 'pdf') {
-                $hasPdf = true;
+            $mediaType = (string) $media->getMediaType();
+            if ($mediaType === 'application/pdf'
+                && strtolower((string) $media->getExtension()) === 'pdf'
+            ) {
+                $pdfMedia = $media;
+                $hasSource = true;
+                break;
+            }
+            if ($ocrImages && strtok($mediaType, '/') === 'image') {
+                $hasSource = true;
+            } elseif (in_array($mediaType, $xmlMediaTypes, true) && $media->hasOriginal()) {
+                $filepath = $basePath . '/original/' . $media->getFilename();
+                $type = $classifier->classifyFile($filepath);
+                if ($type === \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_TEI) {
+                    $hasTei = true;
+                    $hasSource = $hasSource || $this->teiHasCoordinates($filepath);
+                } elseif (in_array($type, [
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_ALTO,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_HOCR,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_PDF2XML,
+                ], true)) {
+                    $hasSource = true;
+                }
+            }
+        }
+        if (!$hasSource) {
+            if ($hasTei && $this->isTeiStructureToStore($item, $settings, $basePath)) {
+                $this->dispatchExtractOcr($item->getId());
+            }
+            return;
+        }
+        if (!$pdfMedia) {
+            $targetContentStore = array_diff($targetContentStore, ['pdf']);
+        }
+
+        // Check the outputs with the names used by the job.
+        $itemId = $item->getId();
+        // Images without text have an alto without words, but no search file.
+        // When the images changed (added, removed, reordered), the ocr files
+        // are outdated.
+        $imageAltos = !$pdfMedia && $ocrImages ? $this->hasUpToDateImageAltos($item, $basePath) : null;
+        $imagesOcerized = $imageAltos === true && !array_filter(
+            glob(sprintf('%s/alto/%d-page-*.alto.xml', $basePath, $item->getId())) ?: [],
+            [\IiifSearch\Stdlib\ToAltoConverter::class, 'hasCoordinates']
+        );
+        $missing = $imageAltos === false;
+        foreach ($missing ? [] : $targetTypesFiles as $format) {
+            $index = \IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES[$format];
+            $dirPath = $basePath . '/' . $index['dir'] . '/' . $itemId;
+            $exists = $imagesOcerized
+                || file_exists($dirPath . '.' . $index['extension'])
+                // Alto may be stored by page, for example via tesseract.
+                || ($format === \IiifSearch\Job\ExtractOcr::FORMAT_ALTO && glob($dirPath . '-*.alto.xml'));
+            if (!$exists) {
+                $missing = true;
                 break;
             }
         }
-        if (!$hasPdf) {
-            return;
-        }
 
-        $source = (string) $media->getSource();
-        $filename = (string) parse_url($source, PHP_URL_PATH);
-        $targetFilenameNoExtension = strlen($filename)
-            ? basename($filename, '.pdf')
-            : $media->id() . '-' . $media->getStorageId();
-        if (!$targetFilenameNoExtension) {
-            return;
-        }
-
-        $suffixFilenames = [
-            'alto.xml' => '.alto',
-            'xml' => '',
-            'tsv' => '',
-        ];
-        $shortExtensions = [
-            'alto.xml' => 'xml',
-            'xml' => 'xml',
-            'tsv' => 'tsv',
-        ];
-        $dirPaths = [
-            'alto.xml' => 'alto',
-            'pdf2xml' => 'pdf2xml',
-            'tsv' => 'iiif-search',
-            'xml' => 'pdf2xml',
-        ];
-
-        $existingFiles = array_fill_keys($targetTypesFiles, false);
-        if ($targetTypesFiles) {
-            $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-            foreach ($targetTypesFiles as $targetTypeFile) {
-                $targetExtension = $extensions[$targetTypeFile];
-                $targetDirPath = $dirPaths[$targetExtension];
-                $localSearchFilepath = $basePath . '/' . $targetDirPath . '/' . $item->getId() . '.' . $targetExtension;
-                if (file_exists($localSearchFilepath)) {
-                    $existingFiles[$targetTypeFile] = true;
+        if (!$missing && $targetTypesMedia) {
+            $suffixes = [
+                \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => '.alto',
+                \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => '.pdf2xml',
+                \IiifSearch\Job\ExtractOcr::FORMAT_TSV => '.full',
+                \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => '.by-word',
+            ];
+            $sourceBase = $pdfMedia
+                ? basename((string) $pdfMedia->getSource(), '.pdf')
+                : 'item-' . $itemId;
+            foreach ($targetTypesMedia as $format) {
+                $index = \IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES[$format];
+                $filename = $sourceBase . '.' . $itemId . $suffixes[$format] . '.' . $index['short_extension'];
+                if (!$this->getMediaFromFilename($itemId, $filename, $index['short_extension'], $index['media_type'])) {
+                    $missing = true;
+                    break;
                 }
             }
         }
 
-        $existingMedias = array_fill_keys($targetTypesMedia, false);
-        if ($targetTypesMedia) {
-            foreach ($targetTypesMedia as $targetMediaType) {
-                $targetExtension = $extensions[$targetMediaType];
-                $targetFilename = $targetFilenameNoExtension . '.' . $targetExtension;
-                if ($this->getMediaFromFilename($item->getId(), $targetFilename . $suffixFilenames[$targetExtension], $shortExtensions[$targetExtension], $targetMediaType)) {
-                    $existingMedias[$targetMediaType] = true;
-                }
-            }
-        }
-
-        if (count(array_filter($existingFiles)) === count($existingFiles)
-            && count(array_filter($existingMedias)) === count($existingMedias)
-            && !count($targetContentStore)
-        ) {
+        if (!$missing && !$targetContentStore) {
             return;
         }
 
+        $this->dispatchExtractOcr($item->getId());
+    }
+
+    protected function dispatchExtractOcr(int $itemId): void
+    {
+        $services = $this->getServiceLocator();
         $baseUri = $this->getBaseUri();
         if ($services->has('Common\DeferredJobDispatch')) {
             $services->get('Common\DeferredJobDispatch')->defer(
                 \IiifSearch\Job\ExtractOcr::class,
                 'iiifsearch_extract_ocr',
-                ['item_ids' => $item->getId()],
+                ['item_ids' => $itemId],
                 function (string $key, array $allParams) use ($baseUri) {
                     $ids = [];
                     foreach ($allParams as $p) {
@@ -1069,6 +1168,7 @@ class Module extends AbstractModule
                         'base_uri' => $baseUri,
                         'item_ids' => implode(' ', array_unique($ids)),
                         'manual' => true,
+                        'reuse_image_alto' => true,
                     ];
                 }
             );
@@ -1078,8 +1178,9 @@ class Module extends AbstractModule
                 [
                     'mode' => 'all',
                     'base_uri' => $baseUri,
-                    'item_ids' => (string) $item->getId(),
+                    'item_ids' => (string) $itemId,
                     'manual' => true,
+                    'reuse_image_alto' => true,
                 ]
             );
         }

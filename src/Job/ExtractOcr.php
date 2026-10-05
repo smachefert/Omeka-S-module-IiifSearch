@@ -212,6 +212,20 @@ class ExtractOcr extends AbstractJob
     protected $pairingMode = 'auto';
 
     /**
+     * Alto files generated via tesseract by item id, reused for each format.
+     *
+     * @var array
+     */
+    protected $generatedAltos = [];
+
+    /**
+     * Ids of the items with new ocr files, whose cached manifests are removed.
+     *
+     * @var array
+     */
+    protected $updatedItemIds = [];
+
+    /**
      * @brief Attach attracted ocr data from pdf with item
      */
     public function perform(): void
@@ -409,7 +423,8 @@ class ExtractOcr extends AbstractJob
         }
 
         if ($settings->get('iiifsearch_tei_structure_store')) {
-            $term = (string) $settings->get('iiifsearch_tei_structure_property');
+            $term = (string) ($settings->get('iiifsearch_tei_structure_property')
+                ?? $services->get('Config')['iiifsearch']['config']['iiifsearch_tei_structure_property']);
             $propertyId = $term ? $services->get('Common\EasyMeta')->propertyId($term) : null;
             if ($propertyId) {
                 $this->teiStructureTerm = $term;
@@ -685,8 +700,12 @@ class ExtractOcr extends AbstractJob
             $this->process($targetItemIds, $mode, $totalToProcess);
             if ($this->shouldStop()) {
                 // The message is already displayed.
-                return;
+                break;
             }
+        }
+        $this->clearManifestCaches();
+        if ($this->shouldStop()) {
+            return;
         }
         if (count($targetTypesMedia) > 1) {
             $this->logger->notice(
@@ -889,6 +908,9 @@ class ExtractOcr extends AbstractJob
                 && in_array($this->targetFormat, [self::FORMAT_ALTO, self::FORMAT_TSV, self::FORMAT_TSV_BY_WORD], true)
             ) {
                 $generatedAltoFilepaths = $this->generateAltoFromImagesViaTesseract($item);
+                if ($generatedAltoFilepaths) {
+                    $this->updatedItemIds[$item->id()] = true;
+                }
             }
 
             $altoSources = $existingAltoMedias ?: $generatedAltoFilepaths;
@@ -984,6 +1006,9 @@ class ExtractOcr extends AbstractJob
                 }
                 $tempFile->delete();
 
+                if ($hasOcrFile || $ocrMedia) {
+                    $this->updatedItemIds[$item->id()] = true;
+                }
                 if ($hasOcrFile || $ocrMedia || $this->contentOnly) {
                     // Text content is already stored in media ocr.
                     if ($this->store['pdf'] && $pdfMedia) {
@@ -1873,6 +1898,11 @@ class ExtractOcr extends AbstractJob
      */
     protected function generateAltoFromImagesViaTesseract(ItemRepresentation $item): array
     {
+        if (isset($this->generatedAltos[$item->id()])) {
+            return $this->generatedAltos[$item->id()];
+        }
+        $this->generatedAltos[$item->id()] = [];
+
         $imageMedias = $this->findImageMedias($item);
         if (!$imageMedias) {
             return [];
@@ -1888,6 +1918,7 @@ class ExtractOcr extends AbstractJob
             : '';
 
         $generated = [];
+        $reused = 0;
         $page = 0;
         foreach ($imageMedias as $imageMedia) {
             ++$page;
@@ -1903,6 +1934,18 @@ class ExtractOcr extends AbstractJob
             // Persistent target: files/alto/<item_id>-page-<NN>.alto.xml
             $altoBase = sprintf('%s/%d-page-%03d.alto', $altoDir, $item->id(), $page);
             $altoPath = $altoBase . '.xml';
+            // On save, reuse the alto of the same image: an image without text
+            // has no search file, so it would be ocerized at each save. The
+            // alto is checked by its source image, because the images may have
+            // been reordered. A job run manually always ocerizes the images.
+            if ($this->getArg('reuse_image_alto')
+                && file_exists($altoPath)
+                && \IiifSearch\Stdlib\ToAltoConverter::sourceImageFilename($altoPath) === $imageMedia->filename()
+            ) {
+                $generated[] = $altoPath;
+                ++$reused;
+                continue;
+            }
             // tesseract appends ".xml" to the output base when the alto config
             // is used. Pass the base without extension.
             $command = sprintf(
@@ -1926,13 +1969,52 @@ class ExtractOcr extends AbstractJob
             $generated[] = $altoPath;
         }
 
-        if ($generated) {
+        // Remove the alto of the pages that do not exist anymore.
+        foreach (glob(sprintf('%s/%d-page-*.alto.xml', $altoDir, $item->id())) ?: [] as $filepath) {
+            if (preg_match('~-page-(\d+)\.alto\.xml$~', $filepath, $matches) && (int) $matches[1] > $page) {
+                @unlink($filepath);
+            }
+        }
+
+        if (count($generated) > $reused) {
             $this->logger->info(new Message(
                 'Item #%1$d: %2$d alto file(s) generated via tesseract under files/alto/.', // @translate
-                $item->id(), count($generated)
+                $item->id(), count($generated) - $reused
             ));
         }
+        if ($reused) {
+            $this->logger->info(new Message(
+                'Item #%1$d: %2$d alto file(s) of unchanged images reused from files/alto/.', // @translate
+                $item->id(), $reused
+            ));
+        }
+        $this->generatedAltos[$item->id()] = $generated;
         return $generated;
+    }
+
+    /**
+     * Remove the cached manifests of the updated items to declare the search.
+     *
+     * The manifests may be cached by the module IiifServer before the end of
+     * the extraction, for example when an item is saved.
+     *
+     * @see \IiifServer\Module::handleAfterDeleteItem()
+     */
+    protected function clearManifestCaches(): void
+    {
+        foreach (array_keys($this->updatedItemIds) as $itemId) {
+            foreach ([2, 3] as $version) {
+                $dirPath = $this->basePath . '/iiif/' . $version . '/' . $itemId;
+                $filepaths = array_merge(
+                    glob($dirPath . '.manifest.json') ?: [],
+                    glob($dirPath . '.*.manifest.json') ?: []
+                );
+                foreach ($filepaths as $filepath) {
+                    @unlink($filepath);
+                }
+            }
+        }
+        $this->updatedItemIds = [];
     }
 
     /**
@@ -2035,7 +2117,7 @@ class ExtractOcr extends AbstractJob
                     'Item #%1$d: failed to materialize media #%2$d (%3$s) as alto.', // @translate
                     $item->id(), $resource->id(), $cls
                 ));
-            } elseif (!$this->altoHasCoordinates($targetPath)) {
+            } elseif (!\IiifSearch\Stdlib\ToAltoConverter::hasCoordinates($targetPath)) {
                 // A text without coordinates, like a tei without facsimile
                 // zones, cannot be used for search or annotations, and must not
                 // prevent the ocr of the images.
@@ -2053,37 +2135,6 @@ class ExtractOcr extends AbstractJob
             }
         }
         return $sources;
-    }
-
-    /**
-     * Check if an alto file has at least one word with a position on a page.
-     */
-    protected function altoHasCoordinates(string $filepath): bool
-    {
-        $reader = new \XMLReader();
-        if (!@$reader->open($filepath, null, LIBXML_NONET | LIBXML_PARSEHUGE)) {
-            return false;
-        }
-        $hasPageSize = false;
-        $result = false;
-        while (@$reader->read()) {
-            if ($reader->nodeType !== \XMLReader::ELEMENT) {
-                continue;
-            }
-            if ($reader->localName === 'Page') {
-                $hasPageSize = (float) $reader->getAttribute('WIDTH') > 0
-                    && (float) $reader->getAttribute('HEIGHT') > 0;
-            } elseif ($reader->localName === 'String'
-                && $hasPageSize
-                && (float) $reader->getAttribute('WIDTH') > 0
-                && (float) $reader->getAttribute('HEIGHT') > 0
-            ) {
-                $result = true;
-                break;
-            }
-        }
-        $reader->close();
-        return $result;
     }
 
     protected function getXmlMediaClassifier(): XmlMediaClassifier

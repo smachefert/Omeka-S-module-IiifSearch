@@ -35,6 +35,61 @@ class ToAltoConverter
     }
 
     /**
+     * Check if an alto file has at least one word with a position on a page.
+     */
+    public static function hasCoordinates(string $filepath): bool
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($filepath, null, LIBXML_NONET | LIBXML_PARSEHUGE)) {
+            return false;
+        }
+        $hasPageSize = false;
+        $result = false;
+        while (@$reader->read()) {
+            if ($reader->nodeType !== \XMLReader::ELEMENT) {
+                continue;
+            }
+            if ($reader->localName === 'Page') {
+                $hasPageSize = (float) $reader->getAttribute('WIDTH') > 0
+                    && (float) $reader->getAttribute('HEIGHT') > 0;
+            } elseif ($reader->localName === 'String'
+                && $hasPageSize
+                && (float) $reader->getAttribute('WIDTH') > 0
+                && (float) $reader->getAttribute('HEIGHT') > 0
+            ) {
+                $result = true;
+                break;
+            }
+        }
+        $reader->close();
+        return $result;
+    }
+
+    /**
+     * Get the file name of the source image of an alto file, like tesseract.
+     */
+    public static function sourceImageFilename(string $altoFilepath): ?string
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($altoFilepath, null, LIBXML_NONET)) {
+            return null;
+        }
+        $result = null;
+        while (@$reader->read()) {
+            if ($reader->nodeType === \XMLReader::ELEMENT && $reader->localName === 'fileName') {
+                $result = basename(trim($reader->readString())) ?: null;
+                break;
+            }
+            // The description is before the layout.
+            if ($reader->nodeType === \XMLReader::ELEMENT && $reader->localName === 'Layout') {
+                break;
+            }
+        }
+        $reader->close();
+        return $result;
+    }
+
+    /**
      * Stamp an existing alto file in place with the module's provenance block.
      * Used for alto produced outside the XSLT pipeline (tesseract, direct
      * copy).
