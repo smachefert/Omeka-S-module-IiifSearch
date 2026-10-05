@@ -177,6 +177,124 @@ class SearchController extends AbstractActionController
     }
 
     /**
+     * Serve a single page of hOCR.
+     *
+     * Resolution cascade:
+     *  1. Native hOCR media attached to the item at the positional index N-1.
+     *  2. Per-page ALTO (resolved by xmlAltoSplitter) converted on the fly
+     *     via the alto_to_hocr.xsl stylesheet.
+     *  3. 404.
+     */
+    public function hocrPageAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No hOCR page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
+
+        $services = $this->getEvent()->getApplication()->getServiceManager();
+        $config = $services->get('Config');
+        $basePath = $config['file_store']['local']['base_path']
+            ?: (OMEKA_PATH . '/files');
+
+        // 1. Native hOCR media at the matching positional index.
+        $itemFileResources = $this->viewHelpers()->get('itemFileResources');
+        $hocrs = [];
+        foreach ($itemFileResources($item) as $resource) {
+            if ((string) $resource->mediaType() === 'text/vnd.hocr+html') {
+                $hocrs[] = $resource;
+            }
+        }
+        $target = $hocrs[$pageIndex] ?? null;
+        if ($target) {
+            $filename = (string) $target->filename();
+            $path = $filename !== '' ? $basePath . '/original/' . $filename : '';
+            if ($path !== '' && is_readable($path)) {
+                $mtime = (int) filemtime($path);
+                $etag = $this->buildEtag('hocr', $item->id(), $pageIndex, $mtime);
+                if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+                    return $notModified;
+                }
+                $response = $this->getResponse();
+                $headers = $response->getHeaders();
+                $headers->addHeaderLine('Content-Type', 'text/vnd.hocr+html; charset=utf-8');
+                $headers->addHeaderLine('Content-Length', (string) filesize($path));
+                $this->addCacheHeaders($headers, $etag, $mtime, 3600);
+                $response->setContent((string) @file_get_contents($path));
+                return $response;
+            }
+        }
+
+        // 2. Convert from the per-page ALTO via XSLT.
+        $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
+        $altoPath = $splitter($item, $pageIndex);
+        if (!$altoPath || !is_readable($altoPath)) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No hOCR page available.'); // @translate
+        }
+
+        $altoMtime = (int) filemtime($altoPath);
+        $etag = $this->buildEtag('hocr-alto', $item->id(), $pageIndex, $altoMtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $altoMtime)) {
+            return $notModified;
+        }
+        $hocrContent = $this->renderHocrFromAlto($altoPath);
+        if ($hocrContent === null) {
+            return $this->errorResponse(Response::STATUS_CODE_500, 'Failed to render hOCR from ALTO.'); // @translate
+        }
+
+        $response = $this->getResponse();
+        $headers = $response->getHeaders();
+        $headers->addHeaderLine('Content-Type', 'text/vnd.hocr+html; charset=utf-8');
+        $headers->addHeaderLine('Content-Length', (string) strlen($hocrContent));
+        $this->addCacheHeaders($headers, $etag, $altoMtime, 3600);
+        $response->setContent($hocrContent);
+        return $response;
+    }
+
+    /**
+     * Apply the bundled alto_to_hocr.xsl stylesheet to the given ALTO file and
+     * return the resulting hOCR HTML, or null on failure.
+     */
+    protected function renderHocrFromAlto(string $altoPath): ?string
+    {
+        $xsltPath = dirname(__DIR__, 2) . '/data/xsl/alto_to_hocr.xsl';
+        if (!is_readable($xsltPath)) {
+            return null;
+        }
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $loaded = @$dom->load($altoPath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        if (!$loaded) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $xsl = new \DOMDocument();
+        if (!@$xsl->load($xsltPath, LIBXML_NONET)) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $proc = new \XSLTProcessor();
+        $proc->setSecurityPrefs(XSL_SECPREF_CREATE_DIRECTORY | XSL_SECPREF_WRITE_FILE | XSL_SECPREF_READ_NETWORK | XSL_SECPREF_WRITE_NETWORK);
+        if (!@$proc->importStyleSheet($xsl)) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $out = @$proc->transformToXml($dom);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        return $out === false ? null : $out;
+    }
+
+    /**
      * Serve a IIIF AnnotationPage built from a single ALTO page (supplementing
      * motivation, suitable for Mirador text overlay).
      */

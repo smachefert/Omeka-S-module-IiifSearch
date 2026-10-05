@@ -440,7 +440,12 @@ class Module extends AbstractModule
     {
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
-        if (!$settings->get('iiifsearch_alto_canvas_inject', true)) {
+
+        // Three independent toggles: bail out early when none is on.
+        $emitAlto = (bool) $settings->get('iiifsearch_canvas_seealso_alto', true);
+        $emitAnnotations = (bool) $settings->get('iiifsearch_canvas_annotations', true);
+        $emitHocr = (bool) $settings->get('iiifsearch_canvas_seealso_hocr', false);
+        if (!$emitAlto && !$emitAnnotations && !$emitHocr) {
             return;
         }
 
@@ -493,49 +498,94 @@ class Module extends AbstractModule
             return $encodeSlash ? $url : strtr($url, ['%252F' => '/', '%2F' => '/']);
         };
 
-        $altoUrl = $fixSlash($urlHelper(
+        $altoUrl = $emitAlto ? $fixSlash($urlHelper(
             'iiifsearch/alto-page',
             ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
-        ));
-        $annotationsUrl = $fixSlash($urlHelper(
+        )) : null;
+        $annotationsUrl = $emitAnnotations ? $fixSlash($urlHelper(
             'iiifsearch/annotation-page',
             ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
-        ));
+        )) : null;
+
+        // hOCR seeAlso is emitted whenever an ALTO source is available for this
+        // page: the endpoint serves a native hOCR media when one is attached at
+        // the positional index, otherwise converts the per-page ALTO via the
+        // bundled alto_to_hocr.xsl stylesheet. The outer hasAnyAlto() check ran
+        // above already guarantees that some ALTO source exists for the item.
+        $hocrUrl = null;
+        if ($emitHocr) {
+            $hocrUrl = $fixSlash($urlHelper(
+                'iiifsearch/hocr-page',
+                ['id' => $identifier, 'page' => $pageIndex + 1],
+                ['force_canonical' => true]
+            ));
+        }
 
         $canvas = $event->getParam('canvas');
         $isVersion2 = !is_object($canvas);
 
         if ($isVersion2) {
-            $canvas['seeAlso'][] = [
-                '@id' => $altoUrl,
-                'format' => 'application/xml+alto',
-                'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
-                'label' => 'ALTO XML', // @translate
-            ];
+            if ($altoUrl) {
+                $canvas['seeAlso'][] = [
+                    '@id' => $altoUrl,
+                    'format' => 'application/xml+alto',
+                    'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
+                    'label' => 'ALTO XML', // @translate
+                ];
+            }
+            if ($hocrUrl) {
+                $canvas['seeAlso'][] = [
+                    '@id' => $hocrUrl,
+                    'format' => 'text/vnd.hocr+html',
+                    'label' => 'hOCR', // @translate
+                ];
+            }
+            // IIIF Presentation 2 carries OCR in otherContent, not annotations.
+            // The legacy listener never exposed v2 annotations either.
             $event->setParam('canvas', $canvas);
             return;
         }
 
-        $seeAlso = [
+        $seeAlsoAlto = $altoUrl ? [
             'id' => $altoUrl,
             'type' => 'Dataset',
             'format' => 'application/xml+alto',
             'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
             'label' => ['none' => ['ALTO XML']],
-        ];
-        $annotationPage = [
+        ] : null;
+        $seeAlsoHocr = $hocrUrl ? [
+            'id' => $hocrUrl,
+            'type' => 'Dataset',
+            'format' => 'text/vnd.hocr+html',
+            'label' => ['none' => ['hOCR']],
+        ] : null;
+        $annotationPage = $annotationsUrl ? [
             'id' => $annotationsUrl,
             'type' => 'AnnotationPage',
-        ];
+        ] : null;
 
         if (method_exists($canvas, 'append')) {
-            $canvas->append('seeAlso', $seeAlso);
-            $canvas->append('annotations', $annotationPage);
+            if ($seeAlsoAlto) {
+                $canvas->append('seeAlso', $seeAlsoAlto);
+            }
+            if ($seeAlsoHocr) {
+                $canvas->append('seeAlso', $seeAlsoHocr);
+            }
+            if ($annotationPage) {
+                $canvas->append('annotations', $annotationPage);
+            }
         } else {
-            $canvas['seeAlso'][] = $seeAlso;
-            $canvas['annotations'][] = $annotationPage;
+            if ($seeAlsoAlto) {
+                $canvas['seeAlso'][] = $seeAlsoAlto;
+            }
+            if ($seeAlsoHocr) {
+                $canvas['seeAlso'][] = $seeAlsoHocr;
+            }
+            if ($annotationPage) {
+                $canvas['annotations'][] = $annotationPage;
+            }
         }
 
         $event->setParam('canvas', $canvas);

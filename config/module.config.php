@@ -156,6 +156,16 @@ return [
                             ],
                         ],
                     ],
+                    'hocr-page' => [
+                        'type' => \Laminas\Router\Http\Regex::class,
+                        'options' => [
+                            'regex' => '/hocr/(?<page>\d+)\.html',
+                            'spec' => '/hocr/%page%.html',
+                            'defaults' => [
+                                'action' => 'hocr-page',
+                            ],
+                        ],
+                    ],
                 ],
             ],
         ],
@@ -176,7 +186,13 @@ return [
             'iiifsearch_minimum_query_length' => 3,
             'iiifsearch_disable_search_media_values' => false,
 
-            'iiifsearch_alto_canvas_inject' => false,
+            // Three independent toggles control what the IiifServer canvas
+            // event listener appends on each canvas. Inherits the legacy
+            // iiifsearch_alto_canvas_inject value on upgrade; once migrated,
+            // the legacy key is dropped.
+            'iiifsearch_canvas_seealso_alto' => true,
+            'iiifsearch_canvas_annotations' => true,
+            'iiifsearch_canvas_seealso_hocr' => false,
 
             // OCR extraction (formerly module ExtractOcr). Per-format
             // destinations: each format is independently routed to one or more
