@@ -140,6 +140,34 @@ class SearchController extends AbstractActionController
     }
 
     /**
+     * Redirect to the image info of the first page of the item.
+     *
+     * Some Mirador plugins request the search service as an image service, so
+     * the request fails without this route.
+     */
+    public function searchInfoAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $viewHelpers = $this->viewHelpers();
+        $images = $viewHelpers->get('itemFileResources')->images($item);
+        $image = $images ? reset($images)->inner() : null;
+        if (!$image || !$viewHelpers->has('iiifMediaUrl')) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No image available.'); // @translate
+        }
+
+        $url = $viewHelpers->get('iiifMediaUrl')->__invoke($image, 'imageserver/info');
+        if (!$url) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No image available.'); // @translate
+        }
+
+        return $this->redirect()->toUrl($url);
+    }
+
+    /**
      * Serve a single page extracted from a multipage ALTO XML document.
      */
     public function altoPageAction()

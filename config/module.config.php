@@ -49,8 +49,11 @@ return [
             /*
              * @link https://iiif.io/api/search/1.0/#search
              */
+            // Priority over the image route of module IiifServer, that may match
+            // "/iiif/search/{id}/search/{n}/info.json" too.
             'iiifsearch' => [
                 'type' => \Laminas\Router\Http\Segment::class,
+                'priority' => 10,
                 'options' => [
                     'route' => '/iiif-search/:id',
                     'constraints' => [
@@ -113,6 +116,18 @@ return [
                                 'controller' => 'Search',
                                 'action' => 'index2',
                                 'service' => 'SearchService2',
+                            ],
+                        ],
+                    ],
+                    // Some Mirador plugins request the search service as an image
+                    // service, so redirect to the image of the first page.
+                    'search-info' => [
+                        'type' => \Laminas\Router\Http\Regex::class,
+                        'options' => [
+                            'regex' => '/search(?:/[12])?/info\.json',
+                            'spec' => '/search/info.json',
+                            'defaults' => [
+                                'action' => 'search-info',
                             ],
                         ],
                     ],
