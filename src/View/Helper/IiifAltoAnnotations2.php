@@ -40,7 +40,9 @@ class IiifAltoAnnotations2 extends AbstractHelper
         $iiifUrl = $view->plugin('iiifUrl');
         $serverUrl = $view->plugin('serverUrl');
 
-        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        // An AnnotationList is referenced only by a manifest v2, so the targets are
+        // the canvases of this version, whatever the default version.
+        $manifestVersion = '2';
         $canvasBase = $iiifUrl($item, 'iiifserver/uri', $manifestVersion, ['type' => 'canvas']) . '/p' . ($page + 1);
         $listId = $serverUrl(true);
 

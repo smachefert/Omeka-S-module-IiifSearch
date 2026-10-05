@@ -264,9 +264,11 @@ class IiifSearch extends AbstractHelper
         // Canvas/annotation identifiers must match the ones embedded in the
         // served manifest, so that viewers (Mirador, UV, etc.) can map search
         // results back to canvases. Many viewers still use Search 1 even with a
-        // Presentation 3 manifest, so align on the manifest default version
+        // Presentation 3 manifest, so align on the version of the manifest that
+        // declares the service, set in the url when it is not the default one,
         // regardless of the search API version.
-        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        $manifestVersion = (string) ($view->params()->fromRoute('manifest')
+            ?: $view->setting('iiifserver_manifest_default_version', '2'));
         $this->baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', $manifestVersion, [
             'type' => 'annotation',
             'name' => 'search-result',

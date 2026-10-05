@@ -372,10 +372,19 @@ class Module extends AbstractModule
             return;
         }
 
-        $searchUrlV1 = $fixSlash($urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]));
-        $searchUrlV2 = $fixSlash($urlHelper('iiifsearch/search-2', ['id' => $identifier], ['force_canonical' => true]));
-
+        // The targets of the results are the canvases of the manifest, so the
+        // version of the manifest is set in the url when it is not the default
+        // one. The url of the default manifest is unchanged.
         $isVersion2 = !is_object($manifest);
+        $routeParams = ['id' => $identifier];
+        $manifestVersion = $isVersion2 ? '2' : '3';
+        if ($manifestVersion !== (string) $settings->get('iiifserver_manifest_default_version', '2')) {
+            $routeParams['manifest'] = $manifestVersion;
+        }
+
+        $searchUrlV1 = $fixSlash($urlHelper('iiifsearch/search', $routeParams, ['force_canonical' => true]));
+        $searchUrlV2 = $fixSlash($urlHelper('iiifsearch/search-2', $routeParams, ['force_canonical' => true]));
+
         if ($isVersion2) {
             // Manifest IIIF Presentation 2 only carries Search v1 services.
             if (in_array('1', $versions, true)) {

@@ -64,13 +64,20 @@ return [
                 ],
                 'may_terminate' => true,
                 'child_routes' => [
+                    // The optional version of the manifest that declares the
+                    // service, when it is not the default one, so the targets of
+                    // the results are the canvases of this manifest. It cannot
+                    // be set in the parent route, that has child routes.
                     // This format follows the example of the specification.
                     // It allows to make a quick distinction between level 0 and level 1.
                     // @link https://iiif.io/api/search/1.0/#service-description
                     'search' => [
-                        'type' => \Laminas\Router\Http\Literal::class,
+                        'type' => \Laminas\Router\Http\Segment::class,
                         'options' => [
-                            'route' => '/search',
+                            'route' => '[/v:manifest]/search',
+                            'constraints' => [
+                                'manifest' => '2|3',
+                            ],
                             'defaults' => [
                                 '__NAMESPACE__' => 'IiifSearch\Controller',
                                 'controller' => 'Search',
@@ -80,9 +87,12 @@ return [
                         ],
                     ],
                     'search-1' => [
-                        'type' => \Laminas\Router\Http\Literal::class,
+                        'type' => \Laminas\Router\Http\Segment::class,
                         'options' => [
-                            'route' => '/search/1',
+                            'route' => '[/v:manifest]/search/1',
+                            'constraints' => [
+                                'manifest' => '2|3',
+                            ],
                             'defaults' => [
                                 '__NAMESPACE__' => 'IiifSearch\Controller',
                                 'controller' => 'Search',
@@ -92,9 +102,12 @@ return [
                         ],
                     ],
                     'search-2' => [
-                        'type' => \Laminas\Router\Http\Literal::class,
+                        'type' => \Laminas\Router\Http\Segment::class,
                         'options' => [
-                            'route' => '/search/2',
+                            'route' => '[/v:manifest]/search/2',
+                            'constraints' => [
+                                'manifest' => '2|3',
+                            ],
                             'defaults' => [
                                 '__NAMESPACE__' => 'IiifSearch\Controller',
                                 'controller' => 'Search',

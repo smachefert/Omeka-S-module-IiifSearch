@@ -46,7 +46,9 @@ class IiifAltoAnnotations extends AbstractHelper
         $iiifUrl = $view->plugin('iiifUrl');
         $serverUrl = $view->plugin('serverUrl');
 
-        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        // An AnnotationPage is referenced only by a manifest v3, so the targets are
+        // the canvases of this version, whatever the default version.
+        $manifestVersion = '3';
         $canvasBase = $iiifUrl($item, 'iiifserver/uri', $manifestVersion, ['type' => 'canvas']) . '/p' . ($page + 1);
         $pageId = $serverUrl(true);
 
