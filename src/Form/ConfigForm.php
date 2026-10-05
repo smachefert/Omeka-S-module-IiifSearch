@@ -473,7 +473,7 @@ class ConfigForm extends Form
                 'type' => Element\MultiCheckbox::class,
                 'options' => [
                     'label' => 'Formats to delete', // @translate
-                    'info' => 'Only medias produced by the module are eligible: tsv indexes whose source ends with ".{itemId}.[by-word.]tsv", pdf2xml whose source ends with ".{itemId}.pdf2xml.xml" (legacy, deprecated), and ALTO whose XML carries the module provenance marker. Medias uploaded by users are never touched, whatever their format.', // @translate
+                    'info' => 'Only medias produced by the module are eligible: tsv indexes whose source ends with ".{itemId}.[by-word.]tsv", pdf2xml whose source ends with ".{itemId}.pdf2xml.xml" (legacy, deprecated), and ALTO whose XML carries the module provenance marker. Medias uploaded by users are never touched, whatever their format. A media is kept when its item has no ocr file yet under files/iiif-search/ or files/alto/, since it may be the only source of the search.', // @translate
                     'value_options' => [
                         'tsv' => 'TSV search indexes (.{itemId}.tsv, .{itemId}.by-word.tsv)', // @translate
                         'pdf2xml' => 'pdf2xml (deprecated, not attached anymore by recent versions)', // @translate
@@ -490,7 +490,7 @@ class ConfigForm extends Form
                 'type' => Element\Checkbox::class,
                 'options' => [
                     'label' => 'Re-run OCR / index extraction after cleanup', // @translate
-                    'info' => 'Dispatch the Extract OCR job ("missing" mode) right after the cleanup so the deleted indexes and OCR derivatives are produced again as flat files under files/iiif-search/ and files/alto/.', // @translate
+                    'info' => 'Dispatch the Extract OCR job ("missing" mode) right after the cleanup so the deleted indexes and OCR derivatives are produced again as flat files under files/iiif-search/ and files/alto/. It requires the command-line utility pdftotext: without it, nothing is deleted.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_cleanup_rerun_extract',

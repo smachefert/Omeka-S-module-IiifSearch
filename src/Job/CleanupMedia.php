@@ -46,6 +46,11 @@ class CleanupMedia extends AbstractJob
      */
     protected $basePath;
 
+    /**
+     * @var bool[] Presence of an ocr file by item id.
+     */
+    protected $ocrFiles = [];
+
     public function perform(): void
     {
         $services = $this->getServiceLocator();
@@ -70,9 +75,23 @@ class CleanupMedia extends AbstractJob
             implode(', ', $targets)
         ));
 
+        // The re-extraction requires pdftotext: without it, the job Extract OCR
+        // fails immediately and the deleted ocr cannot be rebuilt, so nothing is
+        // deleted.
+        if ($this->getArg('rerun_extract')
+            && !$services->get('Omeka\Cli')->getCommandPath('pdftotext')
+        ) {
+            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
+            $this->logger->err(new Message(
+                'The cleanup is followed by a new extraction, but the command-line utility pdftotext is not available, so the ocr cannot be rebuilt and nothing is deleted. Install the package poppler-utils or run the cleanup without the new extraction.' // @translate
+            ));
+            return;
+        }
+
         $totalChecked = 0;
         $totalDeleted = 0;
         $totalSkipped = 0;
+        $totalKept = 0;
         $totalErrors = 0;
 
         // DigitalObject shares the same storage_id / extension / media_type /
@@ -121,6 +140,16 @@ class CleanupMedia extends AbstractJob
                         continue;
                     }
 
+                    // The media may be the only ocr of the item: the search uses
+                    // it until the job Extract OCR creates the files.
+                    $itemId = $table === 'digital_object'
+                        ? $this->itemIdOfDigitalObject((int) $row['id'])
+                        : (int) $row['item_id'];
+                    if (!$itemId || !$this->hasOcrFile($itemId)) {
+                        ++$totalKept;
+                        continue;
+                    }
+
                     $ok = $this->deleteRow($table, (int) $row['id']);
                     if (!$ok) {
                         ++$totalErrors;
@@ -144,6 +173,12 @@ class CleanupMedia extends AbstractJob
             'Cleanup done: %1$d medias checked, %2$d deleted, %3$d skipped (not module-created), %4$d errors.', // @translate
             $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
         ));
+        if ($totalKept) {
+            $this->logger->warn(new Message(
+                '%d medias were kept, because their item has no ocr file yet under files/iiif-search/ or files/alto/, so they are the only source of its search. Run the job Extract OCR in mode "missing" with the destination "file" (it requires pdftotext), then run the cleanup again.', // @translate
+                $totalKept
+            ));
+        }
 
         // Dispatch the OCR re-extraction job only now so the queue worker does
         // not pull them concurrently. The flag and the base URI are forwarded
@@ -169,6 +204,31 @@ class CleanupMedia extends AbstractJob
                 ));
             }
         }
+    }
+
+    /**
+     * Check if the item has an ocr file created by the job Extract OCR.
+     */
+    protected function hasOcrFile(int $itemId): bool
+    {
+        if (!isset($this->ocrFiles[$itemId])) {
+            $this->ocrFiles[$itemId] = (bool) (glob($this->basePath . '/iiif-search/' . $itemId . '.*tsv')
+                ?: (is_file($this->basePath . '/alto/' . $itemId . '.alto.xml')
+                    || glob($this->basePath . '/alto/' . $itemId . '-*.alto.xml')));
+        }
+        return $this->ocrFiles[$itemId];
+    }
+
+    /**
+     * A digital object has no item column: it is linked by a value of the item.
+     */
+    protected function itemIdOfDigitalObject(int $digitalObjectId): ?int
+    {
+        $itemId = $this->connection->fetchOne(
+            'SELECT `value`.`resource_id` FROM `value` INNER JOIN `item` ON `item`.`id` = `value`.`resource_id` WHERE `value`.`value_resource_id` = ? LIMIT 1',
+            [$digitalObjectId]
+        );
+        return $itemId ? (int) $itemId : null;
     }
 
     /**
@@ -262,8 +322,23 @@ class CleanupMedia extends AbstractJob
         if (!in_array($table, ['media', 'digital_object'], true)) {
             return false;
         }
+        // A media or a digital object is a resource (class table inheritance),
+        // so the row of the table "resource" is deleted, that cascades to the
+        // specific table and to the access status. Only the values block it, so
+        // they are deleted first, with their annotations, that are resources.
         try {
-            $this->connection->delete($table, ['id' => $id]);
+            $this->connection->transactional(function (\Doctrine\DBAL\Connection $connection) use ($id): void {
+                $annotationIds = $connection->fetchFirstColumn(
+                    'SELECT `value_annotation_id` FROM `value` WHERE `resource_id` = ? AND `value_annotation_id` IS NOT NULL',
+                    [$id]
+                );
+                $connection->executeStatement('DELETE FROM `value` WHERE `resource_id` = ?', [$id]);
+                foreach ($annotationIds as $annotationId) {
+                    $connection->executeStatement('DELETE FROM `value` WHERE `resource_id` = ?', [(int) $annotationId]);
+                    $connection->executeStatement('DELETE FROM `resource` WHERE `id` = ?', [(int) $annotationId]);
+                }
+                $connection->executeStatement('DELETE FROM `resource` WHERE `id` = ?', [$id]);
+            });
             return true;
         } catch (\Throwable $e) {
             $this->logger->err(new Message(
