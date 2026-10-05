@@ -1120,10 +1120,12 @@ class IiifSearch extends AbstractHelper
                         'height' => null,
                     ];
 
+                    // The tsv uses the size of the image, or the size of the page
+                    // of the pdf in points.
                     $page = [];
                     $page['number'] = (string) $pageIndex;
-                    $page['width'] = (string) $image['width'];
-                    $page['height'] = (string) $image['height'];
+                    $page['width'] = (string) ($image['page_width'] ?? $image['width']);
+                    $page['height'] = (string) ($image['page_height'] ?? $image['height']);
 
                     $results[$pageIndex][$hit]['resource'] = $resource;
                     $results[$pageIndex][$hit]['image'] = $image;
@@ -1428,6 +1430,27 @@ class IiifSearch extends AbstractHelper
                         : $this->imageSizeLocal($resource);
                     $size['source'] = $resource->source();
                     $this->imageSizes[] = $size;
+                }
+            }
+        }
+
+        // Without image, the pages of the pdf may be the canvases, rendered by
+        // the image server, while the ocr extracted from the pdf is in points.
+        if (!$this->imageSizes && $this->getView()->getHelperPluginManager()->has('pdfPageSizes')) {
+            $pdfPageSizes = $this->getView()->plugin('pdfPageSizes');
+            foreach ($itemFileResources($this->item) as $resource) {
+                if ($resource->mediaType() !== 'application/pdf') {
+                    continue;
+                }
+                foreach ($pdfPageSizes($resource->inner()) as $size) {
+                    $this->imageSizes[] = [
+                        'id' => $resource->id(),
+                        'width' => $size['width'],
+                        'height' => $size['height'],
+                        'page_width' => $size['points_width'],
+                        'page_height' => $size['points_height'],
+                        'source' => $resource->source(),
+                    ];
                 }
             }
         }
