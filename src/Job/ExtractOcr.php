@@ -1579,6 +1579,10 @@ class ExtractOcr extends AbstractJob
 
             foreach ($pages ?: [] as $page) {
                 ++$indexPage;
+                // The xpath namespaces are not inherited by the sub-nodes.
+                if (!empty($namespaces[''])) {
+                    $page->registerXPathNamespace('alto', $namespaces['']);
+                }
                 $attr = $page->attributes();
                 $pageWidth = (float) $attr->WIDTH;
                 $pageHeight = (float) $attr->HEIGHT;
