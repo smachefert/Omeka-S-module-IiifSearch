@@ -308,7 +308,7 @@ class ExtractOcr extends AbstractJob
         $targetTypesFiles = array_values(array_intersect(array_keys($formats), $targetTypesFiles));
         $targetTypesMedia = array_values(array_intersect(array_keys($formats), $targetTypesMedia));
         $targetTypesDigitalObject = array_values(array_intersect(array_keys($formats), $targetTypesDigitalObject));
-        $doModuleActive = (bool) $services->get('Omeka\ModuleManager')->getModule('DigitalObject');
+        $doModuleActive = class_exists('DigitalObject\Module', false);
         if ($targetTypesDigitalObject && !$doModuleActive) {
             $this->logger->warn(
                 'A "digital_object" destination is configured but the DigitalObject module is not active; those formats will be created as media instead.' // @translate
@@ -491,7 +491,7 @@ class ExtractOcr extends AbstractJob
         // image media (for tesseract-based ALTO extraction). When the
         // DigitalObject module is active, union with items linked to a DO
         // matching the same criteria so DO-only OCR sources are not missed.
-        $doModuleActive = (bool) $services->get('Omeka\ModuleManager')->getModule('DigitalObject');
+        $doModuleActive = class_exists('DigitalObject\Module', false);
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
             FROM `media`
@@ -771,7 +771,8 @@ class ExtractOcr extends AbstractJob
             $targetFilenameNoExtension = $sourceBase . '.' . $item->id();
             $shortExtension = $shortExtensions[$this->targetFormat];
             $targetFilename = $targetFilenameNoExtension . $suffixFilenames[$this->targetFormat] . '.' . $shortExtension;
-            $searchExistingOcrMedia = $this->getMediaFromFilename($item->id(), $targetFilename, $shortExtension, $this->targetMediaType);
+            $searchExistingOcrMedia = $this->getMediaFromFilename($item->id(), $targetFilename, $shortExtension, $this->targetMediaType)
+                ?: $this->getDigitalObjectFromFilename($item->id(), $targetFilename, $shortExtension, $this->targetMediaType);
 
             $localSearchFilepath = $this->basePath . '/' . $this->targetDirPath . '/' . $item->id() . '.' . $this->targetExtension;
             $searchExistingOcrFile = file_exists($localSearchFilepath);
@@ -1052,6 +1053,79 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
+     * Find the first DigitalObject linked to the item via the configured inline
+     * properties whose source / extension / mime match. Mirrors
+     * getMediaFromFilename for the DigitalObject branch of the OCR cleanup.
+     *
+     * Returns null when the DigitalObject module is not active or when no
+     * matching row is linked to the item.
+     */
+    protected function getDigitalObjectFromFilename(
+        int $itemId,
+        string $filename,
+        string $extension,
+        string $mediaType
+    ) {
+        if (!class_exists('DigitalObject\Module', false)) {
+            return null;
+        }
+        try {
+            $results = $this->api->search('digital_objects', [
+                'source' => $filename,
+                'extension' => $extension,
+                'mediaType' => $mediaType,
+                'linked_to_item' => $itemId,
+                'limit' => 1,
+            ])->getContent();
+        } catch (\Throwable $e) {
+            // DigitalObject adapter may not support 'linked_to_item' on every
+            // version; fall back to a value-table-driven query in that case.
+            return $this->getDigitalObjectFromFilenameViaValue(
+                $itemId, $filename, $extension, $mediaType
+            );
+        }
+        return $results[0] ?? null;
+    }
+
+    /**
+     * Fallback for the DO lookup when the api adapter does not expose a
+     * 'linked_to_item' filter. Queries the value table directly for any inline
+     * property pointing at an item, then keeps the DO whose
+     * source/extension/mime match.
+     */
+    protected function getDigitalObjectFromFilenameViaValue(
+        int $itemId,
+        string $filename,
+        string $extension,
+        string $mediaType
+    ) {
+        $sql = <<<'SQL'
+            SELECT d.id FROM digital_object d
+            INNER JOIN value v ON v.value_resource_id = d.id
+            WHERE v.resource_id = ?
+              AND d.source = ?
+              AND d.extension = ?
+              AND d.media_type = ?
+            LIMIT 1
+            SQL;
+        try {
+            $id = (int) $this->entityManager->getConnection()->fetchOne($sql, [
+                $itemId, $filename, $extension, $mediaType,
+            ]);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        if (!$id) {
+            return null;
+        }
+        try {
+            return $this->api->read('digital_objects', ['id' => $id])->getContent();
+        } catch (\Throwable $e) {
+            return null;
+        }
+    }
+
+    /**
      * @param MediaRepresentation[] $pdfMedias
      */
     protected function extractOcrFromPdfMediasToTempFile(array $pdfMedias, bool $forceXml = false): ?TempFile
@@ -1178,7 +1252,7 @@ class ExtractOcr extends AbstractJob
     /**
      * Extract the text content of the pdf, reusing temp file when possible.
      */
-    protected function extractTextContent(?MediaRepresentation $pdfMedia, ?TempFile $tempFile = null): ?string
+    protected function extractTextContent(?AbstractResourceEntityRepresentation $pdfMedia, ?TempFile $tempFile = null): ?string
     {
         // For tsv, text content is only needed for property storage. Skip the
         // expensive re-extraction when no property is configured.
@@ -1411,7 +1485,7 @@ class ExtractOcr extends AbstractJob
         TempFile $tempFile,
         ?string $textContent,
         ItemRepresentation $item,
-        ?MediaRepresentation $pdfMedia = null
+        ?AbstractResourceEntityRepresentation $pdfMedia = null
     ) {
         // It's not possible to save a local file via the "upload" ingester. So
         // the ingester "url" can be used, but it requires the file to be in the
@@ -2454,7 +2528,7 @@ class ExtractOcr extends AbstractJob
      *  - anything else (image, pdf, audio/video, native tei/mets/hocr, etc.):
      *    never.
      */
-    protected function canDeleteOcrMedia(MediaRepresentation $media): bool
+    protected function canDeleteOcrMedia(AbstractResourceEntityRepresentation $media): bool
     {
         $mediaType = (string) $media->mediaType();
 
@@ -2499,7 +2573,7 @@ class ExtractOcr extends AbstractJob
      * that, drop the entity through Doctrine directly and unlink the file
      * outside any Doctrine transaction.
      */
-    protected function deleteOcrMediaSafely(MediaRepresentation $media): void
+    protected function deleteOcrMediaSafely(AbstractResourceEntityRepresentation $media): void
     {
         $mediaId = (int) $media->id();
         $mediaType = (string) $media->mediaType();
@@ -2519,30 +2593,41 @@ class ExtractOcr extends AbstractJob
             'text/tab-separated-values;by-word',
         ], true);
 
+        // Dispatch on resource kind: media -> "media" table + Media entity
+        // class; digital_objects -> "digital_object" + DigitalObject entity.
+        $isDigitalObject = method_exists($media, 'resourceName')
+            && $media->resourceName() === 'digital_objects';
+        $table = $isDigitalObject ? 'digital_object' : 'media';
+        $entityClass = $isDigitalObject
+            ? \DigitalObject\Entity\DigitalObject::class
+            : \Omeka\Entity\Media::class;
+
         // ORM-level delete (api->delete or EntityManager::remove() + flush)
         // cannot be used here: Omeka core registers a Doctrine event listener
-        // on Media that calls Store\Local::delete() inside the flush
-        // transaction. When unlink() fails, the RuntimeException propagates
-        // through flush() and Doctrine closes the EntityManager for the rest of
-        // the job. Raw DBAL bypasses the ORM event system entirely, so the row
-        // is dropped without ever touching the filesystem from inside a
-        // Doctrine transaction.
+        // on Media (and the equivalent on DigitalObject) that calls
+        // Store\Local::delete() inside the flush transaction. When unlink()
+        // fails, the RuntimeException propagates through flush() and Doctrine
+        // closes the EntityManager for the rest of the job. Raw DBAL bypasses
+        // the ORM event system entirely, so the row is dropped without ever
+        // touching the filesystem from inside a Doctrine transaction.
         $conn = $this->entityManager->getConnection();
         try {
-            $affected = $conn->delete('media', ['id' => $mediaId]);
+            $affected = $conn->delete($table, ['id' => $mediaId]);
         } catch (\Throwable $e) {
             $this->logger->warn(new Message(
-                'Unable to delete media row #%1$d via DBAL: %2$s', // @translate
-                $mediaId, $e->getMessage()
+                'Unable to delete %1$s row #%2$d via DBAL: %3$s', // @translate
+                $table, $mediaId, $e->getMessage()
             ));
             return;
         }
         // Drop any managed copy from the identity map so further lookups on
         // this id don't resurrect a stale instance.
-        $managed = $this->entityManager->getUnitOfWork()
-            ->tryGetById($mediaId, \Omeka\Entity\Media::class);
-        if ($managed) {
-            $this->entityManager->detach($managed);
+        if (class_exists($entityClass, false)) {
+            $managed = $this->entityManager->getUnitOfWork()
+                ->tryGetById($mediaId, $entityClass);
+            if ($managed) {
+                $this->entityManager->detach($managed);
+            }
         }
 
         if ($affected < 1 || !$unlinkAllowed) {

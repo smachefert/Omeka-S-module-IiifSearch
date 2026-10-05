@@ -931,13 +931,17 @@ class Module extends AbstractModule
         ];
         $hasFileDest = false;
         $hasResourceDest = false;
+        $targetTypesFiles = [];
+        $targetTypesMedia = [];
         foreach ($formatToSetting as $format => $key) {
             $dests = (array) ($settings->get($key) ?: []);
             if (in_array('file', $dests, true)) {
                 $hasFileDest = true;
+                $targetTypesFiles[] = $format;
             }
             if (in_array('media', $dests, true) || in_array('digital_object', $dests, true)) {
                 $hasResourceDest = true;
+                $targetTypesMedia[] = $format;
             }
         }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];

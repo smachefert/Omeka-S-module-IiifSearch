@@ -75,50 +75,67 @@ class CleanupMedia extends AbstractJob
         $totalSkipped = 0;
         $totalErrors = 0;
 
+        // DigitalObject shares the same storage_id / extension / media_type /
+        // data layout as media. Process both tables when the module is active
+        // so OCR derivatives attached either way are reclaimed by the same
+        // pass.
+        $tables = ['media'];
+        if (class_exists('DigitalObject\Module', false)) {
+            $tables[] = 'digital_object';
+        }
+
         foreach ($targets as $target) {
             [$mediaTypes, $suffixes] = $this->targetCriteria($target);
             if (!$mediaTypes) {
                 continue;
             }
 
-            $placeholders = implode(',', array_fill(0, count($mediaTypes), '?'));
-            // Omeka stores storage_id and extension separately; the actual
-            // filename under files/original/ is "{storage_id}.{extension}".
-            // Compose it row by row.
-            $sql = 'SELECT id, item_id, media_type, source, storage_id, extension'
-                . ' FROM media WHERE media_type IN (' . $placeholders . ')'
-                . ' ORDER BY id ASC';
+            foreach ($tables as $table) {
+                $placeholders = implode(',', array_fill(0, count($mediaTypes), '?'));
+                // Omeka stores storage_id and extension separately; the actual
+                // filename under files/original/ is "{storage_id}.{extension}".
+                // Compose it row by row. digital_object has no item_id column
+                // (link is via value), but the row is sufficient for the file
+                // deletion path.
+                $idColumns = $table === 'digital_object'
+                    ? 'id, NULL AS item_id, media_type, source, storage_id, extension'
+                    : 'id, item_id, media_type, source, storage_id, extension';
+                $sql = 'SELECT ' . $idColumns
+                    . ' FROM ' . $table
+                    . ' WHERE media_type IN (' . $placeholders . ')'
+                    . ' ORDER BY id ASC';
 
-            $stmt = $this->connection->executeQuery($sql, $mediaTypes);
-            while (($row = $stmt->fetchAssociative()) !== false) {
-                if ($this->shouldStop()) {
-                    $this->logger->warn(new Message(
-                        'Cleanup stopped: %1$d checked, %2$d deleted, %3$d skipped, %4$d errors.', // @translate
-                        $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
-                    ));
-                    return;
-                }
-                ++$totalChecked;
+                $stmt = $this->connection->executeQuery($sql, $mediaTypes);
+                while (($row = $stmt->fetchAssociative()) !== false) {
+                    if ($this->shouldStop()) {
+                        $this->logger->warn(new Message(
+                            'Cleanup stopped: %1$d checked, %2$d deleted, %3$d skipped, %4$d errors.', // @translate
+                            $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
+                        ));
+                        return;
+                    }
+                    ++$totalChecked;
 
-                if (!$this->matchesProvenance($target, $row, $suffixes)) {
-                    ++$totalSkipped;
-                    continue;
-                }
+                    if (!$this->matchesProvenance($target, $row, $suffixes)) {
+                        ++$totalSkipped;
+                        continue;
+                    }
 
-                $ok = $this->deleteMediaRow((int) $row['id']);
-                if (!$ok) {
-                    ++$totalErrors;
-                    continue;
-                }
+                    $ok = $this->deleteRow($table, (int) $row['id']);
+                    if (!$ok) {
+                        ++$totalErrors;
+                        continue;
+                    }
 
-                $this->unlinkOriginal($row);
-                ++$totalDeleted;
+                    $this->unlinkOriginal($row);
+                    ++$totalDeleted;
 
-                if ($totalDeleted % self::SQL_LIMIT === 0) {
-                    $this->logger->info(new Message(
-                        'Progress: %1$d checked, %2$d deleted, %3$d skipped, %4$d errors.', // @translate
-                        $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
-                    ));
+                    if ($totalDeleted % self::SQL_LIMIT === 0) {
+                        $this->logger->info(new Message(
+                            'Progress: %1$d checked, %2$d deleted, %3$d skipped, %4$d errors.', // @translate
+                            $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
+                        ));
+                    }
                 }
             }
         }
@@ -237,17 +254,21 @@ class CleanupMedia extends AbstractJob
 
     /**
      * Drop the database row via raw DBAL to avoid the storage event listener
-     * that runs inside Doctrine's flush transaction.
+     * that runs inside Doctrine's flush transaction. Table is the table name
+     * ("media" or "digital_object") — both share the same id column.
      */
-    protected function deleteMediaRow(int $mediaId): bool
+    protected function deleteRow(string $table, int $id): bool
     {
+        if (!in_array($table, ['media', 'digital_object'], true)) {
+            return false;
+        }
         try {
-            $this->connection->delete('media', ['id' => $mediaId]);
+            $this->connection->delete($table, ['id' => $id]);
             return true;
         } catch (\Throwable $e) {
             $this->logger->err(new Message(
-                'Failed to delete media row #%1$d: %2$s', // @translate
-                $mediaId, $e->getMessage()
+                'Failed to delete %1$s row #%2$d: %3$s', // @translate
+                $table, $id, $e->getMessage()
             ));
             return false;
         }
