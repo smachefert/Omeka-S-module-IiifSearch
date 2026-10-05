@@ -7,16 +7,31 @@ use Omeka\Api\Representation\MediaRepresentation;
 /**
  * A single page of OCR data exposed to the pairer.
  *
- * Wraps either an attached media (alto/hocr/pdf2xml/pdf) or a plain filepath
- * (tesseract-generated alto, hocr-converted alto, etc.). Carries the logical
- * name used by the pairing heuristics; the filesystem path is exposed
- * separately so callers can read the actual file.
+ * Wraps either an attached file-backed resource (media or DigitalObject
+ * carrying alto/hocr/pdf2xml/pdf) or a plain filepath (tesseract-generated
+ * alto, hocr-converted alto, etc.). Carries the logical name used by the
+ * pairing heuristics; the filesystem path is exposed separately so callers can
+ * read the actual file.
  */
 class PageSource
 {
     /** Always 1-based. */
     public int $index;
 
+    /**
+     * Underlying file-backed resource (Media or DigitalObject), null when the
+     * source is a standalone filepath produced by a converter.
+     */
+    public ?FileResource $resource;
+
+    /**
+     * Legacy alias for $resource->media() when kind=media. Kept null for
+     * DigitalObjects; callers expecting the concrete MediaRepresentation must
+     * unwrap via $resource->media().
+     *
+     * @deprecated Use $resource instead; will be removed once all call sites
+     *     are migrated.
+     */
     public ?MediaRepresentation $media;
 
     public ?string $filepath;
@@ -54,15 +69,30 @@ class PageSource
     /** Image filename hinted by the source itself (ALTO sourceImage, hOCR title). */
     public ?string $sourceImageFileName = null;
 
+    /**
+     * @param MediaRepresentation|FileResource|null $source Underlying
+     *     file-backed resource; a MediaRepresentation is accepted for legacy
+     *     callers and stored on both $media (kept for backward compatibility)
+     *     and $resource (with a FileResource wrapper without item context).
+     */
     public function __construct(
         int $index,
-        ?MediaRepresentation $media,
+        $source,
         ?string $filepath,
         string $rawSourceName,
         string $classification = 'alto'
     ) {
         $this->index = $index;
-        $this->media = $media;
+        if ($source instanceof FileResource) {
+            $this->resource = $source;
+            $this->media = $source->media();
+        } elseif ($source instanceof MediaRepresentation) {
+            $this->resource = new FileResource($source, $source->item());
+            $this->media = $source;
+        } else {
+            $this->resource = null;
+            $this->media = null;
+        }
         $this->filepath = $filepath;
         $this->rawSourceName = $rawSourceName;
         $this->classification = $classification;

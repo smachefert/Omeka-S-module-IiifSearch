@@ -56,23 +56,25 @@ class IiifAltoAnnotations extends AbstractHelper
         // type: items with attached ALTOs / PDFs interleaved with images would
         // otherwise index into a non-image entry and lose the canvas
         // dimensions. ALTO ordering itself is fixed upstream by XmlAltoSingle.
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
         $imageMedias = [];
-        foreach ($item->media() as $m) {
-            $mt = (string) $m->mediaType();
-            if (strtok($mt, '/') === 'image' && $m->hasOriginal()) {
-                $imageMedias[] = $m;
+        foreach ($itemFileResources($item) as $resource) {
+            $mt = (string) $resource->mediaType();
+            if (strtok($mt, '/') === 'image' && $resource->hasOriginal()) {
+                $imageMedias[] = $resource;
             }
         }
-        $media = $imageMedias[$page] ?? null;
-        if (!$media) {
+        $resource = $imageMedias[$page] ?? null;
+        if (!$resource) {
             return null;
         }
-        $canvasWidth = (int) ($media->mediaData()['width'] ?? 0);
-        $canvasHeight = (int) ($media->mediaData()['height'] ?? 0);
+        $mediaData = $resource->mediaData() ?: [];
+        $canvasWidth = (int) ($mediaData['width'] ?? 0);
+        $canvasHeight = (int) ($mediaData['height'] ?? 0);
         // Fall back to thumbnail dimensions if width/height not stored.
         if (!$canvasWidth || !$canvasHeight) {
             try {
-                $size = @getimagesize($media->originalUrl());
+                $size = @getimagesize($resource->originalUrl());
                 if ($size) {
                     $canvasWidth = (int) $size[0];
                     $canvasHeight = (int) $size[1];

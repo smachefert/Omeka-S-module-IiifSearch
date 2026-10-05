@@ -133,6 +133,11 @@ class ExtractOcr extends AbstractJob
     protected $targetMediaType;
 
     /**
+     * @var \IiifSearch\View\Helper\ItemFileResources|null
+     */
+    protected $itemFileResources;
+
+    /**
      * @var array
      */
     protected $dataPdf;
@@ -182,6 +187,9 @@ class ExtractOcr extends AbstractJob
         $this->tempFileFactory = $services->get('Omeka\File\TempFileFactory');
         $this->cli = $services->get('Omeka\Cli');
         $this->entityManager = $services->get('Omeka\EntityManager');
+        $this->itemFileResources = $helpers->has('itemFileResources')
+            ? $helpers->get('itemFileResources')
+            : null;
         $this->baseUri = $this->getArg('base_uri');
         $this->basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
 
@@ -1253,17 +1261,33 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
-     * Find every attached image media on the item, in media position order.
+     * @return \IiifSearch\Stdlib\FileResource[]
+     */
+    protected function collectItemFileResources(ItemRepresentation $item): array
+    {
+        if ($this->itemFileResources) {
+            return ($this->itemFileResources)($item);
+        }
+        $out = [];
+        foreach ($item->media() as $media) {
+            $out[] = new \IiifSearch\Stdlib\FileResource($media, $item);
+        }
+        return $out;
+    }
+
+    /**
+     * Find every attached image resource on the item (media or DigitalObject),
+     * in collection order.
      *
-     * @return MediaRepresentation[]
+     * @return array<MediaRepresentation|\Omeka\Api\Representation\AbstractResourceEntityRepresentation>
      */
     protected function findImageMedias(ItemRepresentation $item): array
     {
         $images = [];
-        foreach ($item->media() as $media) {
-            $mediaType = (string) $media->mediaType();
-            if (strtok($mediaType, '/') === 'image' && $media->hasOriginal()) {
-                $images[] = $media;
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            $mediaType = (string) $resource->mediaType();
+            if (strtok($mediaType, '/') === 'image' && $resource->hasOriginal()) {
+                $images[] = $resource->inner();
             }
         }
         return $images;
@@ -1344,12 +1368,12 @@ class ExtractOcr extends AbstractJob
     protected function findPdfMedias(ItemRepresentation $item): array
     {
         $pdfMedias = [];
-        foreach ($item->media() as $media) {
-            $mediaType = (string) $media->mediaType();
-            if ((string) $media->extension() === 'pdf'
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            $mediaType = (string) $resource->mediaType();
+            if ((string) $resource->extension() === 'pdf'
                 && ($mediaType === 'application/pdf' || $mediaType === 'text/pdf')
             ) {
-                $pdfMedias[] = $media;
+                $pdfMedias[] = $resource->inner();
             }
         }
         return $pdfMedias;
@@ -1369,15 +1393,15 @@ class ExtractOcr extends AbstractJob
     {
         $classifier = $this->getXmlMediaClassifier();
         $medias = [];
-        foreach ($item->media() as $media) {
-            if ($media->mediaType() === self::FORMAT_ALTO) {
-                $medias[] = $media;
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            if ($resource->mediaType() === self::FORMAT_ALTO) {
+                $medias[] = $resource->inner();
                 continue;
             }
-            if ($classifier->isXmlLikeMedia($media)
-                && $classifier->classifyMedia($media, $this->basePath) === XmlMediaClassifier::TYPE_ALTO
+            if ($classifier->isXmlLikeMedia($resource)
+                && $classifier->classifyMedia($resource, $this->basePath) === XmlMediaClassifier::TYPE_ALTO
             ) {
-                $medias[] = $media;
+                $medias[] = $resource->inner();
             }
         }
         return $medias;
@@ -1399,23 +1423,23 @@ class ExtractOcr extends AbstractJob
         $converter = null;
         $altoDir = $this->basePath . '/alto';
         $altoDirReady = null;
-        foreach ($item->media() as $media) {
-            if ($media->mediaType() === self::FORMAT_ALTO) {
-                $sources[] = $media;
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            if ($resource->mediaType() === self::FORMAT_ALTO) {
+                $sources[] = $resource->inner();
                 continue;
             }
-            if (!$classifier->isXmlLikeMedia($media)) {
+            if (!$classifier->isXmlLikeMedia($resource)) {
                 continue;
             }
-            $cls = $classifier->classifyMedia($media, $this->basePath);
+            $cls = $classifier->classifyMedia($resource, $this->basePath);
             if ($cls === XmlMediaClassifier::TYPE_ALTO) {
-                $sources[] = $media;
+                $sources[] = $resource->inner();
                 continue;
             }
             if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
                 continue;
             }
-            $filename = $media->filename();
+            $filename = $resource->filename();
             if (!$filename) {
                 continue;
             }
@@ -1426,7 +1450,7 @@ class ExtractOcr extends AbstractJob
                 continue;
             }
             $sourceFilepath = $this->basePath . '/original/' . $filename;
-            $sourceBase = pathinfo((string) $media->source(), PATHINFO_FILENAME) ?: 'media-' . $media->id();
+            $sourceBase = pathinfo((string) $resource->source(), PATHINFO_FILENAME) ?: 'media-' . $resource->id();
             $targetPath = sprintf('%s/%d-%s.alto.xml', $altoDir, $item->id(), $sourceBase);
             if ($converter === null) {
                 $converter = new \IiifSearch\Stdlib\ToAltoConverter();
@@ -1435,12 +1459,12 @@ class ExtractOcr extends AbstractJob
                 $sources[] = $targetPath;
                 $this->logger->info(new Message(
                     'Item #%1$d: media #%2$d (%3$s) materialized as %4$s.', // @translate
-                    $item->id(), $media->id(), $cls, basename($targetPath)
+                    $item->id(), $resource->id(), $cls, basename($targetPath)
                 ));
             } else {
                 $this->logger->warn(new Message(
                     'Item #%1$d: failed to materialize media #%2$d (%3$s) as alto.', // @translate
-                    $item->id(), $media->id(), $cls
+                    $item->id(), $resource->id(), $cls
                 ));
             }
         }
@@ -1523,7 +1547,7 @@ class ExtractOcr extends AbstractJob
 
         $pairing = null;
         if (count($pageSources) > 1) {
-            $pairer = new PagePairer($this->basePath);
+            $pairer = new PagePairer($this->basePath, $this->itemFileResources);
             $pairing = $pairer->pair($item, $pageSources, $this->pairingMode);
             $this->logger->info(new Message(
                 'Item #%1$d: pairing method %2$s, coverage %3$s.', // @translate
@@ -1742,7 +1766,7 @@ class ExtractOcr extends AbstractJob
                     'pdf'
                 );
             }
-            $pairer = new PagePairer($this->basePath);
+            $pairer = new PagePairer($this->basePath, $this->itemFileResources);
             $pdfPairing = $pairer->pair($item, $pageSources, $this->pairingMode);
             $this->logger->info(new Message(
                 'Item #%1$d: pdf pairing method %2$s, coverage %3$s.', // @translate
@@ -2187,19 +2211,21 @@ class ExtractOcr extends AbstractJob
     {
         $imageSizes = [];
 
-        foreach ($item->media() as $media) {
-            $mediaId = $media->id();
-            $mediaType = $media->mediaType();
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            $mediaId = $resource->id();
+            $mediaType = $resource->mediaType();
             if (strtok((string) $mediaType, '/') === 'image') {
-                // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
-                $mediaData = $media->mediaData();
+                // TODO The images sizes may be stored by xml files too, so
+                // skip size retrieving once the matching between images and
+                // text is done by page.
+                $mediaData = $resource->mediaData();
                 // Iiif info stored by Omeka.
                 if (isset($mediaData['width'])) {
                     $imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
-                        'source' => $media->source(),
+                        'source' => $resource->source(),
                     ];
                 }
                 // Info stored by Iiif Server.
@@ -2208,12 +2234,12 @@ class ExtractOcr extends AbstractJob
                         'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
-                        'source' => $media->source(),
+                        'source' => $resource->source(),
                     ];
-                } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
+                } elseif ($resource->hasOriginal() && strtok($mediaType, '/') === 'image') {
                     $size = ['id' => $mediaId];
-                    $size += $this->imageSizeLocal($media);
-                    $size['source'] = $media->source();
+                    $size += $this->imageSizeLocal($resource);
+                    $size['source'] = $resource->source();
                     $imageSizes[] = $size;
                 }
             }
@@ -2222,7 +2248,10 @@ class ExtractOcr extends AbstractJob
         return $imageSizes;
     }
 
-    protected function imageSizeLocal(MediaRepresentation $media): array
+    /**
+     * @param MediaRepresentation|\IiifSearch\Stdlib\FileResource $media
+     */
+    protected function imageSizeLocal($media): array
     {
         // Some media types don't save the file locally.
         $filepath = ($filename = $media->filename())

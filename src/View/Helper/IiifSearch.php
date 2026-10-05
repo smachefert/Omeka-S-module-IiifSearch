@@ -1249,49 +1249,50 @@ class IiifSearch extends AbstractHelper
 
         $mediaTsvFull = null;
         $mediaTsvByWord = null;
-        foreach ($this->item->media() as $media) {
-            $mediaId = $media->id();
-            $mediaType = $media->mediaType();
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        foreach ($itemFileResources($this->item) as $resource) {
+            $mediaId = $resource->id();
+            $mediaType = $resource->mediaType();
+            $inner = $resource->inner();
             if ($mediaType === 'text/tab-separated-values') {
-                if (substr((string) $media->source(), -12) === '.by-word.tsv') {
-                    $mediaTsvByWord = $media;
+                if (substr((string) $resource->source(), -12) === '.by-word.tsv') {
+                    $mediaTsvByWord = $inner;
                 } else {
-                    $mediaTsvFull = $media;
+                    $mediaTsvFull = $inner;
                 }
             } elseif (in_array($mediaType, $supportedXmlMediaTypes)) {
-                $this->mediaXml[] = $media;
+                $this->mediaXml[] = $inner;
             } elseif ($mediaType === 'text/xml' || $mediaType === 'application/xml') {
                 $this->logger->warn(new Message(
                     'Warning: Xml format "%1$s" of media #%2$d is not precise. It may be related to a badly formatted file (%3$s). Use EasyAdmin tasks to fix media type.', // @translate
-                    $mediaType, $mediaId, $media->originalUrl()
+                    $mediaType, $mediaId, $resource->originalUrl()
                 ));
-                $this->mediaXml[] = $media;
+                $this->mediaXml[] = $inner;
             } else {
-                // TODO The images sizes may be stored by xml files too, so skip size retrieving once the matching between images and text is done by page.
-                $mediaData = $media->mediaData();
-                // Iiif info stored by Omeka.
+                // TODO The images sizes may be stored by xml files too, so
+                // skip size retrieving once the matching between images and
+                // text is done by page.
+                $mediaData = $resource->mediaData();
                 if (isset($mediaData['width'])) {
                     $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['width'],
                         'height' => $mediaData['height'],
-                        'source' => $media->source(),
+                        'source' => $resource->source(),
                     ];
-                }
-                // Info stored by Iiif Server.
-                elseif (isset($mediaData['dimensions']['original']['width'])) {
+                } elseif (isset($mediaData['dimensions']['original']['width'])) {
                     $this->imageSizes[] = [
                         'id' => $mediaId,
                         'width' => $mediaData['dimensions']['original']['width'],
                         'height' => $mediaData['dimensions']['original']['height'],
-                        'source' => $media->source(),
+                        'source' => $resource->source(),
                     ];
-                } elseif ($media->hasOriginal() && strtok($mediaType, '/') === 'image') {
+                } elseif ($resource->hasOriginal() && strtok($mediaType, '/') === 'image') {
                     $size = ['id' => $mediaId];
-                    $size += $this->mediaDimension
-                        ? $this->mediaDimension->__invoke($media, 'original')
-                        : $this->imageSizeLocal($media);
-                    $size['source'] = $media->source();
+                    $size += $this->mediaDimension && $resource->isMedia()
+                        ? $this->mediaDimension->__invoke($inner, 'original')
+                        : $this->imageSizeLocal($resource);
+                    $size['source'] = $resource->source();
                     $this->imageSizes[] = $size;
                 }
             }
@@ -1399,7 +1400,10 @@ class IiifSearch extends AbstractHelper
         return $this;
     }
 
-    protected function imageSizeLocal(MediaRepresentation $media): array
+    /**
+     * @param MediaRepresentation|\IiifSearch\Stdlib\FileResource $media
+     */
+    protected function imageSizeLocal($media): array
     {
         // Some media types don't save the file locally.
         $filepath = ($filename = $media->filename())

@@ -3,7 +3,6 @@
 namespace IiifSearch\Stdlib;
 
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\Api\Representation\MediaRepresentation;
 
 /**
  * Pair OCR pages with image medias on an item.
@@ -27,9 +26,13 @@ class PagePairer
     /** @var string */
     protected $basePath;
 
-    public function __construct(?string $basePath = null)
+    /** @var callable|null Optional collector returning FileResource[] for an item. */
+    protected $resourceCollector;
+
+    public function __construct(?string $basePath = null, ?callable $resourceCollector = null)
     {
         $this->basePath = $basePath ?: (defined('OMEKA_PATH') ? OMEKA_PATH . '/files' : '');
+        $this->resourceCollector = $resourceCollector;
     }
 
     /**
@@ -125,14 +128,23 @@ class PagePairer
     protected function validateMonotonic(PairingResult $result, ItemRepresentation $item): void
     {
         $positions = [];
-        $orderedMedias = [];
+        $orderedResources = [];
         $i = 0;
-        foreach ($item->media() as $media) {
-            $orderedMedias[(int) $media->id()] = $i++;
+        $collected = $this->resourceCollector
+            ? ($this->resourceCollector)($item)
+            : null;
+        if ($collected === null) {
+            foreach ($item->media() as $media) {
+                $orderedResources[(int) $media->id()] = $i++;
+            }
+        } else {
+            foreach ($collected as $resource) {
+                $orderedResources[(int) $resource->id()] = $i++;
+            }
         }
         foreach ($result->matches as $page => $media) {
             if ($media) {
-                $positions[$page] = $orderedMedias[(int) $media->id()] ?? null;
+                $positions[$page] = $orderedResources[(int) $media->id()] ?? null;
             }
         }
         $previous = -1;
@@ -200,15 +212,24 @@ class PagePairer
     }
 
     /**
-     * @return MediaRepresentation[]
+     * @return FileResource[]
      */
     protected function collectImages(ItemRepresentation $item): array
     {
+        $resources = $this->resourceCollector
+            ? ($this->resourceCollector)($item)
+            : null;
+        if ($resources === null) {
+            $resources = [];
+            foreach ($item->media() as $media) {
+                $resources[] = new FileResource($media, $item);
+            }
+        }
         $images = [];
-        foreach ($item->media() as $media) {
-            $mediaType = (string) $media->mediaType();
-            if (strtok($mediaType, '/') === 'image' && $media->hasOriginal()) {
-                $images[] = $media;
+        foreach ($resources as $resource) {
+            $mediaType = (string) $resource->mediaType();
+            if (strtok($mediaType, '/') === 'image' && $resource->hasOriginal()) {
+                $images[] = $resource;
             }
         }
         return $images;
@@ -220,7 +241,7 @@ class PagePairer
      * structMap does not encode page structure.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerMets(
         ItemRepresentation $item,
@@ -232,12 +253,21 @@ class PagePairer
         }
         $classifier = new XmlMediaClassifier();
         $metsFilepath = null;
-        foreach ($item->media() as $media) {
-            if (!$classifier->isXmlLikeMedia($media)) {
+        $candidates = $this->resourceCollector
+            ? ($this->resourceCollector)($item)
+            : null;
+        if ($candidates === null) {
+            $candidates = [];
+            foreach ($item->media() as $media) {
+                $candidates[] = new FileResource($media, $item);
+            }
+        }
+        foreach ($candidates as $resource) {
+            if (!$classifier->isXmlLikeMedia($resource)) {
                 continue;
             }
-            if ($classifier->classifyMedia($media, $this->basePath) === XmlMediaClassifier::TYPE_METS) {
-                $filename = $media->filename();
+            if ($classifier->classifyMedia($resource, $this->basePath) === XmlMediaClassifier::TYPE_METS) {
+                $filename = $resource->filename();
                 if ($filename) {
                     $metsFilepath = $this->basePath . '/original/' . $filename;
                     break;
@@ -271,7 +301,7 @@ class PagePairer
      * populated the field; absent on most legacy datasets.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerSourceImageInformation(
         ItemRepresentation $item,
@@ -354,7 +384,7 @@ class PagePairer
      * multiple images (collision) so the cascade can try the next layer.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerBasename(
         ItemRepresentation $item,
@@ -422,7 +452,7 @@ class PagePairer
      * against "ocr/2020/001.xml").
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerBasenameDir(
         ItemRepresentation $item,
@@ -490,7 +520,7 @@ class PagePairer
      * optionally followed by a single r/v folio side.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerNumeric(
         ItemRepresentation $item,
@@ -504,7 +534,7 @@ class PagePairer
      * Layer 2.5 — numeric token disambiguated by the directory residue.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerNumericDir(
         ItemRepresentation $item,
@@ -516,7 +546,7 @@ class PagePairer
 
     /**
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerNumericInternal(
         ItemRepresentation $item,
@@ -611,7 +641,7 @@ class PagePairer
      * (otherwise the layer brings no signal).
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerDimension(
         ItemRepresentation $item,
@@ -708,7 +738,7 @@ class PagePairer
     /**
      * @return array{int,int}|null
      */
-    protected function imageDimensions(MediaRepresentation $media): ?array
+    protected function imageDimensions(FileResource $media): ?array
     {
         $data = $media->mediaData();
         if (isset($data['width'], $data['height']) && $data['width'] && $data['height']) {
@@ -725,7 +755,7 @@ class PagePairer
     }
 
     /**
-     * @param array<int,array{media:MediaRepresentation,aspect:float}> $imageAspects
+     * @param array<int,array{media:FileResource,aspect:float}> $imageAspects
      */
     protected function aspectIsUniform(array $imageAspects, float $tolerance): bool
     {
@@ -746,7 +776,7 @@ class PagePairer
      * when there are at least as many images as pages.
      *
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     protected function layerSequential(
         ItemRepresentation $item,

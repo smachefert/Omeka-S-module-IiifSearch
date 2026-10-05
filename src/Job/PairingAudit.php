@@ -79,7 +79,11 @@ class PairingAudit extends AbstractJob
         $itemIds = $connection->executeQuery($sql, $bind, $types)->fetchFirstColumn();
 
         $classifier = new XmlMediaClassifier();
-        $pairer = new PagePairer($basePath);
+        $viewHelpers = $services->get('ViewHelperManager');
+        $itemFileResources = $viewHelpers->has('itemFileResources')
+            ? $viewHelpers->get('itemFileResources')
+            : null;
+        $pairer = new PagePairer($basePath, $itemFileResources);
 
         $total = count($itemIds);
         $logger->notice(new Message(
@@ -106,21 +110,29 @@ class PairingAudit extends AbstractJob
             $hocrCount = 0;
             $imageCount = 0;
             $altoMedias = [];
-            foreach ($item->media() as $media) {
-                $mt = (string) $media->mediaType();
-                if (strtok($mt, '/') === 'image' && $media->hasOriginal()) {
+            if ($itemFileResources) {
+                $resources = ($itemFileResources)($item);
+            } else {
+                $resources = [];
+                foreach ($item->media() as $media) {
+                    $resources[] = new \IiifSearch\Stdlib\FileResource($media, $item);
+                }
+            }
+            foreach ($resources as $resource) {
+                $mt = (string) $resource->mediaType();
+                if (strtok($mt, '/') === 'image' && $resource->hasOriginal()) {
                     ++$imageCount;
                 }
-                if ((string) $media->extension() === 'pdf'
+                if ((string) $resource->extension() === 'pdf'
                     && ($mt === 'application/pdf' || $mt === 'text/pdf')
                 ) {
                     ++$pdfCount;
                 }
-                if ($classifier->isXmlLikeMedia($media)) {
-                    $cls = $classifier->classifyMedia($media, $basePath);
+                if ($classifier->isXmlLikeMedia($resource)) {
+                    $cls = $classifier->classifyMedia($resource, $basePath);
                     if ($cls === XmlMediaClassifier::TYPE_ALTO) {
                         ++$altoCount;
-                        $altoMedias[] = $media;
+                        $altoMedias[] = $resource->inner();
                     } elseif ($cls === XmlMediaClassifier::TYPE_HOCR) {
                         ++$hocrCount;
                     }

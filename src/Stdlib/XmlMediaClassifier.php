@@ -81,7 +81,10 @@ class XmlMediaClassifier
         return self::TYPE_OTHER;
     }
 
-    public function classifyMedia(MediaRepresentation $media, string $basePath): string
+    /**
+     * @param MediaRepresentation|FileResource $media
+     */
+    public function classifyMedia($media, string $basePath): string
     {
         $mediaId = (int) $media->id();
         if ($mediaId && isset($this->cache[$mediaId])) {
@@ -113,7 +116,10 @@ class XmlMediaClassifier
      * extension and mime, before content inspection. Avoids sniffing every
      * media of an item.
      */
-    public function isXmlLikeMedia(MediaRepresentation $media): bool
+    /**
+     * @param MediaRepresentation|FileResource $media
+     */
+    public function isXmlLikeMedia($media): bool
     {
         $mime = strtolower((string) $media->mediaType());
         if (isset(self::PRECISE_MIMES[$mime])) {

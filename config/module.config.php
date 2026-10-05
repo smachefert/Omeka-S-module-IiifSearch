@@ -13,6 +13,7 @@ return [
             'fixUtf8' => Service\ViewHelper\FixUtf8Factory::class,
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
             'iiifSearch2' => Service\ViewHelper\IiifSearch2Factory::class,
+            'itemFileResources' => Service\ViewHelper\ItemFileResourcesFactory::class,
             'xmlAltoSingle' => Service\ViewHelper\XmlAltoSingleFactory::class,
             'xmlAltoSplitter' => Service\ViewHelper\XmlAltoSplitterFactory::class,
         ],

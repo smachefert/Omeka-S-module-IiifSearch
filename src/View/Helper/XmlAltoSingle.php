@@ -105,28 +105,29 @@ class XmlAltoSingle extends AbstractHelper
     protected function mediaData(ItemRepresentation $item): array
     {
         $classifier = new XmlMediaClassifier();
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
         $mediaData = [];
-        foreach ($item->media() as $media) {
-            if (!$media->hasOriginal() || !$media->size()) {
+        foreach ($itemFileResources($item) as $resource) {
+            if (!$resource->hasOriginal() || !$resource->size()) {
                 continue;
             }
-            $filename = $media->filename();
+            $filename = $resource->filename();
             $filepath = $this->basePath . '/original/' . $filename;
             $ready = file_exists($filepath) && is_readable($filepath) && filesize($filepath);
             if (!$ready) {
                 continue;
             }
-            $mediaType = $media->mediaType();
+            $mediaType = $resource->mediaType();
             if (!$mediaType) {
                 continue;
             }
-            $extension = $media->extension();
-            // Accept either the canonical alto mime or any xml-like media whose
-            // content sniffs as alto (common case: mime is application/xml
-            // because Omeka did not recognize the dialect).
+            $extension = $resource->extension();
+            // Accept either the canonical alto mime or any xml-like resource
+            // whose content sniffs as alto (common case: mime is
+            // application/xml because Omeka did not recognize the dialect).
             $isAlto = $mediaType === 'application/alto+xml';
             if (!$isAlto
-                && $classifier->isXmlLikeMedia($media)
+                && $classifier->isXmlLikeMedia($resource)
                 && $classifier->classifyFile($filepath) === XmlMediaClassifier::TYPE_ALTO
             ) {
                 $isAlto = true;
@@ -135,17 +136,17 @@ class XmlAltoSingle extends AbstractHelper
                 continue;
             }
             $mainType = strtok($mediaType, '/');
-            $mediaId = $media->id();
+            $mediaId = $resource->id();
             $mediaData[$mediaId] = [
                 'id' => $mediaId,
-                'media' => $media,
-                'source' => $media->source(),
+                'media' => $resource->inner(),
+                'source' => $resource->source(),
                 'filename' => $filename,
                 'filepath' => $filepath,
                 'mediatype' => $mediaType,
                 'maintype' => $mainType,
                 'extension' => $extension,
-                'size' => $media->size(),
+                'size' => $resource->size(),
             ];
         }
 
@@ -178,15 +179,16 @@ class XmlAltoSingle extends AbstractHelper
             $ps->sourceImageFileName = $hintReader->readImageHint($entry['filepath'], 'alto');
             $sources[] = $ps;
         }
-        $pairer = new PagePairer($this->basePath);
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $pairer = new PagePairer($this->basePath, $itemFileResources);
         $pairing = $pairer->pair($item, $sources);
         if ($pairing->method === PairingResult::METHOD_SEQUENTIAL) {
             return $mediaData;
         }
         $imagePositions = [];
         $i = 0;
-        foreach ($item->media() as $media) {
-            $imagePositions[(int) $media->id()] = $i++;
+        foreach ($itemFileResources($item) as $resource) {
+            $imagePositions[(int) $resource->id()] = $i++;
         }
         $byPair = [];
         $unpaired = [];

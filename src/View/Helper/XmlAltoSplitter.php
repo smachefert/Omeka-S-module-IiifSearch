@@ -7,6 +7,7 @@ use DOMElement;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
+use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
 
 /**
@@ -74,21 +75,22 @@ class XmlAltoSplitter extends AbstractHelper
     }
 
     /**
-     * Find the first item media that is an ALTO XML containing more than one
-     * Page element.
+     * Find the first item resource (media or DigitalObject) that is an ALTO XML
+     * containing more than one Page element.
      */
-    public function findMultipageAltoMedia(ItemRepresentation $item): ?MediaRepresentation
+    public function findMultipageAltoMedia(ItemRepresentation $item): ?AbstractResourceEntityRepresentation
     {
-        foreach ($item->media() as $media) {
-            if ($media->mediaType() !== 'application/alto+xml') {
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        foreach ($itemFileResources($item) as $resource) {
+            if ($resource->mediaType() !== 'application/alto+xml') {
                 continue;
             }
-            $path = $this->basePath . '/original/' . $media->filename();
+            $path = $this->basePath . '/original/' . $resource->filename();
             if (!is_readable($path)) {
                 continue;
             }
             if ($this->countPages($path) > 1) {
-                return $media;
+                return $resource->inner();
             }
         }
         return null;
@@ -182,8 +184,9 @@ class XmlAltoSplitter extends AbstractHelper
                 return $pages[$pageIndex] ?? null;
 
             case 'page_id_to_media_name':
-                $media = $item->media();
-                $target = $media[$pageIndex] ?? null;
+                $itemFileResources = $this->getView()->plugin('itemFileResources');
+                $resources = $itemFileResources($item);
+                $target = $resources[$pageIndex] ?? null;
                 if (!$target) {
                     return null;
                 }
