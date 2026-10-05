@@ -388,6 +388,23 @@ class ConfigForm extends Form
                 ],
             ])
             ->add([
+                'name' => 'iiifsearch_extract_content_visibility',
+                'type' => CommonElement\OptionalRadio::class,
+                'options' => [
+                    'tab' => 'extract',
+                    'label' => 'Visibility of the property with raw text', // @translate
+                    'info' => 'With the module Access, a public value is visible even when the files are reserved, so the text should be private in that case.', // @translate
+                    'value_options' => [
+                        'public' => 'Public', // @translate
+                        'private' => 'Private', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_content_visibility',
+                    'value' => 'public',
+                ],
+            ])
+            ->add([
                 'name' => 'iiifsearch_extract_content_language',
                 'type' => Element\Text::class,
                 'options' => [
@@ -586,6 +603,10 @@ class ConfigForm extends Form
             ])
             ->add([
                 'name' => 'iiifsearch_extract_content_property',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_content_visibility',
                 'required' => false,
             ])
             ->add([

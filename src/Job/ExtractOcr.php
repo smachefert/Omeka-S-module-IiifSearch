@@ -129,6 +129,11 @@ class ExtractOcr extends AbstractJob
     protected $propertyTerm;
 
     /**
+     * @var bool
+     */
+    protected $propertyIsPublic = true;
+
+    /**
      * @var string
      */
     protected $targetDirPath;
@@ -379,6 +384,7 @@ class ExtractOcr extends AbstractJob
                 if ($this->propertyId) {
                     $this->propertyTerm = $prop;
                     $this->language = $settings->get('iiifsearch_extract_content_language');
+                    $this->propertyIsPublic = $settings->get('iiifsearch_extract_content_visibility') !== 'private';
                     $this->store['item'] = in_array('item', $contentStore) && !$this->getArg('manual');
                     $this->store['pdf'] = in_array('pdf', $contentStore);
                     $this->store['extracted'] = in_array('extracted', $contentStore);
@@ -1535,6 +1541,7 @@ class ExtractOcr extends AbstractJob
                 'property_id' => $this->propertyId,
                 '@value' => $textContent,
                 '@language' => $this->language,
+                'is_public' => $this->propertyIsPublic,
             ];
             if ($pdfMedia) {
                 $data['dcterms:isFormatOf'][] = [
@@ -2675,8 +2682,9 @@ class ExtractOcr extends AbstractJob
         $contentValue = [
             'type' => 'literal',
             'property_id' => $this->propertyId,
-            '@value' => $textContent ,
+            '@value' => $textContent,
             '@language' => $this->language,
+            'is_public' => $this->propertyIsPublic,
         ];
 
         $existingValues = $resource->value($this->propertyTerm, ['all' => true]);

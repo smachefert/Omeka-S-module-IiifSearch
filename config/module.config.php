@@ -231,6 +231,7 @@ return [
 
             'iiifsearch_extract_content_store' => [],
             'iiifsearch_extract_content_property' => null,
+            'iiifsearch_extract_content_visibility' => 'public',
             'iiifsearch_extract_content_language' => '',
             'iiifsearch_extract_create_empty_file' => false,
             'iiifsearch_xml_fix_mode' => [],
