@@ -219,6 +219,13 @@ class ExtractOcr extends AbstractJob
     protected $generatedAltos = [];
 
     /**
+     * Pdf files ocerized via ocrmypdf by source path, reused for each format.
+     *
+     * @var array
+     */
+    protected $ocrPdfs = [];
+
+    /**
      * Ids of the items with new ocr files, whose cached manifests are removed.
      *
      * @var array
@@ -704,6 +711,10 @@ class ExtractOcr extends AbstractJob
             }
         }
         $this->clearManifestCaches();
+        foreach ($this->ocrPdfs as $ocrResult) {
+            $ocrResult['tempFile'] && $ocrResult['tempFile']->delete();
+        }
+        $this->ocrPdfs = [];
         if ($this->shouldStop()) {
             return;
         }
@@ -1193,7 +1204,6 @@ class ExtractOcr extends AbstractJob
         }
 
         $pdfFilepaths = [];
-        $ocrTempFiles = [];
         foreach ($pdfMedias as $pdfMedia) {
             $pdfFilepath = $this->basePath . '/original/' . $pdfMedia->filename();
             if (!file_exists($pdfFilepath)) {
@@ -1202,15 +1212,9 @@ class ExtractOcr extends AbstractJob
                     'Missing pdf file (media #%1$d).', // @translate
                     $pdfMedia->id()
                 ));
-                foreach ($ocrTempFiles as $tf) {
-                    $tf->delete();
-                }
                 return null;
             }
             $ocrResult = $this->maybeOcrPdf($pdfFilepath, $pdfMedia->id());
-            if ($ocrResult['tempFile']) {
-                $ocrTempFiles[] = $ocrResult['tempFile'];
-            }
             $pdfFilepaths[] = $ocrResult['filepath'];
         }
 
@@ -1230,10 +1234,6 @@ class ExtractOcr extends AbstractJob
             // The temp file is a pdf2xml file, with extension ".pdf2xml.xml".
             ? $this->extractPdfToTempFile($pdfFilepaths, $firstPdfMedia->item(), 'pdf2xml.xml', self::FORMAT_PDF2XML)
             : $this->extractPdfToTempFile($pdfFilepaths, $firstPdfMedia->item(), $this->targetExtension, $this->targetFormat);
-
-        foreach ($ocrTempFiles as $tf) {
-            $tf->delete();
-        }
 
         if (empty($tempFile)) {
             $this->stats['issue'][] = $firstPdfMedia->id();
@@ -1276,6 +1276,13 @@ class ExtractOcr extends AbstractJob
         if (!$this->reocrEnabled) {
             return ['filepath' => $pdfFilepath, 'tempFile' => null];
         }
+        // The ocerized file is kept until the end of the job, so the ocr is
+        // done once for all formats.
+        return $this->ocrPdfs[$pdfFilepath] ??= $this->ocrPdf($pdfFilepath, $pdfMediaId);
+    }
+
+    protected function ocrPdf(string $pdfFilepath, ?int $pdfMediaId): array
+    {
 
         // Quick probe: extract text to stdout. If empty, the pdf has no text
         // layer and is a candidate for ocrmypdf.
