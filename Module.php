@@ -15,6 +15,7 @@ use Laminas\EventManager\SharedEventManagerInterface;
 use Laminas\Mvc\Controller\AbstractController;
 use Laminas\Mvc\MvcEvent;
 use Laminas\View\Renderer\PhpRenderer;
+use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Module\AbstractModule;
 use Omeka\Stdlib\Message;
 
@@ -340,6 +341,12 @@ class Module extends AbstractModule
             if (!$searchServiceAvailable) {
                 return;
             }
+        }
+
+        // In the manifest built for the visitors without rights on reserved
+        // medias (module Access), the search is useless when no page is free.
+        if ($event->getParam('accessFilter') === 'free' && !$this->hasFreeOcrPage($resource)) {
+            return;
         }
 
         $plugins = $this->getServiceLocator()->get('ViewHelperManager');
@@ -895,6 +902,30 @@ class Module extends AbstractModule
         );
         $message->setEscapeHtml(false);
         return $message;
+    }
+
+    /**
+     * Check if the ocr of a page is free, so readable by anybody.
+     *
+     * The ocr follows the image of the page, or the item when there is no
+     * image, like the plugin isAllowedOcr.
+     */
+    protected function hasFreeOcrPage(ItemRepresentation $item): bool
+    {
+        $plugins = $this->getServiceLocator()->get('ControllerPluginManager');
+        if (!$plugins->has('accessStatus')) {
+            return true;
+        }
+        $accessStatus = $plugins->get('accessStatus');
+        $images = $this->getServiceLocator()->get('ViewHelperManager')->get('itemFileResources')->images($item);
+        $resources = $images ? array_map(fn ($image) => $image->inner(), $images) : [$item];
+        foreach ($resources as $resource) {
+            $status = $accessStatus($resource);
+            if (!$status || $status->getLevel() === \Access\Entity\AccessStatus::FREE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
