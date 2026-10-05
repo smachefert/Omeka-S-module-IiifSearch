@@ -177,19 +177,73 @@ class Module extends AbstractModule
             );
         }
 
+        $this->uninstallObsoleteExtractOcr();
+    }
+
+    /**
+     * Uninstall the module Extract OCR, whose features are now in this module,
+     * so the two extractors do not run side by side.
+     *
+     * The module is uninstalled normally when possible. Else, for example when
+     * its files are missing or cannot be loaded, it is removed from the table
+     * of the modules directly.
+     */
+    protected function uninstallObsoleteExtractOcr(): void
+    {
+        $services = $this->getServiceLocator();
         $moduleManager = $services->get('Omeka\ModuleManager');
         $extractOcr = $moduleManager->getModule('ExtractOcr');
-        if ($extractOcr) {
-            $messenger = $services->get('ControllerPluginManager')->get('messenger');
-            try {
-                $moduleManager->deactivate($self);
-                $moduleManager->uninstall($self);
-                $messenger->addSuccess(new PsrMessage(
-                    'Module Extract OCR uninstalled: features are now in IIIF Search.' // @translate
-                ));
-            } catch (\Throwable $e) {
-            }
+        if (!$extractOcr
+            || $extractOcr->getState() === \Omeka\Module\Manager::STATE_NOT_INSTALLED
+        ) {
+            return;
         }
+
+        $entityManager = $services->get('Omeka\EntityManager');
+        $messenger = $services->get('ControllerPluginManager')->get('messenger');
+
+        $state = $extractOcr->getState();
+        try {
+            if ($state === \Omeka\Module\Manager::STATE_ACTIVE) {
+                $moduleManager->deactivate($extractOcr);
+            } elseif ($state === \Omeka\Module\Manager::STATE_NEEDS_UPGRADE) {
+                // Only an upgraded module can be uninstalled, but upgrading a
+                // module that is removed is useless, so align its version.
+                $entity = $entityManager->find(\Omeka\Entity\Module::class, 'ExtractOcr');
+                $entity->setVersion((string) $extractOcr->getIni('version'));
+                $entity->setIsActive(false);
+                $entityManager->flush();
+                $extractOcr->setState(\Omeka\Module\Manager::STATE_NOT_ACTIVE);
+            }
+            if ($extractOcr->getState() === \Omeka\Module\Manager::STATE_NOT_ACTIVE) {
+                $moduleManager->uninstall($extractOcr);
+            }
+        } catch (\Throwable $e) {
+            $services->get('Omeka\Logger')->warn(
+                'The module Extract OCR cannot be uninstalled normally, so it is removed from the database: {message}', // @translate
+                ['message' => $e->getMessage()]
+            );
+        }
+
+        // Remove the module directly when it is still installed. Its settings
+        // are kept, like its own uninstallation does: they are migrated by the
+        // upgrade of this module.
+        $connection = $services->get('Omeka\Connection');
+        if ($connection->fetchOne('SELECT 1 FROM `module` WHERE `id` = "ExtractOcr"')) {
+            $connection->executeStatement('DELETE FROM `module` WHERE `id` = "ExtractOcr"');
+            // Only this entity is detached: the upgrade of this module uses the
+            // entity manager too.
+            $entity = $entityManager->getUnitOfWork()
+                ->tryGetById('ExtractOcr', \Omeka\Entity\Module::class);
+            if ($entity) {
+                $entityManager->detach($entity);
+            }
+            $extractOcr->setState(\Omeka\Module\Manager::STATE_NOT_INSTALLED);
+        }
+
+        $messenger->addSuccess(new PsrMessage(
+            'The module Extract OCR was uninstalled: its features are now part of IIIF Search. Its directory can be removed from disk.' // @translate
+        ));
     }
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
