@@ -80,7 +80,7 @@ class ConfigForm extends Form
                 'options' => [
                     'element_group' => 'text',
                     'label' => 'Expose ALTO via seeAlso on each canvas', // @translate
-                    'info' => 'Append a seeAlso entry to every canvas of the IIIF manifest with the URL of the per-page ALTO XML (/iiif-search/{id}/alto/N.xml). Consumed by Mirador (mirador-textoverlay, ocr-helper) and most IIIF readers.', // @translate
+                    'info' => 'Append a seeAlso entry to every canvas of the IIIF manifest with the URL of the per-page ALTO XML (/iiif/search/{id}/alto/N.xml). Consumed by Mirador (mirador-textoverlay, ocr-helper) and most IIIF readers.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_canvas_seealso_alto',
@@ -92,7 +92,7 @@ class ConfigForm extends Form
                 'options' => [
                     'element_group' => 'text',
                     'label' => 'Expose annotations (supplementing) on each canvas', // @translate
-                    'info' => 'Append an annotations entry to every canvas with the URL of the per-page AnnotationPage built from the ALTO (/iiif-search/{id}/annotations/N.json). Used by viewers that consume the IIIF AnnotationPage format for text overlay.', // @translate
+                    'info' => 'Append an annotations entry to every canvas with the URL of the per-page AnnotationPage built from the ALTO (/iiif/search/{id}/annotations/N.json). Used by viewers that consume the IIIF AnnotationPage format for text overlay.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_canvas_annotations',
@@ -104,7 +104,7 @@ class ConfigForm extends Form
                 'options' => [
                     'element_group' => 'text',
                     'label' => 'Expose hOCR via seeAlso on each canvas (if available)', // @translate
-                    'info' => 'Append a seeAlso entry with the URL of the per-page hOCR (/iiif-search/{id}/hocr/N.html). Phase 1: serves only native hOCR medias attached to the item; no conversion from ALTO. Leave off when no hOCR source is present.', // @translate
+                    'info' => 'Append a seeAlso entry with the URL of the per-page hOCR (/iiif/search/{id}/hocr/N.html). Phase 1: serves only native hOCR medias attached to the item; no conversion from ALTO. Leave off when no hOCR source is present.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_canvas_seealso_hocr',

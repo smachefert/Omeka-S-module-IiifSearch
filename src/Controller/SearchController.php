@@ -9,17 +9,26 @@ use Omeka\Api\Representation\ItemRepresentation;
 
 class SearchController extends AbstractActionController
 {
+    /**
+     * Redirect the old route /iiif-search/ to /iiif/search/.
+     */
+    public function legacyAction()
+    {
+        $uri = $this->getRequest()->getUri();
+        $path = preg_replace('#/iiif-search(?=/|$)#', '/iiif/search', (string) $uri->getPath(), 1);
+        $query = (string) $uri->getQuery();
+        return $this->redirect()
+            ->toUrl($path . ($query === '' ? '' : '?' . $query))
+            ->setStatusCode(Response::STATUS_CODE_301);
+    }
+
     public function indexAction()
     {
         // TODO The output must be a valid json iiif response.
 
         $id = $this->params('id');
         if (empty($id)) {
-            $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
-            return new JsonModel([
-                'status' => 'error',
-                'message' => $this->translate('Missing or empty query.'), // @translate
-            ]);
+            return $this->errorResponse(Response::STATUS_CODE_400, 'Missing identifier.'); // @translate
         }
 
         $q = (string) $this->params()->fromQuery('q');

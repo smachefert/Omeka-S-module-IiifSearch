@@ -49,6 +49,33 @@ return [
     ],
     'router' => [
         'routes' => [
+            // Redirect the old route.
+            // Used by un-updated cached manifests and by module DomainManager.
+            'iiifsearch-legacy' => [
+                'type' => \Laminas\Router\Http\Regex::class,
+                'options' => [
+                    'regex' => '/iiif-search(?<path>/.*)?',
+                    'spec' => '/iiif-search%path%',
+                    'defaults' => [
+                        '__NAMESPACE__' => 'IiifSearch\Controller',
+                        'controller' => 'Search',
+                        'action' => 'legacy',
+                    ],
+                ],
+            ],
+            // Avoid the route of module IiifServer for an url without identifier.
+            'iiifsearch-root' => [
+                'type' => \Laminas\Router\Http\Literal::class,
+                'priority' => 10,
+                'options' => [
+                    'route' => '/iiif/search',
+                    'defaults' => [
+                        '__NAMESPACE__' => 'IiifSearch\Controller',
+                        'controller' => 'Search',
+                        'action' => 'index',
+                    ],
+                ],
+            ],
             /*
              * @link https://iiif.io/api/search/1.0/#search
              */
@@ -58,7 +85,7 @@ return [
                 'type' => \Laminas\Router\Http\Segment::class,
                 'priority' => 10,
                 'options' => [
-                    'route' => '/iiif-search/:id',
+                    'route' => '/iiif/search/:id',
                     'constraints' => [
                         'id' => '[^/]*',
                     ],

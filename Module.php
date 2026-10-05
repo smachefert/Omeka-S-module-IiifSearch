@@ -70,12 +70,12 @@ class Module extends AbstractModule
         $path = $request->getUri()->getPath();
 
         // Quick check: only process iiif search paths.
-        if (strpos($path, '/iiif-search/') === false) {
+        if (strpos($path, '/iiif/search/') === false) {
             return;
         }
 
-        // Parse: /iiif-search/{identifier}[/search|/list/{name}]
-        if (!preg_match('#^(/iiif-search)(/[^?]*)$#', $path, $matches)) {
+        // Parse: /iiif/search/{identifier}[/search|/list/{name}]
+        if (!preg_match('#^(/iiif/search)(/[^?]*)$#', $path, $matches)) {
             return;
         }
 
@@ -443,8 +443,8 @@ class Module extends AbstractModule
     /**
      * Inject seeAlso (ALTO) and supplementing annotations on each canvas of an
      * item that owns a multipage ALTO XML media. Per-page resources are served
-     * by IiifSearch endpoints (/iiif-search/:id/alto/:n.xml and
-     * /iiif-search/:id/annotations/:n.json).
+     * by IiifSearch endpoints (/iiif/search/:id/alto/:n.xml and
+     * /iiif/search/:id/annotations/:n.json).
      */
     protected function handleIiifServerCanvas(Event $event): void
     {
