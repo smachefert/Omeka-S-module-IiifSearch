@@ -1139,6 +1139,18 @@ class Module extends AbstractModule
         $valueOptions['iiifsearch_extract'] = 'IIIF Search: Extract ocr from files'; // @translate
         $process->setValueOptions($valueOptions);
 
+        if (method_exists($form, 'addTaskSubjects')) {
+            $form->addTaskSubjects([
+                'iiifsearch_extract' => [
+                    'name' => 'IIIF Search: OCR extraction', // @translate
+                    'description' => 'Extract the OCR text from files for IIIF Search.', // @translate
+                    'actions' => [
+                        'iiifsearch_extract' => 'Extract', // @translate
+                    ],
+                ],
+            ]);
+        }
+
         $fieldset
             ->add([
                 'type' => \Laminas\Form\Fieldset::class,
