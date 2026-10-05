@@ -307,6 +307,11 @@ class Module extends AbstractModule
             }
         }
 
+        // The ocr of a pdf that is not displayed does not match the canvases.
+        if ($services->get('ViewHelperManager')->get('iiifSearchAnnotationUrl')->isOcrOfHiddenPdf($resource)) {
+            return;
+        }
+
         // In the manifest built for the visitors without rights on reserved
         // medias (module Access), the search is useless when no page is free.
         if ($event->getParam('accessFilter') === 'free' && !$this->hasFreeOcrPage($resource)) {
@@ -429,7 +434,9 @@ class Module extends AbstractModule
             return;
         }
         $splitter = $plugins->get('xmlAltoSplitter');
-        if (!$splitter->hasAnyAlto($item)) {
+        if (!$splitter->hasAnyAlto($item)
+            || $plugins->get('iiifSearchAnnotationUrl')->isOcrOfHiddenPdf($item)
+        ) {
             return;
         }
         // The ALTO resource itself (when stored as media/DO on the item) is not

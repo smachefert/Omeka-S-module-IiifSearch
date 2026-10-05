@@ -35,7 +35,37 @@ class IiifSearchAnnotationUrl extends AbstractHelper
             return $this->ocrCache[$itemId];
         }
         $splitter = $this->getView()->plugin('xmlAltoSplitter');
-        return $this->ocrCache[$itemId] = $splitter->hasAnyAlto($item);
+        return $this->ocrCache[$itemId] = $splitter->hasAnyAlto($item)
+            && !$this->isOcrOfHiddenPdf($item);
+    }
+
+    /**
+     * Is the ocr extracted from a pdf that is not displayed?
+     *
+     * When an item has images and a pdf, the images are the canvases and the
+     * pdf is a file to download, but the ocr is extracted from the pdf, so the
+     * pages of the ocr are not the canvases. An ocr file attached to the item
+     * (alto, hocr, pdf2xml, tsv) is related to the images.
+     */
+    public function isOcrOfHiddenPdf(ItemRepresentation $item): bool
+    {
+        $hasImage = false;
+        $hasPdf = false;
+        $ocrMediaTypes = [
+            'application/alto+xml',
+            'application/vnd.pdf2xml+xml',
+            'text/tab-separated-values',
+            'text/vnd.hocr+html',
+        ];
+        foreach ($this->getView()->plugin('itemFileResources')->__invoke($item) as $resource) {
+            $mediaType = (string) $resource->mediaType();
+            if (in_array($mediaType, $ocrMediaTypes, true)) {
+                return false;
+            }
+            $hasPdf = $hasPdf || $mediaType === 'application/pdf';
+            $hasImage = $hasImage || (strtok($mediaType, '/') === 'image' && $resource->hasOriginal());
+        }
+        return $hasImage && $hasPdf;
     }
 
     /**
