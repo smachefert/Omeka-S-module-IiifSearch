@@ -149,7 +149,12 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
         }
 
-        $pageIndex = (int) $this->params('page');
+        // Public page numbering is 1-based; internal index is 0-based.
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {
@@ -182,7 +187,12 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
         }
 
-        $pageIndex = (int) $this->params('page');
+        // Public page numbering is 1-based; internal index is 0-based.
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {

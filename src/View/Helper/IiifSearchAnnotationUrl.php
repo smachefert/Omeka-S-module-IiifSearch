@@ -1,0 +1,90 @@
+<?php declare(strict_types=1);
+
+namespace IiifSearch\View\Helper;
+
+use Laminas\View\Helper\AbstractHelper;
+use Omeka\Api\Representation\ItemRepresentation;
+
+/**
+ * Build the URLs of the IiifSearch endpoints (ALTO page, AnnotationPage in
+ * Presentation 2 / 3) for a given item and canvas index, and probe whether the
+ * item carries any ALTO source the module can serve. Used by IiifServer to emit
+ * seeAlso/annotations on canvases without re-implementing OCR detection.
+ */
+class IiifSearchAnnotationUrl extends AbstractHelper
+{
+    /** @var array<int,bool> */
+    protected array $ocrCache = [];
+
+    public function isActive(): bool
+    {
+        return true;
+    }
+
+    /**
+     * Does the item carry any ALTO source IiifSearch can serve? Delegates to
+     * XmlAltoSplitter which covers media files, generated per-page files under
+     * files/alto/, consolidated single-file output, and DigitalObject
+     * resources.
+     */
+    public function hasOcrSource(ItemRepresentation $item): bool
+    {
+        $itemId = (int) $item->id();
+        if (isset($this->ocrCache[$itemId])) {
+            return $this->ocrCache[$itemId];
+        }
+        $splitter = $this->getView()->plugin('xmlAltoSplitter');
+        return $this->ocrCache[$itemId] = $splitter->hasAnyAlto($item);
+    }
+
+    /**
+     * URL of the AnnotationPage (v3) or AnnotationList (v2) for a canvas.
+     *
+     * @param int $canvasIndex One-based canvas position (matches IIIF canvas
+     *                         naming "p1", "p2", …).
+     * @param int $version     IIIF Presentation version, 2 or 3.
+     */
+    public function __invoke(ItemRepresentation $item, int $canvasIndex, int $version = 3): ?string
+    {
+        $canvasIndex = max(1, $canvasIndex);
+        $view = $this->getView();
+        $url = $view->plugin('url');
+        $serverUrl = $view->plugin('serverUrl');
+        try {
+            $path = $version === 2
+                ? $url(
+                    'iiifsearch/annotation-list',
+                    ['id' => $item->id(), 'name' => 'p' . $canvasIndex]
+                )
+                : $url(
+                    'iiifsearch/annotation-page',
+                    ['id' => $item->id(), 'page' => $canvasIndex]
+                );
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return $serverUrl($path);
+    }
+
+    /**
+     * URL of the alto-page endpoint for a canvas. Pairing is handled by
+     * IiifSearch internally; the caller only provides the one-based canvas
+     * index.
+     */
+    public function altoUrl(ItemRepresentation $item, int $canvasIndex): ?string
+    {
+        $canvasIndex = max(1, $canvasIndex);
+        $view = $this->getView();
+        $url = $view->plugin('url');
+        $serverUrl = $view->plugin('serverUrl');
+        try {
+            $path = $url(
+                'iiifsearch/alto-page',
+                ['id' => $item->id(), 'page' => $canvasIndex]
+            );
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return $serverUrl($path);
+    }
+}

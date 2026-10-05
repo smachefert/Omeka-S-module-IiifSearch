@@ -40,7 +40,8 @@ class IiifAltoAnnotations2 extends AbstractHelper
         $iiifUrl = $view->plugin('iiifUrl');
         $serverUrl = $view->plugin('serverUrl');
 
-        $canvasBase = $iiifUrl($item, 'iiifserver/uri', null, ['type' => 'canvas']) . '/p' . ($page + 1);
+        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        $canvasBase = $iiifUrl($item, 'iiifserver/uri', $manifestVersion, ['type' => 'canvas']) . '/p' . ($page + 1);
         $listId = $serverUrl(true);
 
         $altoWidth = (float) $altoPage['WIDTH'];
@@ -59,8 +60,10 @@ class IiifAltoAnnotations2 extends AbstractHelper
             return null;
         }
         $mediaData = $resource->mediaData() ?: [];
-        $canvasWidth = (int) ($mediaData['width'] ?? 0);
-        $canvasHeight = (int) ($mediaData['height'] ?? 0);
+        $canvasWidth = (int) ($mediaData['dimensions']['original']['width']
+            ?? $mediaData['width'] ?? 0);
+        $canvasHeight = (int) ($mediaData['dimensions']['original']['height']
+            ?? $mediaData['height'] ?? 0);
         if (!$canvasWidth || !$canvasHeight) {
             try {
                 $size = @getimagesize($resource->originalUrl());

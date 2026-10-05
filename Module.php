@@ -93,6 +93,8 @@ class Module extends AbstractModule
             'search' => true,
             'autocomplete' => true,
             'list' => true,
+            'annotations' => true,
+            'alto' => true,
         ];
 
         // Scan from the right to find the first iiif keyword.
@@ -482,12 +484,12 @@ class Module extends AbstractModule
 
         $altoUrl = $fixSlash($urlHelper(
             'iiifsearch/alto-page',
-            ['id' => $identifier, 'page' => $pageIndex],
+            ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
         ));
         $annotationsUrl = $fixSlash($urlHelper(
             'iiifsearch/annotation-page',
-            ['id' => $identifier, 'page' => $pageIndex],
+            ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
         ));
 

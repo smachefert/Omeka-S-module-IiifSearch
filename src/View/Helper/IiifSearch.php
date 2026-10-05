@@ -261,11 +261,17 @@ class IiifSearch extends AbstractHelper
 
         // Pre-compute base URLs once for all search methods.
         $iiifUrl = $view->plugin('iiifUrl');
-        $this->baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+        // Canvas/annotation identifiers must match the ones embedded in the
+        // served manifest, so that viewers (Mirador, UV, etc.) can map search
+        // results back to canvases. Many viewers still use Search 1 even with a
+        // Presentation 3 manifest, so align on the manifest default version
+        // regardless of the search API version.
+        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        $this->baseResultUrl = $iiifUrl($this->item, 'iiifserver/uri', $manifestVersion, [
             'type' => 'annotation',
             'name' => 'search-result',
         ]) . '/';
-        $this->baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', null, [
+        $this->baseCanvasUrl = $iiifUrl($this->item, 'iiifserver/uri', $manifestVersion, [
             'type' => 'canvas',
         ]) . '/p';
 

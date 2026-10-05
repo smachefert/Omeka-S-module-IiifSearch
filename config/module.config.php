@@ -20,6 +20,7 @@ return [
         'invokables' => [
             'iiifAltoAnnotations' => View\Helper\IiifAltoAnnotations::class,
             'iiifAltoAnnotations2' => View\Helper\IiifAltoAnnotations2::class,
+            'iiifSearchAnnotationUrl' => View\Helper\IiifSearchAnnotationUrl::class,
         ],
     ],
     'form_elements' => [
@@ -113,25 +114,24 @@ return [
                             ],
                         ],
                     ],
+                    // Use Regex routes: Segment's :name parameter syntax
+                    // greedily eats the trailing ".xml" / ".json" extension as
+                    // part of the parameter name, defeating the \d+ constraint.
                     'alto-page' => [
-                        'type' => \Laminas\Router\Http\Segment::class,
+                        'type' => \Laminas\Router\Http\Regex::class,
                         'options' => [
-                            'route' => '/alto/:page.xml',
-                            'constraints' => [
-                                'page' => '\d+',
-                            ],
+                            'regex' => '/alto/(?<page>\d+)\.xml',
+                            'spec' => '/alto/%page%.xml',
                             'defaults' => [
                                 'action' => 'alto-page',
                             ],
                         ],
                     ],
                     'annotation-page' => [
-                        'type' => \Laminas\Router\Http\Segment::class,
+                        'type' => \Laminas\Router\Http\Regex::class,
                         'options' => [
-                            'route' => '/annotations/:page.json',
-                            'constraints' => [
-                                'page' => '\d+',
-                            ],
+                            'regex' => '/annotations/(?<page>\d+)\.json',
+                            'spec' => '/annotations/%page%.json',
                             'defaults' => [
                                 'action' => 'annotation-page',
                             ],

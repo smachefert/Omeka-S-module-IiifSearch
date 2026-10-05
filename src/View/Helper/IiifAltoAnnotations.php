@@ -46,7 +46,8 @@ class IiifAltoAnnotations extends AbstractHelper
         $iiifUrl = $view->plugin('iiifUrl');
         $serverUrl = $view->plugin('serverUrl');
 
-        $canvasBase = $iiifUrl($item, 'iiifserver/uri', null, ['type' => 'canvas']) . '/p' . ($page + 1);
+        $manifestVersion = $view->setting('iiifserver_manifest_default_version', '2');
+        $canvasBase = $iiifUrl($item, 'iiifserver/uri', $manifestVersion, ['type' => 'canvas']) . '/p' . ($page + 1);
         $pageId = $serverUrl(true);
 
         // Compute scale between ALTO page coordinates and canvas pixels.
@@ -69,8 +70,10 @@ class IiifAltoAnnotations extends AbstractHelper
             return null;
         }
         $mediaData = $resource->mediaData() ?: [];
-        $canvasWidth = (int) ($mediaData['width'] ?? 0);
-        $canvasHeight = (int) ($mediaData['height'] ?? 0);
+        $canvasWidth = (int) ($mediaData['dimensions']['original']['width']
+            ?? $mediaData['width'] ?? 0);
+        $canvasHeight = (int) ($mediaData['dimensions']['original']['height']
+            ?? $mediaData['height'] ?? 0);
         // Fall back to thumbnail dimensions if width/height not stored.
         if (!$canvasWidth || !$canvasHeight) {
             try {
