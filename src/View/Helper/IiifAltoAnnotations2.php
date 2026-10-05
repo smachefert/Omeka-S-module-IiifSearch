@@ -57,13 +57,12 @@ class IiifAltoAnnotations2 extends AbstractHelper
                 $imageMedias[] = $resource;
             }
         }
+        // An item without page image (a single pdf, for example) keeps the
+        // coordinates of the alto page, so the scale is 1.
         $resource = $imageMedias[$page] ?? null;
-        if (!$resource) {
-            return null;
-        }
         $canvasWidth = 0;
         $canvasHeight = 0;
-        if ($view->getHelperPluginManager()->has('mediaDimension')) {
+        if ($resource && $view->getHelperPluginManager()->has('mediaDimension')) {
             try {
                 $dim = $view->plugin('mediaDimension')($resource, 'original');
                 $canvasWidth = (int) ($dim['width'] ?? 0);
@@ -72,14 +71,14 @@ class IiifAltoAnnotations2 extends AbstractHelper
                 // Fall through to mediaData inspection below.
             }
         }
-        if (!$canvasWidth || !$canvasHeight) {
+        if ($resource && (!$canvasWidth || !$canvasHeight)) {
             $mediaData = $resource->mediaData() ?: [];
             $canvasWidth = $canvasWidth ?: (int) ($mediaData['dimensions']['original']['width']
                 ?? $mediaData['width'] ?? 0);
             $canvasHeight = $canvasHeight ?: (int) ($mediaData['dimensions']['original']['height']
                 ?? $mediaData['height'] ?? 0);
         }
-        if (!$canvasWidth || !$canvasHeight) {
+        if ($resource && (!$canvasWidth || !$canvasHeight)) {
             try {
                 $size = @getimagesize($resource->originalUrl());
                 if ($size) {
