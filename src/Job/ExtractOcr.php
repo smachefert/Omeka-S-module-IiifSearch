@@ -3163,33 +3163,19 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
-     * Check or create the destination folder.
+     * Check or create the destination folder and deny its direct web access.
+     *
+     * The ocr files are derivative files that are never medias, so the module
+     * Access cannot check their rights: they are served only through the
+     * controller of the module, that checks them page by page.
      *
      * @param string $dirPath Absolute path.
      * @return string|null
      */
     protected function checkDestinationDir(string $dirPath): ?string
     {
-        if (file_exists($dirPath)) {
-            if (!is_dir($dirPath) || !is_readable($dirPath) || !is_writeable($dirPath)) {
-                $this->logger->err(new Message(
-                    'The directory "%s" is not writeable.', // @translate
-                    $dirPath
-                ));
-                return null;
-            }
-            return $dirPath;
-        }
-
-        $result = @mkdir($dirPath, 0775, true);
-        if (!$result) {
-            $this->logger->err(new Message(
-                'The directory "%1$s" is not writeable: %2$s.', // @translate
-                $dirPath, error_get_last()['message'] ?? 'unknown error'
-            ));
-            return null;
-        }
-        return $dirPath;
+        return $this->getServiceLocator()->get('Common\DirectoryManager')
+            ->checkDestinationDir($dirPath, true);
     }
 
     /**

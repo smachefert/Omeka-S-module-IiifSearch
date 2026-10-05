@@ -770,7 +770,7 @@ class Module extends AbstractModule
 
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        foreach (['temp', 'iiif-search', 'alto', 'pdf2xml'] as $sub) {
+        foreach (['temp', 'iiif-search', 'iiif-search-audit', 'alto', 'hocr', 'pdf2xml'] as $sub) {
             if (!$this->checkDestinationDir($basePath . '/' . $sub)) {
                 $logger->warn(new Message(
                     'The directory "%s" is not writeable; OCR extraction features may not work.', // @translate
@@ -1211,14 +1211,17 @@ class Module extends AbstractModule
         return $baseUri;
     }
 
+    /**
+     * Create the directory when needed and deny its direct web access.
+     *
+     * The ocr files (alto, hocr, pdf2xml, tsv) are derivative files that are
+     * never medias, so they have no storage id and the module Access cannot
+     * check their rights. They are served only through the controller of the
+     * module, that checks the rights of the user page by page.
+     */
     protected function checkDestinationDir(string $dirPath): ?string
     {
-        if (file_exists($dirPath)) {
-            if (!is_dir($dirPath) || !is_readable($dirPath) || !is_writeable($dirPath)) {
-                return null;
-            }
-            return $dirPath;
-        }
-        return @mkdir($dirPath, 0775, true) ? $dirPath : null;
+        return $this->getServiceLocator()->get('Common\DirectoryManager')
+            ->checkDestinationDir($dirPath, true);
     }
 }

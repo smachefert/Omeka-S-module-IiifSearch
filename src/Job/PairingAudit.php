@@ -34,7 +34,8 @@ class PairingAudit extends AbstractJob
         $itemIdsArg = (string) $this->getArg('item_ids');
 
         $auditDir = $basePath . '/iiif-search-audit';
-        if (!is_dir($auditDir) && !@mkdir($auditDir, 0775, true)) {
+        $directoryManager = $services->get('Common\DirectoryManager');
+        if (!$directoryManager->checkDestinationDir($auditDir, true)) {
             $logger->err(new Message(
                 'Cannot create audit directory "%s".', // @translate
                 $auditDir

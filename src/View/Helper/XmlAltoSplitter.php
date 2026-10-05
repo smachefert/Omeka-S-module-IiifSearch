@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use Common\Stdlib\DirectoryManager;
 use DOMDocument;
 use DOMElement;
 use Laminas\Log\Logger;
@@ -20,11 +21,17 @@ class XmlAltoSplitter extends AbstractHelper
 {
     protected Logger $logger;
 
+    protected DirectoryManager $directoryManager;
+
     protected string $basePath;
 
-    public function __construct(Logger $logger, string $basePath)
-    {
+    public function __construct(
+        Logger $logger,
+        DirectoryManager $directoryManager,
+        string $basePath
+    ) {
         $this->logger = $logger;
+        $this->directoryManager = $directoryManager;
         $this->basePath = $basePath;
     }
 
@@ -90,7 +97,7 @@ class XmlAltoSplitter extends AbstractHelper
         ) {
             return $cachePath;
         }
-        if (!is_dir($cacheDir) && !@mkdir($cacheDir, 0775, true) && !is_dir($cacheDir)) {
+        if (!$this->directoryManager->checkDestinationDir($cacheDir, true)) {
             return null;
         }
         // Mono-page file: serve it directly.
