@@ -16,6 +16,7 @@ class ConfigForm extends Form
         'search' => 'Search', // @translate
         'text' => 'Text', // @translate
         'extract' => 'Extraction', // @translate
+        'pdf' => 'PDF rebuild', // @translate
         'bulk' => 'Bulk processing', // @translate
     ];
 
@@ -197,20 +198,18 @@ class ConfigForm extends Form
 
             ->add([
                 'name' => 'iiifsearch_xml_fix_mode',
-                'type' => Element\Radio::class,
+                'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
                     'label' => 'Fix bad xml and invalid utf-8 characters', // @translate
+                    'info' => 'Independent strategies for repairing malformed OCR XML. Leave both unchecked to disable. DOM is quick (single pass via DOMDocument); regex is slow (per-character UTF-8 fix-up). Both can be enabled together for maximum coverage on degraded files.', // @translate
                     'value_options' => [
-                        'no' => 'No', // @translate
                         'dom' => 'Via DOM (quick)', // @translate
                         'regex' => 'Via regex (slow)', // @translate
-                        'all' => 'All', // @translate
                     ],
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_xml_fix_mode',
-                    'value' => 'no',
                 ],
             ])
             ->add([
@@ -235,6 +234,35 @@ class ConfigForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_extract_reocr_no_text_layer',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_create_pdf_text_layer',
+                'type' => Element\Radio::class,
+                'options' => [
+                    'element_group' => 'pdf',
+                    'label' => 'Create a PDF with text layer (requires ocrmypdf + ghostscript)', // @translate
+                    'info' => 'Rebuild the source PDF with an embedded text layer so the file itself becomes searchable in any PDF reader. "Update in place" replaces the existing media/digital object file (sha256 and size are refreshed via DBAL to keep the database consistent). "New resource" creates a fresh media or digital object next to the source, of the same kind. PDFs that already carry a text layer are skipped. Items without a PDF rely on img2pdf to bundle their images first, and the result is always attached as a new media / digital object.', // @translate
+                    'value_options' => [
+                        '' => 'Off', // @translate
+                        'update' => 'Update file in place on existing media / digital object', // @translate
+                        'new' => 'Create a new media / digital object (mirrors the source kind)', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_create_pdf_text_layer',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_concat_monopage_pdf',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'element_group' => 'pdf',
+                    'label' => 'Concatenate mono-page PDFs before re-OCR', // @translate
+                    'info' => 'When an item carries several single-page PDFs (typically a scanned book split per page), concatenate them via ghostscript into a single multi-page PDF before running ocrmypdf. The result is always created as a new media / digital object — never used to update one of the source rows in place — because there is no unambiguous "primary" row to overwrite.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_concat_monopage_pdf',
                 ],
             ])
             ->add([
@@ -518,6 +546,14 @@ class ConfigForm extends Form
             ])
             ->add([
                 'name' => 'iiifsearch_extract_query_exclude',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_create_pdf_text_layer',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_concat_monopage_pdf',
                 'required' => false,
             ])
             ->add([

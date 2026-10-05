@@ -166,8 +166,17 @@ class CleanupMedia extends AbstractJob
             ];
         }
         if ($target === 'pdf2xml') {
+            // Early versions of the module attached pdf2xml derivatives with a
+            // generic XML mime — the precise pdf2xml mime was not declared yet.
+            // Include those legacy mimes here and confirm the actual format via
+            // content sniffing in matchesProvenance.
             return [
-                ['application/vnd.pdf2xml+xml'],
+                [
+                    'application/vnd.pdf2xml+xml',
+                    'text/xml',
+                    'application/xml',
+                    'application/octet-stream',
+                ],
                 ['.pdf2xml.xml'],
             ];
         }
@@ -196,6 +205,22 @@ class CleanupMedia extends AbstractJob
             return AltoProvenance::isModuleAlto(
                 $this->basePath . '/original/' . $filename
             );
+        }
+
+        if ($target === 'pdf2xml') {
+            // Canonical mime: trust unconditionally — the module is the sole
+            // producer of pdf2xml.
+            if ((string) ($row['media_type'] ?? '') === 'application/vnd.pdf2xml+xml') {
+                return true;
+            }
+            // Legacy generic XML mimes: content-sniff the file root element. A
+            // non-pdf2xml XML (item-uploaded mods, dc, tei…) is left alone.
+            $filename = $this->rowFilename($row);
+            if ($filename === '') {
+                return false;
+            }
+            $filepath = $this->basePath . '/original/' . $filename;
+            return $this->isPdf2xmlFile($filepath);
         }
 
         if ($source === '' || $itemId <= 0) {
@@ -270,5 +295,34 @@ class CleanupMedia extends AbstractJob
         return $extension === ''
             ? $storageId
             : $storageId . '.' . $extension;
+    }
+
+    /**
+     * Probe an XML file via XMLReader for a top-level <pdf2xml> root. Bails out
+     * at the first element node so the cost stays O(first-tag) regardless of
+     * file size.
+     */
+    protected function isPdf2xmlFile(string $filepath): bool
+    {
+        if (!is_readable($filepath)) {
+            return false;
+        }
+        $reader = new \XMLReader();
+        if (!@$reader->open($filepath, null, LIBXML_NONET | LIBXML_NOBLANKS)) {
+            return false;
+        }
+        $isPdf2xml = false;
+        try {
+            while (@$reader->read()) {
+                if ($reader->nodeType !== \XMLReader::ELEMENT) {
+                    continue;
+                }
+                $isPdf2xml = $reader->localName === 'pdf2xml';
+                break;
+            }
+        } finally {
+            $reader->close();
+        }
+        return $isPdf2xml;
     }
 }

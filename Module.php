@@ -650,7 +650,7 @@ class Module extends AbstractModule
             || (time() - (int) $cached['at']) >= 3600
         ) {
             $tools = [];
-            foreach (['pdftotext', 'pdftohtml', 'tesseract', 'ocrmypdf'] as $tool) {
+            foreach (['pdftotext', 'pdftohtml', 'tesseract', 'ocrmypdf', 'gs', 'img2pdf'] as $tool) {
                 // `command -v` returns the resolved path (and exit 0) when the
                 // tool is on PATH, an empty string and non-zero exit otherwise.
                 // Capturing the path makes the audit message self-documenting.
@@ -687,10 +687,10 @@ class Module extends AbstractModule
                 ['tools' => implode(', ', $missingRequired)]
             ));
         }
-        $missingOptional = array_intersect($missing, ['tesseract', 'ocrmypdf']);
+        $missingOptional = array_intersect($missing, ['tesseract', 'ocrmypdf', 'gs', 'img2pdf']);
         if ($missingOptional) {
             $messenger->addWarning(new PsrMessage(
-                'Optional OCR tools not installed: {tools}. tesseract is needed to OCR images of pages without a text layer; ocrmypdf is needed to re-OCR PDFs without a text layer.', // @translate
+                'Optional OCR tools not installed: {tools}. tesseract is needed to OCR images of pages without a text layer; ocrmypdf and ghostscript (gs) are needed to rebuild a PDF with an embedded text layer (and to concatenate mono-page PDFs); img2pdf is needed to build a searchable PDF from items that carry only images (no PDF).', // @translate
                 ['tools' => implode(', ', $missingOptional)]
             ));
         }

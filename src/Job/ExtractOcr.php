@@ -88,6 +88,22 @@ class ExtractOcr extends AbstractJob
     protected $ocrLanguage = '';
 
     /**
+     * @var string Empty (off), 'update' (replace source file) or 'new'
+     *             (create a new media/digital object).
+     */
+    protected $createPdfTextLayerMode = '';
+
+    /**
+     * @var bool Whether multi-PDF items should be concatenated before re-OCR.
+     */
+    protected $concatMonopagePdf = false;
+
+    /**
+     * @var bool Whether img2pdf is on PATH (image-only items branch).
+     */
+    protected $img2pdfAvailable = false;
+
+    /**
      * @var bool
      */
     protected $contentOnly = false;
@@ -391,6 +407,39 @@ class ExtractOcr extends AbstractJob
             );
         }
 
+        // Optional PDF text-layer rebuild. Phase 1 covered items that already
+        // carry a PDF. Phase 2 extends the feature to image-only items: img2pdf
+        // bundles the images into a single multi-page PDF which is then run
+        // through ocrmypdf. The presence of img2pdf is detected once and the
+        // image-only branch is silently disabled when missing.
+        $createPdfMode = (string) $settings->get('iiifsearch_extract_create_pdf_text_layer', '');
+        $this->createPdfTextLayerMode = in_array($createPdfMode, ['update', 'new'], true)
+            ? $createPdfMode
+            : '';
+        $this->concatMonopagePdf = (bool) $settings->get('iiifsearch_extract_concat_monopage_pdf', false);
+        $this->img2pdfAvailable = false;
+        if ($this->createPdfTextLayerMode !== '') {
+            if ((int) shell_exec('hash ocrmypdf 2>&- || echo 1')) {
+                $this->createPdfTextLayerMode = '';
+                $this->logger->info(
+                    'Option "create pdf with text layer" is enabled but ocrmypdf is not available; the PDF text-layer rebuild is skipped.' // @translate
+                );
+            } else {
+                if ($this->concatMonopagePdf && (int) shell_exec('hash gs 2>&- || echo 1')) {
+                    $this->concatMonopagePdf = false;
+                    $this->logger->info(
+                        'Option "concat mono-page PDFs" is enabled but ghostscript (gs) is not available; multi-PDF items will be skipped by the text-layer rebuild.' // @translate
+                    );
+                }
+                $this->img2pdfAvailable = !(int) shell_exec('hash img2pdf 2>&- || echo 1');
+                if (!$this->img2pdfAvailable) {
+                    $this->logger->info(
+                        'Image-only items will be skipped by the PDF text-layer rebuild: img2pdf is not available.' // @translate
+                    );
+                }
+            }
+        }
+
         $this->ocrImagesEnabled = (bool) $settings->get('iiifsearch_extract_ocr_images', true);
         if ($this->ocrImagesEnabled && (int) shell_exec('hash tesseract 2>&- || echo 1')) {
             $this->ocrImagesEnabled = false;
@@ -675,6 +724,40 @@ class ExtractOcr extends AbstractJob
             }
             $pdfMedias = $this->findPdfMedias($item);
             $pdfMedia = $pdfMedias[0] ?? null;
+
+            // Optional: rebuild the source PDF with an embedded text layer
+            // (ocrmypdf). When the original PDF is replaced in place the
+            // representation we hold becomes stale, so refresh it. Image- only
+            // items go through a separate branch that bundles the images via
+            // img2pdf before invoking ocrmypdf.
+            if ($this->createPdfTextLayerMode !== '') {
+                if ($pdfMedias) {
+                    $rebuilt = $this->maybeBuildPdfWithTextLayer($item, $pdfMedias);
+                } elseif ($this->img2pdfAvailable) {
+                    $rebuilt = $this->maybeBuildPdfFromImages($item);
+                } else {
+                    $rebuilt = 'skipped';
+                }
+                if ($rebuilt === 'created') {
+                    try {
+                        $item = $this->api->read('items', ['id' => $itemId])->getContent();
+                        $pdfMedias = $this->findPdfMedias($item);
+                        $pdfMedia = $pdfMedias[0] ?? null;
+                    } catch (\Throwable $e) {
+                        // Continue with stale references; downstream code is
+                        // file-path based and will still work.
+                    }
+                } elseif ($rebuilt === 'updated') {
+                    try {
+                        $item = $this->api->read('items', ['id' => $itemId])->getContent();
+                        $pdfMedias = $this->findPdfMedias($item);
+                        $pdfMedia = $pdfMedias[0] ?? null;
+                    } catch (\Throwable $e) {
+                        // Continue with stale references; downstream code is
+                        // file-path based and will still work.
+                    }
+                }
+            }
 
             // TODO Improve search of an existing file, that can be imported separatly, or that can be another xml format with the same name.
             // Search if this item has already an xml file, managing double
@@ -2352,18 +2435,21 @@ class ExtractOcr extends AbstractJob
      *  - alto: deletable iff the file carries the module's provenance marker
      *    (see ToAltoConverter::stampProvenance()). No filename fallback: a
      *    user-uploaded alto could share any naming pattern.
-     *  - pdf2xml: deletable iff the source ends with ".{itemId}.pdf2xml.xml"
-     *    (the module's derived-file convention).
-     *  - tsv / tsv;by-word: deletable iff the source ends with the matching
-     *    ".{itemId}.tsv" or ".{itemId}.by-word.tsv" suffix.
+     *  - pdf2xml: always deletable. The format is never a legitimate user
+     *    upload; it has only ever been attached by past versions of the module,
+     *    with several naming conventions (legacy "{base}.xml" advertised as
+     *    text/xml or application/xml because the precise mime was not defined
+     *    yet, as well as the newer "{base}.{itemId}.pdf2xml.xml" with the
+     *    canonical mime). Generic XML medias are content-sniffed via
+     *    XmlMediaClassifier to confirm a pdf2xml root.
+     *  - tsv / tsv;by-word: always deletable for the same reason — the
+     *    module is the sole producer of these mime types.
      *  - anything else (image, pdf, audio/video, native tei/mets/hocr, etc.):
      *    never.
      */
     protected function canDeleteOcrMedia(MediaRepresentation $media): bool
     {
         $mediaType = (string) $media->mediaType();
-        $source = (string) $media->source();
-        $itemId = (int) $media->item()->id();
 
         if ($mediaType === 'application/alto+xml') {
             $filename = (string) $media->filename();
@@ -2375,22 +2461,25 @@ class ExtractOcr extends AbstractJob
             );
         }
 
-        $endsWith = function (string $haystack, string $needle): bool {
-            $len = strlen($needle);
-            return $len > 0 && substr($haystack, -$len) === $needle;
-        };
+        if (in_array($mediaType, [
+            'application/vnd.pdf2xml+xml',
+            'text/tab-separated-values',
+            'text/tab-separated-values;by-word',
+        ], true)) {
+            return true;
+        }
 
-        if ($mediaType === 'application/vnd.pdf2xml+xml') {
-            return $source !== '' && $endsWith($source, '.' . $itemId . '.pdf2xml.xml');
+        // Legacy pdf2xml medias declared as generic text/xml or
+        // application/xml: confirm via content sniffing on the root element.
+        if (in_array($mediaType, ['text/xml', 'application/xml', 'application/octet-stream', ''], true)) {
+            $filename = (string) $media->filename();
+            if ($filename === '') {
+                return false;
+            }
+            $cls = $this->getXmlMediaClassifier()->classifyMedia($media, $this->basePath);
+            return $cls === XmlMediaClassifier::TYPE_PDF2XML;
         }
-        if ($mediaType === 'text/tab-separated-values'
-            || $mediaType === 'text/tab-separated-values;by-word'
-        ) {
-            return $source !== '' && (
-                $endsWith($source, '.' . $itemId . '.tsv')
-                || $endsWith($source, '.' . $itemId . '.by-word.tsv')
-            );
-        }
+
         return false;
     }
 
@@ -2498,6 +2587,360 @@ class ExtractOcr extends AbstractJob
             [],
             ['isPartial' => true, 'collectionAction' => 'append']
         );
+    }
+
+    /**
+     * Rebuild the source PDF with an embedded text layer via ocrmypdf, then
+     * either replace the existing media/digital object file in place or attach
+     * the result as a new resource.
+     *
+     * Returns:
+     *  - 'updated' when an existing source has been overwritten;
+     *  - 'created' when a new resource has been created;
+     *  - 'skipped' when nothing was done.
+     *
+     * Out of scope (phase 1): items with no PDF (image-only). Already-
+     * searchable PDFs are skipped too — no rewrite of an existing text layer.
+     */
+    protected function maybeBuildPdfWithTextLayer(ItemRepresentation $item, array $pdfMedias): string
+    {
+        if (!$pdfMedias) {
+            return 'skipped';
+        }
+        $itemId = (int) $item->id();
+        $multiPdf = count($pdfMedias) > 1;
+
+        // Source file paths (read from /original/), and a label for logs.
+        $sourcePaths = [];
+        foreach ($pdfMedias as $m) {
+            $filename = $m->filename();
+            if (!$filename) {
+                continue;
+            }
+            $path = $this->basePath . '/original/' . $filename;
+            if (!is_readable($path)) {
+                continue;
+            }
+            $sourcePaths[] = $path;
+        }
+        if (!$sourcePaths) {
+            return 'skipped';
+        }
+
+        // Concat mono-page PDFs into a temp file (mode forced to "new").
+        $effectiveMode = $this->createPdfTextLayerMode;
+        $inputPath = $sourcePaths[0];
+        $concatTemp = null;
+        if ($multiPdf) {
+            if (!$this->concatMonopagePdf) {
+                $this->logger->info(new Message(
+                    'Item #%1$d: %2$d PDFs attached; "concat mono-page PDFs" is off, skipping text-layer rebuild.', // @translate
+                    $itemId, count($pdfMedias)
+                ));
+                return 'skipped';
+            }
+            $concatTemp = sys_get_temp_dir() . '/iiifsearch-concat-' . $itemId . '-' . uniqid('', true) . '.pdf';
+            $cmd = 'gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile='
+                . escapeshellarg($concatTemp) . ' '
+                . implode(' ', array_map('escapeshellarg', $sourcePaths));
+            @shell_exec($cmd);
+            if (!file_exists($concatTemp) || !filesize($concatTemp)) {
+                $this->logger->warn(new Message(
+                    'Item #%1$d: ghostscript concatenation failed; text-layer rebuild skipped.', // @translate
+                    $itemId
+                ));
+                @unlink($concatTemp);
+                return 'skipped';
+            }
+            $inputPath = $concatTemp;
+            $effectiveMode = 'new';
+        }
+
+        // Skip when the PDF already carries a text layer. pdftotext on the
+        // input file: empty output (or whitespace only) ⇒ no text layer.
+        $probeCmd = 'pdftotext ' . escapeshellarg($inputPath) . ' - 2>/dev/null';
+        $probe = (string) @shell_exec($probeCmd);
+        if (trim($probe) !== '') {
+            $this->logger->info(new Message(
+                'Item #%1$d: PDF already carries a text layer, text-layer rebuild skipped.', // @translate
+                $itemId
+            ));
+            if ($concatTemp) {
+                @unlink($concatTemp);
+            }
+            return 'skipped';
+        }
+
+        // ocrmypdf: produce a fresh searchable PDF in a temp path.
+        $outputTemp = sys_get_temp_dir() . '/iiifsearch-ocr-' . $itemId . '-' . uniqid('', true) . '.pdf';
+        $langArg = $this->ocrLanguage !== ''
+            ? ' -l ' . escapeshellarg($this->ocrLanguage)
+            : '';
+        $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
+            . escapeshellarg($inputPath) . ' '
+            . escapeshellarg($outputTemp) . ' 2>&1';
+        $output = (string) @shell_exec($cmd);
+        if ($concatTemp) {
+            @unlink($concatTemp);
+        }
+        if (!file_exists($outputTemp) || !filesize($outputTemp)) {
+            $this->logger->err(new Message(
+                'Item #%1$d: ocrmypdf failed: %2$s', // @translate
+                $itemId, trim($output)
+            ));
+            @unlink($outputTemp);
+            return 'skipped';
+        }
+
+        if ($effectiveMode === 'update') {
+            $ok = $this->replacePdfFileInPlace($pdfMedias[0], $outputTemp);
+            @unlink($outputTemp);
+            if ($ok) {
+                $this->logger->info(new Message(
+                    'Item #%1$d: PDF media #%2$d updated in place with a text layer.', // @translate
+                    $itemId, $pdfMedias[0]->id()
+                ));
+                return 'updated';
+            }
+            return 'skipped';
+        }
+
+        // mode 'new': attach as a fresh media (or DO mirroring the source).
+        $tempFile = $this->tempFileFactory->build();
+        $tempPath = $tempFile->getTempPath() . '.pdf';
+        @unlink($tempFile->getTempPath());
+        $tempFile->setTempPath($tempPath);
+        if (!@rename($outputTemp, $tempPath)) {
+            @copy($outputTemp, $tempPath);
+            @unlink($outputTemp);
+        }
+
+        $previousSaveAs = $this->saveAs;
+        $previousFormat = $this->targetFormat;
+        $previousExtension = $this->targetExtension;
+        $previousMediaType = $this->targetMediaType;
+
+        // Mirror the source kind for the new resource: a digital object if the
+        // source PDF is a DO, a media otherwise.
+        $sourceIsDo = method_exists($pdfMedias[0], 'resourceName')
+            && $pdfMedias[0]->resourceName() === 'digital_objects';
+        $this->saveAs = $sourceIsDo ? 'digital_object' : 'media';
+        $this->targetFormat = 'application/pdf';
+        $this->targetExtension = 'pdf';
+        $this->targetMediaType = 'application/pdf';
+
+        $created = null;
+        try {
+            $created = $this->storeFileInMedia($tempFile, null, $item, $pdfMedias[0]);
+        } catch (\Throwable $e) {
+            $this->logger->err(new Message(
+                'Item #%1$d: failed to attach the rebuilt PDF: %2$s', // @translate
+                $itemId, $e->getMessage()
+            ));
+        }
+
+        $this->saveAs = $previousSaveAs;
+        $this->targetFormat = $previousFormat;
+        $this->targetExtension = $previousExtension;
+        $this->targetMediaType = $previousMediaType;
+        @unlink($tempPath);
+
+        if ($created) {
+            $this->logger->info(new Message(
+                'Item #%1$d: rebuilt PDF attached as %2$s #%3$d.', // @translate
+                $itemId, $sourceIsDo ? 'digital_object' : 'media', $created->id()
+            ));
+            return 'created';
+        }
+        return 'skipped';
+    }
+
+    /**
+     * Replace the original file of a media/DO in place with a freshly OCRed
+     * copy, and refresh sha256 + size via raw DBAL. Doctrine's ORM-level
+     * setData() + flush() is avoided here because the storage event listener
+     * can close the EntityManager on unlink failure mid-flush; file overwrites
+     * have no such hazard since we never delete the file.
+     */
+    protected function replacePdfFileInPlace($source, string $newPdfPath): bool
+    {
+        $filename = $source->filename();
+        if (!$filename) {
+            return false;
+        }
+        $sourceId = (int) $source->id();
+        $originalPath = $this->basePath . '/original/' . $filename;
+        if (!@copy($newPdfPath, $originalPath)) {
+            $this->logger->err(new Message(
+                'Could not overwrite "%1$s" with the rebuilt PDF.', // @translate
+                $originalPath
+            ));
+            return false;
+        }
+        $sha256 = @hash_file('sha256', $originalPath) ?: null;
+        $size = @filesize($originalPath);
+        $size = $size === false ? null : (int) $size;
+
+        $table = method_exists($source, 'resourceName')
+            && $source->resourceName() === 'digital_objects'
+            ? 'digital_object'
+            : 'media';
+        try {
+            $this->entityManager->getConnection()->update(
+                $table,
+                array_filter([
+                    'sha256' => $sha256,
+                    'size' => $size,
+                ], static fn ($v) => $v !== null),
+                ['id' => $sourceId]
+            );
+        } catch (\Throwable $e) {
+            $this->logger->err(new Message(
+                'Could not update %1$s #%2$d after rebuilding the PDF: %3$s', // @translate
+                $table, $sourceId, $e->getMessage()
+            ));
+            return false;
+        }
+        return true;
+    }
+
+    /**
+     * Image-only items: bundle the images into a single multi-page PDF via
+     * img2pdf, then add a text layer via ocrmypdf, then attach the result as a
+     * new media (or DigitalObject mirroring the source kind). The mode is
+     * always 'new' here because there is no existing PDF row to overwrite in
+     * place.
+     *
+     * Remote images (no local original file) are skipped: img2pdf needs a local
+     * path. Downloading the originals on the fly is out of scope.
+     */
+    protected function maybeBuildPdfFromImages(ItemRepresentation $item): string
+    {
+        $itemId = (int) $item->id();
+
+        // Collect local image paths in resource order, restricted to
+        // file-backed images. Mixed local / remote items are processed
+        // partially with a single warning.
+        $imageResources = [];
+        $imagePaths = [];
+        $skippedRemote = 0;
+        foreach ($this->collectItemFileResources($item) as $resource) {
+            if (strtok((string) $resource->mediaType(), '/') !== 'image') {
+                continue;
+            }
+            if (method_exists($resource, 'hasOriginal') && !$resource->hasOriginal()) {
+                ++$skippedRemote;
+                continue;
+            }
+            $filename = $resource->filename();
+            if (!$filename) {
+                continue;
+            }
+            $path = $this->basePath . '/original/' . $filename;
+            if (!is_readable($path)) {
+                continue;
+            }
+            $imageResources[] = $resource;
+            $imagePaths[] = $path;
+        }
+        if (!$imagePaths) {
+            if ($skippedRemote) {
+                $this->logger->info(new Message(
+                    'Item #%1$d: only remote images, skipping image-to-PDF rebuild.', // @translate
+                    $itemId
+                ));
+            }
+            return 'skipped';
+        }
+        if ($skippedRemote) {
+            $this->logger->warn(new Message(
+                'Item #%1$d: %2$d remote images skipped from the image-to-PDF bundle.', // @translate
+                $itemId, $skippedRemote
+            ));
+        }
+
+        $bundleTemp = sys_get_temp_dir() . '/iiifsearch-bundle-' . $itemId . '-' . uniqid('', true) . '.pdf';
+        $cmd = 'img2pdf '
+            . implode(' ', array_map('escapeshellarg', $imagePaths))
+            . ' --output ' . escapeshellarg($bundleTemp) . ' 2>&1';
+        $bundleOut = (string) @shell_exec($cmd);
+        if (!file_exists($bundleTemp) || !filesize($bundleTemp)) {
+            $this->logger->err(new Message(
+                'Item #%1$d: img2pdf failed: %2$s', // @translate
+                $itemId, trim($bundleOut)
+            ));
+            @unlink($bundleTemp);
+            return 'skipped';
+        }
+
+        $outputTemp = sys_get_temp_dir() . '/iiifsearch-ocr-' . $itemId . '-' . uniqid('', true) . '.pdf';
+        $langArg = $this->ocrLanguage !== ''
+            ? ' -l ' . escapeshellarg($this->ocrLanguage)
+            : '';
+        $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
+            . escapeshellarg($bundleTemp) . ' '
+            . escapeshellarg($outputTemp) . ' 2>&1';
+        $output = (string) @shell_exec($cmd);
+        @unlink($bundleTemp);
+        if (!file_exists($outputTemp) || !filesize($outputTemp)) {
+            $this->logger->err(new Message(
+                'Item #%1$d: ocrmypdf failed on the image bundle: %2$s', // @translate
+                $itemId, trim($output)
+            ));
+            @unlink($outputTemp);
+            return 'skipped';
+        }
+
+        // Attach as new media (or DO mirroring the first image source).
+        $tempFile = $this->tempFileFactory->build();
+        $tempPath = $tempFile->getTempPath() . '.pdf';
+        @unlink($tempFile->getTempPath());
+        $tempFile->setTempPath($tempPath);
+        if (!@rename($outputTemp, $tempPath)) {
+            @copy($outputTemp, $tempPath);
+            @unlink($outputTemp);
+        }
+
+        $first = $imageResources[0];
+        $sourceIsDo = method_exists($first, 'resourceName')
+            && $first->resourceName() === 'digital_objects';
+
+        $previousSaveAs = $this->saveAs;
+        $previousFormat = $this->targetFormat;
+        $previousExtension = $this->targetExtension;
+        $previousMediaType = $this->targetMediaType;
+
+        $this->saveAs = $sourceIsDo ? 'digital_object' : 'media';
+        $this->targetFormat = 'application/pdf';
+        $this->targetExtension = 'pdf';
+        $this->targetMediaType = 'application/pdf';
+
+        $created = null;
+        try {
+            $created = $this->storeFileInMedia($tempFile, null, $item, null);
+        } catch (\Throwable $e) {
+            $this->logger->err(new Message(
+                'Item #%1$d: failed to attach the rebuilt PDF: %2$s', // @translate
+                $itemId, $e->getMessage()
+            ));
+        }
+
+        $this->saveAs = $previousSaveAs;
+        $this->targetFormat = $previousFormat;
+        $this->targetExtension = $previousExtension;
+        $this->targetMediaType = $previousMediaType;
+        @unlink($tempPath);
+
+        if ($created) {
+            $this->logger->info(new Message(
+                'Item #%1$d: built a searchable PDF from %2$d images and attached it as %3$s #%4$d.', // @translate
+                $itemId, count($imagePaths),
+                $sourceIsDo ? 'digital_object' : 'media',
+                $created->id()
+            ));
+            return 'created';
+        }
+        return 'skipped';
     }
 
     /**

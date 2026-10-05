@@ -202,8 +202,25 @@ return [
             'iiifsearch_extract_content_property' => null,
             'iiifsearch_extract_content_language' => '',
             'iiifsearch_extract_create_empty_file' => false,
-            'iiifsearch_xml_fix_mode' => 'no',
+            'iiifsearch_xml_fix_mode' => [],
             'iiifsearch_extract_reocr_no_text_layer' => true,
+
+            // Optional PDF text-layer rebuild. When set to 'update' the source
+            // PDF (media or digital object) is replaced in place by an
+            // ocrmypdf-processed copy carrying an invisible text layer; 'new'
+            // creates a fresh media (or digital object, mirroring the source)
+            // holding the OCRed PDF. Empty value disables the feature. Requires
+            // ocrmypdf + ghostscript on PATH; phase 1 does not handle items
+            // without a PDF (image-only items) nor PDFs that already carry a
+            // text layer (skipped).
+            'iiifsearch_extract_create_pdf_text_layer' => '',
+            // When set, multi-PDF items (typically scanned books split into one
+            // PDF per page) are concatenated via ghostscript before re-OCR; the
+            // resulting consolidated PDF is then attached as a single new media
+            // or digital object. The mode is forced to "new" in that case
+            // because update-in-place is ambiguous across several source rows.
+            'iiifsearch_extract_concat_monopage_pdf' => false,
+
             'iiifsearch_extract_ocr_images' => true,
             'iiifsearch_extract_ocr_language' => '',
             'iiifsearch_alto_pairing_mode' => 'auto',
