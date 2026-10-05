@@ -394,6 +394,35 @@ class ConfigForm extends Form
                 ],
             ])
             ->add([
+                'name' => 'iiifsearch_tei_structure_store',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'extract',
+                    'element_group' => 'fieldset_extract_search',
+                    'label' => 'Store the table of contents of the TEI file in a property', // @translate
+                    'info' => 'The table of contents of a TEI file attached to the item is used directly as structure of the manifest. Storing it allows to see and to fix it in the record. A structure set manually in the property is kept; a stored one is replaced when the TEI changes. To be used in the manifest, the property should be the property for structures of the module Iiif Server.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_tei_structure_store',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_tei_structure_property',
+                'type' => CommonElement\OptionalPropertySelect::class,
+                'options' => [
+                    'tab' => 'extract',
+                    'element_group' => 'fieldset_extract_search',
+                    'label' => 'Property to store the table of contents of the TEI file', // @translate
+                    'empty_option' => '',
+                    'term_as_value' => true,
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_tei_structure_property',
+                    'class' => 'chosen-select',
+                    'data-placeholder' => 'Select a property…', // @translate
+                ],
+            ])
+            ->add([
                 'name' => 'iiifsearch_extract_content_language',
                 'type' => Element\Text::class,
                 'options' => [

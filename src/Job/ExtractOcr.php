@@ -104,6 +104,17 @@ class ExtractOcr extends AbstractJob
     protected $img2pdfAvailable = false;
 
     /**
+     * @var string|null Term of the property where the table of contents of the
+     * TEI file is stored, when the option is enabled.
+     */
+    protected $teiStructureTerm;
+
+    /**
+     * @var int|null
+     */
+    protected $teiStructurePropertyId;
+
+    /**
      * @var bool
      */
     protected $contentOnly = false;
@@ -394,6 +405,19 @@ class ExtractOcr extends AbstractJob
                 $this->logger->warn(
                     'The option to store text is set, but no property is defined.' // @translate
                 );
+            }
+        }
+
+        if ($settings->get('iiifsearch_tei_structure_store')) {
+            $term = (string) $settings->get('iiifsearch_tei_structure_property');
+            $propertyId = $term ? $services->get('Common\EasyMeta')->propertyId($term) : null;
+            if ($propertyId) {
+                $this->teiStructureTerm = $term;
+                $this->teiStructurePropertyId = $propertyId;
+            } else {
+                $this->logger->warn(new Message(
+                    'The option to store the table of contents of the TEI file is set, but no property is defined.' // @translate
+                ));
             }
         }
 
@@ -765,6 +789,8 @@ class ExtractOcr extends AbstractJob
                     }
                 }
             }
+
+            $this->storeTeiStructure($item);
 
             // TODO Improve search of an existing file, that can be imported separatly, or that can be another xml format with the same name.
             // Search if this item has already an xml file, managing double
@@ -2671,6 +2697,57 @@ class ExtractOcr extends AbstractJob
                 ));
             }
         }
+    }
+
+    /**
+     * Store the table of contents of the TEI file of the item in a property.
+     *
+     * A value set manually is kept, so the manual structure stays available.
+     * A value stored previously, recognized by its root "tei0", is replaced, so
+     * the stored structure follows the TEI.
+     */
+    protected function storeTeiStructure(ItemRepresentation $item): void
+    {
+        if (!$this->teiStructureTerm) {
+            return;
+        }
+
+        $viewHelpers = $this->getServiceLocator()->get('ViewHelperManager');
+        if (!$viewHelpers->has('iiifSearchTeiStructure')) {
+            return;
+        }
+        $structure = $viewHelpers->get('iiifSearchTeiStructure')->__invoke($item);
+        if (!$structure) {
+            return;
+        }
+
+        $values = [];
+        foreach ($item->value($this->teiStructureTerm, ['all' => true]) as $value) {
+            $literal = trim((string) $value);
+            if ($literal === $structure) {
+                return;
+            }
+            if (strpos($literal, 'tei0, ') !== 0) {
+                $values[] = $value->jsonSerialize();
+            }
+        }
+
+        // The value is public, else it is not available to build the manifest
+        // for anonymous visitors.
+        $values[] = [
+            'type' => 'literal',
+            'property_id' => $this->teiStructurePropertyId,
+            '@value' => $structure,
+            'is_public' => true,
+        ];
+
+        $this->api->update(
+            'items',
+            $item->id(),
+            [$this->teiStructureTerm => $values],
+            [],
+            ['isPartial' => true, 'collectionAction' => 'replace']
+        );
     }
 
     protected function storeContentInProperty(AbstractResourceEntityRepresentation $resource, ?string $textContent): void
