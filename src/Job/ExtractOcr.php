@@ -487,6 +487,42 @@ class ExtractOcr extends AbstractJob
         if ($queryItemIds !== null) {
             $targetItemIds = array_values(array_intersect($targetItemIds, $queryItemIds));
         }
+
+        // Apply per-item OCR policy (include / exclude). Resolved in bulk
+        // through the search API instead of one call per item id so the filter
+        // scales to large libraries.
+        $api = $services->get('Omeka\ApiManager');
+        $include = (string) $settings->get('iiifsearch_extract_query_include', '');
+        if ($include !== '' && $targetItemIds) {
+            $q = [];
+            parse_str($include, $q);
+            if ($q) {
+                $allowed = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+                $allowed = array_map('intval', is_array($allowed) ? array_values($allowed) : []);
+                $before = count($targetItemIds);
+                $targetItemIds = array_values(array_intersect($targetItemIds, $allowed));
+                $this->logger->info(new Message(
+                    'OCR include filter: %1$d/%2$d items kept.', // @translate
+                    count($targetItemIds), $before
+                ));
+            }
+        }
+        $exclude = (string) $settings->get('iiifsearch_extract_query_exclude', '');
+        if ($exclude !== '' && $targetItemIds) {
+            $q = [];
+            parse_str($exclude, $q);
+            if ($q) {
+                $excluded = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+                $excluded = array_map('intval', is_array($excluded) ? array_values($excluded) : []);
+                $before = count($targetItemIds);
+                $targetItemIds = array_values(array_diff($targetItemIds, $excluded));
+                $this->logger->info(new Message(
+                    'OCR exclude filter: %1$d items removed (%2$d remaining).', // @translate
+                    $before - count($targetItemIds), count($targetItemIds)
+                ));
+            }
+        }
+
         $totalToProcess = count($targetItemIds);
 
         if (empty($totalToProcess)) {

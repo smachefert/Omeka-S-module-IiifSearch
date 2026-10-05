@@ -214,7 +214,25 @@ class XmlAltoSingle extends AbstractHelper
             return null;
         }
 
-        $xmlContent = file_get_contents($filepath);
+        // The path can come from a media filename that no longer exists on disk
+        // (ArchiveRepertory rename, manual deletion, broken backup).
+        // file_get_contents() would otherwise return false and downstream
+        // fixers / SimpleXML throw a TypeError, surfacing as a 500.
+        if (!is_readable($filepath)) {
+            $this->logger->warn(new Message(
+                'XML ALTO file "%1$s" is missing or unreadable (media #%2$d).', // @translate
+                $filepath, $resourceId ?: 0
+            ));
+            return null;
+        }
+        $xmlContent = @file_get_contents($filepath);
+        if ($xmlContent === false || $xmlContent === '') {
+            $this->logger->warn(new Message(
+                'XML ALTO file "%1$s" is empty or unreadable (media #%2$d).', // @translate
+                $filepath, $resourceId ?: 0
+            ));
+            return null;
+        }
 
         try {
             if ($this->xmlFixMode === 'dom') {

@@ -89,6 +89,42 @@ class ConfigForm extends Form
             // Extraction.
 
             ->add([
+                'name' => 'fieldset_extract_resource',
+                'type' => \Laminas\Form\Fieldset::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Items to process or not to process', // @translate
+                ],
+            ])
+
+            ->add([
+                'name' => 'iiifsearch_extract_query_include',
+                'type' => OmekaElement\Query::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Extract text only from items matching query', // @translate
+                    'info' => 'Leave empty to ocerize every item with images or a PDF. To restrict to digitised books or periodicals, limit the query to specific templates, item sets or properties.', // @translate
+                    'query_resource_type' => 'items',
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_query_include',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_query_exclude',
+                'type' => OmekaElement\Query::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Skip items matching query', // @translate
+                    'info' => 'Leave empty to keep the include filter only. Useful to skip paintings, photographs or 3D objects that have images but are not text-bearing. Evaluated after the include filter.', // @translate
+                    'query_resource_type' => 'items',
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_query_exclude',
+                ],
+            ])
+
+            ->add([
                 'name' => 'fieldset_extract_storage',
                 'type' => \Laminas\Form\Fieldset::class,
                 'options' => [
@@ -421,6 +457,35 @@ class ConfigForm extends Form
                 ],
             ]);
 
+        // Cleanup of flat OCR files (files/iiif-search, files/alto,
+        // files/pdf2xml) for items that no longer match the OCR policy. Useful
+        // when the include/exclude queries are tightened after a wider initial
+        // run (paintings or photographs OCRed by mistake).
+
+        $this
+            ->add([
+                'name' => 'iiifsearch_cleanup_ocr_files',
+                'type' => Fieldset::class,
+                'options' => [
+                    'element_group' => 'bulk',
+                    'label' => 'Cleanup OCR files of excluded items', // @translate
+                ],
+            ]);
+
+        $this->get('iiifsearch_cleanup_ocr_files')
+            ->add([
+                'name' => 'cleanup_ocr_files',
+                'type' => Element\Submit::class,
+                'options' => [
+                    'label' => 'Remove OCR files for items not matching the OCR policy', // @translate
+                    'info' => 'Scans files/iiif-search/, files/alto/ and files/pdf2xml/, parses the item id at the start of each filename, and unlinks files whose item is excluded by the include / exclude queries in the Extraction tab. Files under files/original/ are never touched.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'cleanup_ocr_files',
+                    'value' => 'Clean up OCR files', // @translate
+                ],
+            ]);
+
         $inputFilter = $this->getInputFilter();
         $inputFilter
             ->add([
@@ -445,6 +510,14 @@ class ConfigForm extends Form
             ])
             ->add([
                 'name' => 'iiifsearch_extract_dests_pdf2xml',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_query_include',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_query_exclude',
                 'required' => false,
             ])
             ->add([

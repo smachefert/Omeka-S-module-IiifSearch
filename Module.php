@@ -211,6 +211,8 @@ class Module extends AbstractModule
         $settings = $services->get('Omeka\Settings');
         $formManager = $services->get('FormElementManager');
 
+        $this->checkOcrTools();
+
         $this->initDataToPopulate($settings, 'config');
         $data = $this->prepareDataToPopulate($settings, 'config');
         if ($data === null) {
@@ -537,6 +539,51 @@ class Module extends AbstractModule
      * splitter "order" mapping. Other strategies are honored when the splitter
      * is configured for them.
      */
+    /**
+     * Apply the OCR policy (include / exclude Omeka queries) to a single item.
+     * Returns true when the item is eligible for OCR. Empty queries mean "no
+     * restriction".
+     *
+     * Settings consumed:
+     *  - iiifsearch_extract_query_include (URL-encoded query string)
+     *  - iiifsearch_extract_query_exclude (URL-encoded query string)
+     */
+    public function itemMatchesOcrPolicy(int $itemId, $settings = null): bool
+    {
+        if ($itemId <= 0) {
+            return false;
+        }
+        $services = $this->getServiceLocator();
+        $settings = $settings ?: $services->get('Omeka\Settings');
+        $api = $services->get('Omeka\ApiManager');
+
+        $include = (string) $settings->get('iiifsearch_extract_query_include', '');
+        if ($include !== '') {
+            $q = [];
+            parse_str($include, $q);
+            if ($q) {
+                $q['id'] = $itemId;
+                $hits = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getTotalResults();
+                if (!$hits) {
+                    return false;
+                }
+            }
+        }
+        $exclude = (string) $settings->get('iiifsearch_extract_query_exclude', '');
+        if ($exclude !== '') {
+            $q = [];
+            parse_str($exclude, $q);
+            if ($q) {
+                $q['id'] = $itemId;
+                $hits = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getTotalResults();
+                if ($hits) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     protected function canvasPageIndex(
         \Omeka\Api\Representation\ItemRepresentation $item,
         \Omeka\Api\Representation\AbstractResourceEntityRepresentation $media
@@ -565,6 +612,79 @@ class Module extends AbstractModule
             $i++;
         }
         return null;
+    }
+
+    /**
+     * Probe the optional command-line tools the OCR pipeline relies on and
+     * surface their availability in the admin via the messenger.
+     *
+     *  - poppler-utils (pdftotext, pdftohtml): required to extract OCR from
+     *    text-bearing PDFs.
+     *  - tesseract: required to OCR images of pages that do not ship with a
+     *    text layer (book scans, microfilm captures, etc.).
+     *  - ocrmypdf: optional add-on that re-OCRs PDFs without a text layer
+     *    before pdftohtml is invoked.
+     *
+     * The probe is cached 1 h in iiifsearch_audit_ocr_tools so each config form
+     * open does not fork four shell processes.
+     */
+    protected function checkOcrTools(): void
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        $messenger = $services->get('ControllerPluginManager')->get('messenger');
+
+        $cacheKey = 'iiifsearch_audit_ocr_tools';
+        $cached = $settings->get($cacheKey);
+        if (!is_array($cached)
+            || !isset($cached['at'])
+            || (time() - (int) $cached['at']) >= 3600
+        ) {
+            $tools = [];
+            foreach (['pdftotext', 'pdftohtml', 'tesseract', 'ocrmypdf'] as $tool) {
+                // `command -v` returns the resolved path (and exit 0) when the
+                // tool is on PATH, an empty string and non-zero exit otherwise.
+                // Capturing the path makes the audit message self-documenting.
+                $path = trim((string) @shell_exec(
+                    'command -v ' . escapeshellarg($tool) . ' 2>/dev/null'
+                ));
+                $tools[$tool] = $path !== '' ? $path : null;
+            }
+            $cached = ['at' => time(), 'tools' => $tools];
+            $settings->set($cacheKey, $cached);
+        }
+        $tools = (array) ($cached['tools'] ?? []);
+
+        $present = [];
+        $missing = [];
+        foreach ($tools as $tool => $path) {
+            if ($path) {
+                $present[] = $tool . ' (' . $path . ')';
+            } else {
+                $missing[] = $tool;
+            }
+        }
+
+        if ($present) {
+            $messenger->addSuccess(new PsrMessage(
+                'OCR tools available: {tools}.', // @translate
+                ['tools' => implode(', ', $present)]
+            ));
+        }
+        $missingRequired = array_intersect($missing, ['pdftotext', 'pdftohtml']);
+        if ($missingRequired) {
+            $messenger->addError(new PsrMessage(
+                'Missing required OCR tools: {tools}. Install package poppler-utils.', // @translate
+                ['tools' => implode(', ', $missingRequired)]
+            ));
+        }
+        $missingOptional = array_intersect($missing, ['tesseract', 'ocrmypdf']);
+        if ($missingOptional) {
+            $messenger->addWarning(new PsrMessage(
+                'Optional OCR tools not installed: {tools}. tesseract is needed to OCR images of pages without a text layer; ocrmypdf is needed to re-OCR PDFs without a text layer.', // @translate
+                ['tools' => implode(', ', $missingOptional)]
+            ));
+        }
     }
 
     protected function postInstall(): void
@@ -651,6 +771,20 @@ class Module extends AbstractModule
                     ? 'Cleaning up legacy module-created medias in background; the OCR re-extraction job will be dispatched automatically when this one ends (job %1$s#%2$s%3$s, %4$slogs%3$s).' // @translate
                     : 'Cleaning up legacy module-created medias in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
                 $cleanupJob->getId()
+            );
+            $controller->messenger()->addSuccess($message);
+            return true;
+        }
+
+        $cleanupOcrFilesParams = $params['iiifsearch_cleanup_ocr_files'] ?? [];
+        if (!empty($cleanupOcrFilesParams['cleanup_ocr_files'])
+            && $cleanupOcrFilesParams['cleanup_ocr_files'] === $controller->translate('Clean up OCR files')
+        ) {
+            $job = $dispatcher->dispatch(\IiifSearch\Job\CleanupOcrFiles::class, []);
+            $message = $this->buildJobLinkMessage(
+                $controller,
+                'Cleaning up OCR files of excluded items in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
+                $job->getId()
             );
             $controller->messenger()->addSuccess($message);
             return true;
@@ -746,6 +880,13 @@ class Module extends AbstractModule
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
         $targetContentStore = array_intersect($targetContentStore, ['item', 'pdf', 'extracted']);
         if (!$hasFileDest && !$hasResourceDest && !$targetContentStore) {
+            return;
+        }
+
+        // Per-item policy: include / exclude Omeka queries. An item with images
+        // that does not match the OCR policy (paintings, photographs, 3D
+        // objects, etc.) must not trigger an extraction.
+        if (!$this->itemMatchesOcrPolicy($item->getId(), $settings)) {
             return;
         }
 

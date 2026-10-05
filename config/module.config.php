@@ -174,6 +174,17 @@ return [
             'iiifsearch_extract_dests_tsv_by_word' => ['file'],
             'iiifsearch_extract_dests_alto' => ['file'],
             'iiifsearch_extract_dests_pdf2xml' => [],
+
+            // Per-item OCR policy. Two URL-encoded Omeka query strings: an
+            // include filter (empty = all items) and an exclude filter
+            // (empty = none). An item is eligible when it matches the include
+            // filter and does not match the exclude filter. Used by both the
+            // api.create.post listener and the bulk Extract OCR job, and
+            // consulted by the orphan-file cleanup to remove already-produced
+            // OCR for items that have been moved out of the policy.
+            'iiifsearch_extract_query_include' => '',
+            'iiifsearch_extract_query_exclude' => '',
+
             'iiifsearch_extract_content_store' => [],
             'iiifsearch_extract_content_property' => null,
             'iiifsearch_extract_content_language' => '',
