@@ -313,15 +313,8 @@ class Module extends AbstractModule
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
         $resourceId = $resource->id();
         $simpleFilepath = null;
-        $localPaths = [
-            $basePath . '/iiif-search/' . $resourceId . '.tsv',
-            $basePath . '/alto/' . $resourceId . '.alto.xml',
-            $basePath . '/hocr/' . $resourceId . '.hocr.html',
-            $basePath . '/pdf2xml/' . $resourceId . '.xml',
-            // Old path before ExtractOcr 3.4.7.
-            $basePath . '/iiif-search/' . $resourceId . '.xml',
-        ];
-        foreach ($localPaths as $path) {
+        foreach (\IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES as $index) {
+            $path = $basePath . '/' . $index['dir'] . '/' . $resourceId . '.' . $index['extension'];
             if (file_exists($path)) {
                 $simpleFilepath = $path;
                 break;

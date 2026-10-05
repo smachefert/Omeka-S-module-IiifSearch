@@ -19,9 +19,9 @@ use SimpleXMLElement;
 class IiifSearch extends AbstractHelper
 {
     /**
-     * @var array
+     * Local index files: files/{dir}/{item_id}.{extension}.
      */
-    protected $supportedIndexes = [
+    const SUPPORTED_INDEXES = [
         'text/tab-separated-values' => [
             'dir' => 'iiif-search',
             'extension' => 'full.tsv',
@@ -53,6 +53,11 @@ class IiifSearch extends AbstractHelper
             'short_extension' => 'html',
         ],
     ];
+
+    /**
+     * @var array
+     */
+    protected $supportedIndexes = self::SUPPORTED_INDEXES;
 
     /**
      * @var int
