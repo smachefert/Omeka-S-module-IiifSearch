@@ -96,6 +96,8 @@ class Module extends AbstractModule
             'list' => true,
             'annotations' => true,
             'alto' => true,
+            'alto.xml' => true,
+            'hocr' => true,
         ];
 
         // Scan from the right to find the first iiif keyword.
