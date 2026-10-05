@@ -68,7 +68,8 @@ class IiifAltoAnnotations extends AbstractHelper
             }
         }
         // An item without page image (a single pdf, for example) keeps the
-        // coordinates of the alto page, so the scale is 1.
+        // coordinates of the alto page, so the scale is 1, except when the size
+        // of the pages of the pdf is available.
         $resource = $imageMedias[$page] ?? null;
         $canvasWidth = 0;
         $canvasHeight = 0;
@@ -87,6 +88,19 @@ class IiifAltoAnnotations extends AbstractHelper
                 ?? $mediaData['width'] ?? 0);
             $canvasHeight = $canvasHeight ?: (int) ($mediaData['dimensions']['original']['height']
                 ?? $mediaData['height'] ?? 0);
+        }
+        // The pages of a pdf may be the canvases, with the size of the page in
+        // points, like the search (see module IiifServer).
+        if (!$resource && $view->getHelperPluginManager()->has('pdfPageSizes')) {
+            $pdfPageSizes = $view->plugin('pdfPageSizes');
+            $pageSizes = [];
+            foreach ($itemFileResources($item) as $fileResource) {
+                if ($fileResource->mediaType() === 'application/pdf') {
+                    $pageSizes = array_merge($pageSizes, $pdfPageSizes($fileResource->inner()));
+                }
+            }
+            $canvasWidth = (int) ($pageSizes[$page]['width'] ?? 0);
+            $canvasHeight = (int) ($pageSizes[$page]['height'] ?? 0);
         }
         $scaleX = ($altoWidth > 0 && $canvasWidth > 0) ? $canvasWidth / $altoWidth : 1.0;
         $scaleY = ($altoHeight > 0 && $canvasHeight > 0) ? $canvasHeight / $altoHeight : 1.0;
