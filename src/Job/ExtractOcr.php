@@ -404,7 +404,7 @@ class ExtractOcr extends AbstractJob
         $allowedModes = ['auto', 'mets', 'source_image_information', 'basename', 'basename_dir', 'numeric', 'numeric_dir', 'dimension', 'sequential'];
         $this->pairingMode = in_array($pairingMode, $allowedModes, true) ? $pairingMode : 'auto';
 
-        $this->reocrEnabled = (bool) $settings->get('iiifsearch_extract_reocr_no_text_layer', true);
+        $this->reocrEnabled = (bool) $settings->get('iiifsearch_extract_reocr_no_text_layer', false);
         $this->ocrLanguage = trim((string) $settings->get('iiifsearch_extract_ocr_language', ''));
         if ($this->reocrEnabled && !$this->cli->getCommandPath('ocrmypdf')) {
             $this->reocrEnabled = false;
@@ -446,7 +446,7 @@ class ExtractOcr extends AbstractJob
             }
         }
 
-        $this->ocrImagesEnabled = (bool) $settings->get('iiifsearch_extract_ocr_images', true);
+        $this->ocrImagesEnabled = (bool) $settings->get('iiifsearch_extract_ocr_images', false);
         if ($this->ocrImagesEnabled && !$this->cli->getCommandPath('tesseract')) {
             $this->ocrImagesEnabled = false;
             $this->logger->info(

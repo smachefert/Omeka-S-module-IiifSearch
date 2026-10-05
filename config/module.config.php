@@ -274,7 +274,7 @@ return [
             'iiifsearch_extract_content_language' => '',
             'iiifsearch_extract_create_empty_file' => false,
             'iiifsearch_xml_fix_mode' => [],
-            'iiifsearch_extract_reocr_no_text_layer' => true,
+            'iiifsearch_extract_reocr_no_text_layer' => false,
 
             // Optional PDF text-layer rebuild. When set to 'update' the source
             // PDF (media or digital object) is replaced in place by an
@@ -292,7 +292,7 @@ return [
             // because update-in-place is ambiguous across several source rows.
             'iiifsearch_extract_concat_monopage_pdf' => false,
 
-            'iiifsearch_extract_ocr_images' => true,
+            'iiifsearch_extract_ocr_images' => false,
             'iiifsearch_extract_ocr_language' => '',
             'iiifsearch_alto_pairing_mode' => 'auto',
         ],
