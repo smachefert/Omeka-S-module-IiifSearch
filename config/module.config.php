@@ -156,8 +156,9 @@ return [
             'iiifsearch_versions' => ['1', '2'],
             'iiifsearch_minimum_query_length' => 3,
             'iiifsearch_disable_search_media_values' => false,
-            'iiifsearch_xml_fix_mode' => 'no',
-            'iiifsearch_alto_canvas_inject' => true,
+
+            'iiifsearch_alto_canvas_inject' => false,
+
             // OCR extraction (formerly module ExtractOcr).
             'iiifsearch_extract_types_files' => [],
             'iiifsearch_extract_types_media' => [],
@@ -166,6 +167,7 @@ return [
             'iiifsearch_extract_content_property' => null,
             'iiifsearch_extract_content_language' => '',
             'iiifsearch_extract_create_empty_file' => false,
+            'iiifsearch_xml_fix_mode' => 'no',
             'iiifsearch_extract_reocr_no_text_layer' => true,
             'iiifsearch_extract_ocr_images' => true,
             'iiifsearch_extract_ocr_language' => '',

@@ -447,21 +447,25 @@ class Module extends AbstractModule
             return;
         }
         $splitter = $plugins->get('xmlAltoSplitter');
-        $altoMedia = $splitter->findMultipageAltoMedia($item);
-        if (!$altoMedia) {
+        if (!$splitter->hasAnyAlto($item)) {
             return;
         }
-        // The ALTO media itself is not a canvas-bearing media.
-        if ($altoMedia->id() === $media->id()) {
+        // The ALTO resource itself (when stored as media/DO on the item) is not
+        // a canvas-bearing resource; skip it so its own canvas does not get a
+        // self-referential seeAlso.
+        if ($media->mediaType() === 'application/alto+xml') {
             return;
         }
 
-        $pageIndex = $this->canvasPageIndex($item, $media, $altoMedia);
+        // Index of the current canvas among non-ALTO file resources of the
+        // item; used positionally to point at a per-page ALTO/annotation page.
+        $pageIndex = $this->canvasPageIndex($item, $media);
         if ($pageIndex === null) {
             return;
         }
 
-        // Generate (and cache) the per-page ALTO; skip injection if missing.
+        // Resolve the page source; skip injection if none is available so we do
+        // not advertise dangling links.
         $altoPath = $splitter($item, $pageIndex);
         if (!$altoPath) {
             return;
@@ -533,8 +537,7 @@ class Module extends AbstractModule
      */
     protected function canvasPageIndex(
         \Omeka\Api\Representation\ItemRepresentation $item,
-        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $media,
-        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $altoMedia
+        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $media
     ): ?int {
         $services = $this->getServiceLocator();
         $helpers = $services->get('ViewHelperManager');
@@ -549,10 +552,11 @@ class Module extends AbstractModule
         }
         $i = 0;
         foreach ($resources as $r) {
-            $id = method_exists($r, 'id') ? $r->id() : $r->inner()->id();
-            if ($id === $altoMedia->id()) {
+            $type = method_exists($r, 'mediaType') ? $r->mediaType() : null;
+            if ($type === 'application/alto+xml') {
                 continue;
             }
+            $id = method_exists($r, 'id') ? $r->id() : $r->inner()->id();
             if ($id === $media->id()) {
                 return $i;
             }

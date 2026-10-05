@@ -4,10 +4,10 @@
 
 namespace IiifSearch\Form;
 
+use Common\Form\Element as CommonElement;
 use Laminas\Form\Element;
 use Laminas\Form\Fieldset;
 use Laminas\Form\Form;
-use Omeka\Form\Element\PropertySelect;
 
 class ConfigForm extends Form
 {
@@ -77,43 +77,25 @@ class ConfigForm extends Form
                 'type' => Element\Checkbox::class,
                 'options' => [
                     'element_group' => 'text',
-                    'label' => 'Inject ALTO seeAlso and annotations on each canvas when a multipage ALTO XML media is attached', // @translate
+                    'label' => 'Expose per-page ALTO and annotations on each canvas', // @translate
+                    'info' => 'Add two pointers on every canvas of the IIIF manifest: seeAlso with the raw alto of the page and annotations for direct text overlay by line.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_alto_canvas_inject',
-                    'value' => true,
+                    'value' => false,
                 ],
             ])
 
             // Extraction.
 
-            // The option is the same in module IIIF Server.
-            ->add([
-                'name' => 'iiifsearch_xml_fix_mode',
-                'type' => Element\Radio::class,
-                'options' => [
-                    'element_group' => 'extract',
-                    'label' => 'Fix bad xml and invalid utf-8 characters', // @translate
-                    'value_options' => [
-                        'no' => 'No', // @translate
-                        'dom' => 'Via DOM (quick)', // @translate
-                        'regex' => 'Via regex (slow)', // @translate
-                        'all' => 'All', // @translate
-                    ],
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_xml_fix_mode',
-                    'value' => 'no',
-                ],
-            ])
-
             ->add([
                 'name' => 'iiifsearch_extract_types_files',
-                'type' => Element\MultiCheckbox::class,
+                'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
                     'label' => 'Create file for formats', // @translate
                     'info' => 'For more info on formats, see readme.', // @translate
+                    'documentation' => 'https://gitlab.com/Daniel-KM/Omeka-S-module-IiifSearch', // @translate
                     'value_options' => [
                         'text/tab-separated-values' => 'tsv with original order of words (quick and exact search for iiif search)', // @translate
                         'text/tab-separated-values;by-word' => 'tsv grouped by word (very quick search for iiif search, small index)', // @translate
@@ -127,7 +109,7 @@ class ConfigForm extends Form
             ])
             ->add([
                 'name' => 'iiifsearch_extract_types_media',
-                'type' => Element\MultiCheckbox::class,
+                'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
                     'label' => 'Create media for formats', // @translate
@@ -144,11 +126,10 @@ class ConfigForm extends Form
             ])
             ->add([
                 'name' => 'iiifsearch_extract_types_digital_object',
-                'type' => Element\MultiCheckbox::class,
+                'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
                     'label' => 'Create digital object for formats', // @translate
-                    'info' => 'Requires the DigitalObject module. The new digital object is linked to the item via the first property listed in DigitalObject config "digitalobject_inline_properties" (default dcterms:hasFormat).', // @translate
                     'value_options' => [
                         'text/tab-separated-values' => 'tsv with original order of words', // @translate
                         'text/tab-separated-values;by-word' => 'tsv grouped by word', // @translate
@@ -160,52 +141,7 @@ class ConfigForm extends Form
                     'id' => 'iiifsearch_extract_types_digital_object',
                 ],
             ])
-            ->add([
-                'name' => 'iiifsearch_extract_content_store',
-                'type' => Element\MultiCheckbox::class,
-                'options' => [
-                    'element_group' => 'extract',
-                    'label' => 'Store the raw text in a property of a resource', // @translate
-                    'info' => 'Text cannot be stored in item when an item is manually edited.', // @translate
-                    'empty_option' => '',
-                    'value_options' => [
-                        'item' => 'Item', // @translate
-                        'media_pdf' => 'Pdf media or digital object', // @translate
-                        'media_extracted' => 'Tsv or Xml media if any', // @translate
-                        'digital_object_extracted' => 'Tsv or Xml digital object if any', // @translate
-                    ],
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_extract_content_store',
-                ],
-            ])
-            ->add([
-                'name' => 'iiifsearch_extract_content_property',
-                'type' => PropertySelect::class,
-                'options' => [
-                    'element_group' => 'extract',
-                    'label' => 'Property to save pdf raw text (not recommended)', // @translate
-                    'info' => 'To save content makes it searchable anywhere. It is recommended to use "bibo:content". Note that it will increase the noise in the results, unless you use a search engine. Furthermore, this option is not recommended when the text is too much big.', // @translate
-                    'empty_option' => '',
-                    'term_as_value' => true,
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_extract_content_property',
-                    'class' => 'chosen-select',
-                    'data-placeholder' => 'Select a media property…', // @translate
-                ],
-            ])
-            ->add([
-                'name' => 'iiifsearch_extract_content_language',
-                'type' => Element\Text::class,
-                'options' => [
-                    'element_group' => 'extract',
-                    'label' => 'Language code of the content', // @translate
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_extract_content_language',
-                ],
-            ])
+
             ->add([
                 'name' => 'iiifsearch_extract_create_empty_file',
                 'type' => Element\Checkbox::class,
@@ -216,6 +152,25 @@ class ConfigForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_extract_create_empty_file',
+                ],
+            ])
+
+            ->add([
+                'name' => 'iiifsearch_xml_fix_mode',
+                'type' => Element\Radio::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Fix bad xml and invalid utf-8 characters', // @translate
+                    'value_options' => [
+                        'no' => 'No', // @translate
+                        'dom' => 'Via DOM (quick)', // @translate
+                        'regex' => 'Via regex (slow)', // @translate
+                        'all' => 'All', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_xml_fix_mode',
+                    'value' => 'no',
                 ],
             ])
             ->add([
@@ -279,7 +234,73 @@ class ConfigForm extends Form
             ])
 
             ->add([
-                'name' => 'iiifsearch_extract',
+                'name' => 'fieldset_extract_search',
+                'type' => \Laminas\Form\Fieldset::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Storage for Omeka search', // @translate
+                ],
+            ])
+            ->add([
+                'name' => 'iiifserver_access_note',
+                'type' => CommonElement\Note::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'text' => 'To save content makes it searchable anywhere with Omeka search engine. Note that it will increase the noise in the results, unless you use a search engine. Furthermore, this option is not recommended when the text is too much big.', // @translate
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_content_store',
+                'type' => CommonElement\OptionalMultiCheckbox::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Store the raw text in a property of a resource', // @translate
+                    'info' => 'Text cannot be stored in item when an item is manually edited.', // @translate
+                    'empty_option' => '',
+                    'value_options' => [
+                        'item' => 'Item', // @translate
+                        'pdf' => 'Source pdf', // @translate
+                        'extracted' => 'Created extracted resource', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_content_store',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_content_property',
+                'type' => CommonElement\OptionalPropertySelect::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Property to save raw text', // @translate
+                    'info' => 'The text saved here is the plain-text rendering of the OCR, whatever its origin: pdftotext on a pdf source, tesseract on images, parsing of an existing alto or hocr, hint from any other extraction process. Applied to every store target selected above: the item, the source resource and/or the created extracted resource. Recommended values are "extracttext:extracted_text" or "bibo:content".', // @translate
+                    'empty_option' => '',
+                    'term_as_value' => true,
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_content_property',
+                    'class' => 'chosen-select',
+                    'data-placeholder' => 'Select a property…', // @translate
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_content_language',
+                'type' => Element\Text::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Language code of the content', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_content_language',
+                ],
+            ])
+        ;
+
+        // Bulk process.
+
+        $this
+            ->add([
+                'name' => 'iiifsearch_bulk',
                 'type' => Fieldset::class,
                 'options' => [
                     'element_group' => 'bulk',
@@ -287,7 +308,7 @@ class ConfigForm extends Form
                 ],
             ]);
 
-        $this->get('iiifsearch_extract')
+        $this->get('iiifsearch_bulk')
             ->add([
                 'name' => 'mode',
                 'type' => Element\Radio::class,

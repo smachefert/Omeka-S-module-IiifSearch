@@ -155,9 +155,8 @@ class ExtractOcr extends AbstractJob
      */
     protected $store = [
         'item' => false,
-        'media_pdf' => false,
-        'media_extracted' => false,
-        'digital_object_extracted' => false,
+        'pdf' => false,
+        'extracted' => false,
     ];
 
     /**
@@ -280,7 +279,7 @@ class ExtractOcr extends AbstractJob
             $targetTypesDigitalObject = [];
         }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
-        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted', 'digital_object_extracted']);
+        $targetContentStore = array_intersect($targetContentStore, ['item', 'pdf', 'extracted']);
         if (!count($targetTypesFiles) && !count($targetTypesMedia) && !count($targetTypesDigitalObject) && !count($targetContentStore)) {
             $this->logger->warn(
                 'No extract format to process.' // @translate
@@ -328,9 +327,8 @@ class ExtractOcr extends AbstractJob
                     $this->propertyTerm = $prop;
                     $this->language = $settings->get('iiifsearch_extract_content_language');
                     $this->store['item'] = in_array('item', $contentStore) && !$this->getArg('manual');
-                    $this->store['media_pdf'] = in_array('media_pdf', $contentStore);
-                    $this->store['media_extracted'] = in_array('media_extracted', $contentStore);
-                    $this->store['digital_object_extracted'] = in_array('digital_object_extracted', $contentStore);
+                    $this->store['pdf'] = in_array('pdf', $contentStore);
+                    $this->store['extracted'] = in_array('extracted', $contentStore);
                 }
             }
             if (!$this->propertyId) {
@@ -505,9 +503,8 @@ class ExtractOcr extends AbstractJob
             if ($key > 0) {
                 $this->store = [
                     'item' => false,
-                    'media_pdf' => false,
-                    'media_extracted' => false,
-                    'digital_object_extracted' => false,
+                    'pdf' => false,
+                    'extracted' => false,
                 ];
                 $this->propertyId = null;
                 $this->propertyTerm = null;
@@ -686,6 +683,23 @@ class ExtractOcr extends AbstractJob
                     'Item #%1$d: %2$d alto source(s) available, skipping alto generation.', // @translate
                     $item->id(), $count
                 ));
+                // Even though no new alto is produced, the configured content
+                // stores must still receive the plain text rendered from the
+                // available alto sources; only the 'extracted' target is
+                // inapplicable since no new resource is created here.
+                if ($this->propertyId
+                    && ($this->store['item'] || $this->store['pdf'])
+                ) {
+                    $textContent = $this->extractTextFromAltoSources($altoSources);
+                    if ($textContent !== null && $textContent !== '') {
+                        if ($this->store['pdf'] && $pdfMedia) {
+                            $this->storeContentInProperty($pdfMedia, $textContent);
+                        }
+                        if ($this->store['item']) {
+                            $this->storeContentInProperty($item, $textContent);
+                        }
+                    }
+                }
                 ++$countSkipped;
                 unset($pdfMedia, $item);
                 $this->entityManager->clear();
@@ -756,7 +770,7 @@ class ExtractOcr extends AbstractJob
 
                 if ($hasOcrFile || $ocrMedia || $this->contentOnly) {
                     // Text content is already stored in media ocr.
-                    if ($this->store['media_pdf'] && $pdfMedia) {
+                    if ($this->store['pdf'] && $pdfMedia) {
                         $this->storeContentInProperty($pdfMedia, $textContent);
                     }
                     if ($this->store['item']) {
@@ -1028,6 +1042,44 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
+     * Concatenate the plain text of all alto sources of an item. Sources are
+     * either MediaRepresentation/AbstractResourceEntityRepresentation
+     * (filename relative to the original directory) or absolute file paths for
+     * generated alto files. Returns null when nothing readable.
+     *
+     * @param array<mixed> $altoSources
+     */
+    protected function extractTextFromAltoSources(array $altoSources): ?string
+    {
+        $parts = [];
+        foreach ($altoSources as $source) {
+            if (is_string($source)) {
+                $path = $source;
+            } else {
+                $filename = method_exists($source, 'filename')
+                    ? $source->filename()
+                    : null;
+                if (!$filename) {
+                    continue;
+                }
+                $path = $this->basePath . '/original/' . $filename;
+            }
+            if (!is_readable($path)) {
+                continue;
+            }
+            $content = (string) @file_get_contents($path);
+            if ($content === '') {
+                continue;
+            }
+            $text = trim($this->extractTextFromAlto($content));
+            if ($text !== '') {
+                $parts[] = $text;
+            }
+        }
+        return $parts ? implode("\n", $parts) : null;
+    }
+
+    /**
      * Extract text from alto.
      */
     protected function extractTextFromAlto(string $content): string
@@ -1097,10 +1149,7 @@ class ExtractOcr extends AbstractJob
         ];
 
         $storeText = $this->propertyId && strlen((string) $textContent)
-            && (
-                ($this->saveAs === 'media' && $this->store['media_extracted'])
-                || ($this->saveAs === 'digital_object' && $this->store['digital_object_extracted'])
-            );
+            && $this->store['extracted'];
         if ($storeText) {
             $data[$this->propertyTerm][] = [
                 'type' => 'literal',
