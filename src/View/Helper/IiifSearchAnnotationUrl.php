@@ -133,4 +133,40 @@ class IiifSearchAnnotationUrl extends AbstractHelper
         $image = $images[$pageIndex] ?? null;
         return $image ? $image->inner() : $item;
     }
+
+    /**
+     * Pages whose attached alto is more open than the image, with module Access.
+     *
+     * The ocr follows the access of the alto, so a free alto on a reserved
+     * image exposes the text of the page. The files are imported by the admin,
+     * so they are only reported.
+     *
+     * @return array<int, array{alto:string, image:string}> Keyed by one-based
+     *   page number.
+     */
+    public function accessMismatches(ItemRepresentation $item): array
+    {
+        $view = $this->getView();
+        $helpers = $view->getHelperPluginManager();
+        if (!$helpers->has('accessLevel')) {
+            return [];
+        }
+        $accessLevel = $helpers->get('accessLevel');
+        $splitter = $view->plugin('xmlAltoSplitter');
+        $ranks = ['free' => 0, 'reserved' => 1, 'protected' => 2, 'forbidden' => 3];
+
+        $mismatches = [];
+        foreach ($view->plugin('itemFileResources')->images($item) as $pageIndex => $image) {
+            $alto = $splitter->sourceResource($item, $pageIndex);
+            if (!$alto) {
+                continue;
+            }
+            $altoLevel = $accessLevel($alto);
+            $imageLevel = $accessLevel($image->inner());
+            if (($ranks[$altoLevel] ?? 0) < ($ranks[$imageLevel] ?? 0)) {
+                $mismatches[$pageIndex + 1] = ['alto' => $altoLevel, 'image' => $imageLevel];
+            }
+        }
+        return $mismatches;
+    }
 }

@@ -192,6 +192,16 @@ class Module extends AbstractModule
             'api.update.post',
             [$this, 'extractOcr']
         );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.create.post',
+            [$this, 'warnOcrAccessMismatch']
+        );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.update.post',
+            [$this, 'warnOcrAccessMismatch']
+        );
 
         // EasyAdmin batch job entries.
         $sharedEventManager->attach(
@@ -933,6 +943,39 @@ class Module extends AbstractModule
      *
      * Deduplicates dispatches in batches via Common\DeferredJobDispatch.
      */
+    /**
+     * Warn the admin when the alto of a page is more open than its image.
+     */
+    public function warnOcrAccessMismatch(Event $event): void
+    {
+        $services = $this->getServiceLocator();
+        if (!$services->get('Omeka\Status')->isAdminRequest()) {
+            return;
+        }
+
+        $viewHelpers = $services->get('ViewHelperManager');
+        if (!$viewHelpers->has('accessLevel')) {
+            return;
+        }
+
+        /** @var \Omeka\Entity\Item $item */
+        $item = $event->getParam('response')->getContent();
+        $itemRepresentation = $services->get('Omeka\ApiAdapterManager')->get('items')->getRepresentation($item);
+        $mismatches = $viewHelpers->get('iiifSearchAnnotationUrl')->accessMismatches($itemRepresentation);
+        if (!$mismatches) {
+            return;
+        }
+
+        $pages = [];
+        foreach ($mismatches as $page => $levels) {
+            $pages[] = sprintf('%d (%s / %s)', $page, $levels['alto'], $levels['image']);
+        }
+        $services->get('ControllerPluginManager')->get('messenger')->addWarning(new PsrMessage(
+            'The alto of some pages of item #{item_id} is more open than their image, so their text is readable by visitors who cannot see the image: pages {pages} (alto / image).', // @translate
+            ['item_id' => $item->getId(), 'pages' => implode(', ', $pages)]
+        ));
+    }
+
     public function extractOcr(Event $event): void
     {
         $services = $this->getServiceLocator();

@@ -51,7 +51,7 @@ class PairingAudit extends AbstractJob
             ));
             return;
         }
-        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings'], ',', '"', '\\');
+        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '\\');
 
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
@@ -85,6 +85,7 @@ class PairingAudit extends AbstractJob
             ? $viewHelpers->get('itemFileResources')
             : null;
         $pairer = new PagePairer($basePath, $itemFileResources);
+        $annotationUrl = $viewHelpers->get('iiifSearchAnnotationUrl');
 
         $total = count($itemIds);
         $logger->notice(new Message(
@@ -162,6 +163,11 @@ class PairingAudit extends AbstractJob
                 $warnings = implode(' | ', $pairing->warnings);
             }
 
+            $access = [];
+            foreach ($annotationUrl->accessMismatches($item) as $page => $levels) {
+                $access[] = sprintf('p%d: alto %s < image %s', $page, $levels['alto'], $levels['image']);
+            }
+
             fputcsv($fp, [
                 (int) $id,
                 $pdfCount,
@@ -171,6 +177,7 @@ class PairingAudit extends AbstractJob
                 $method,
                 $coverage,
                 $warnings,
+                implode(' | ', $access),
             ], ',', '"', '\\');
         }
         fclose($fp);
