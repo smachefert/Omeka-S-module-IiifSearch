@@ -1567,6 +1567,13 @@ class ExtractOcr extends AbstractJob
             return null;
         }
 
+        // The file ingester re-detects the media type from the content via
+        // finfo, which may misdetect a text ocr file as a binary type (e.g.
+        // audio/x-mp4a-latm). The module Common corrects this at the source,
+        // but it may be outdated, so re-assert the known type here, for both
+        // media and digital objects.
+        $this->forceMediaType($media);
+
         if ($this->saveAs !== 'digital_object') {
             // Move the xml file as the last media to avoid thumbnails issues.
             $this->reorderMediasAndSetType($media);
@@ -3053,6 +3060,26 @@ class ExtractOcr extends AbstractJob
      *
      * @todo Move this process in the core.
      */
+    /**
+     * Force the known media type on the created resource.
+     *
+     * The file ingesters re-detect the media type from the content via finfo,
+     * which may misdetect a text file as a binary type. Set the type known by
+     * the extractor instead, on the media or digital object entity (both extend
+     * the Resource entity, so find by the base class returns the right one).
+     */
+    protected function forceMediaType(AbstractResourceEntityRepresentation $resource): void
+    {
+        $entity = $this->entityManager->find(\Omeka\Entity\Resource::class, $resource->id());
+        if ($entity
+            && method_exists($entity, 'setMediaType')
+            && $entity->getMediaType() !== $this->targetMediaType
+        ) {
+            $entity->setMediaType($this->targetMediaType);
+            $this->entityManager->flush();
+        }
+    }
+
     protected function reorderMediasAndSetType(MediaRepresentation $media): void
     {
         // Note: the position is not available in representation.
