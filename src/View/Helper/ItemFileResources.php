@@ -22,6 +22,26 @@ class ItemFileResources extends AbstractHelper
     }
 
     /**
+     * Pick the image resources rather than every resource: items with attached
+     * ALTOs or PDFs interleaved with images would otherwise index into a non-
+     * image entry. The position in this list is the page index.
+     *
+     * @return FileResource[]
+     */
+    public function images(ItemRepresentation $item): array
+    {
+        $images = [];
+        foreach ($this->__invoke($item) as $resource) {
+            if (strtok((string) $resource->mediaType(), '/') === 'image'
+                && $resource->hasOriginal()
+            ) {
+                $images[] = $resource;
+            }
+        }
+        return $images;
+    }
+
+    /**
      * @return FileResource[]
      */
     public function __invoke(ItemRepresentation $item): array

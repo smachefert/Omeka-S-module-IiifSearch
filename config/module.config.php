@@ -40,6 +40,9 @@ return [
         ],
     ],
     'controller_plugins' => [
+        'factories' => [
+            'isAllowedOcr' => Service\ControllerPlugin\IsAllowedOcrFactory::class,
+        ],
         'invokables' => [
             'jsonLd' => Mvc\Controller\Plugin\JsonLd::class,
         ],

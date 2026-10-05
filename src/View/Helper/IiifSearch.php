@@ -11,6 +11,7 @@ use IiifServer\Mvc\Controller\Plugin\MediaDimension;
 use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Manager as ApiManager;
+use IiifSearch\Mvc\Controller\Plugin\IsAllowedOcr;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\MediaRepresentation;
 use Omeka\Stdlib\Message;
@@ -182,6 +183,18 @@ class IiifSearch extends AbstractHelper
      */
     protected $baseCanvasUrl;
 
+    /**
+     * @var \IiifSearch\Mvc\Controller\Plugin\IsAllowedOcr|null
+     */
+    protected $isAllowedOcr;
+
+    /**
+     * Access to the ocr of each page, by page index.
+     *
+     * @var array<int, bool>
+     */
+    protected $ocrPageAllowed = [];
+
     public function __construct(
         ApiManager $api,
         ?DerivativeList $derivativeList,
@@ -191,8 +204,10 @@ class IiifSearch extends AbstractHelper
         XmlAltoSingle $xmlAltoSingle,
         string $basePath,
         bool $searchMediaValues,
-        string $xmlFixMode
+        string $xmlFixMode,
+        ?IsAllowedOcr $isAllowedOcr = null
     ) {
+        $this->isAllowedOcr = $isAllowedOcr;
         $this->api = $api;
         $this->derivativeList = $derivativeList;
         $this->fixUtf8 = $fixUtf8;
@@ -232,6 +247,7 @@ class IiifSearch extends AbstractHelper
     public function getRawMatches(ItemRepresentation $item): ?array
     {
         $this->item = $item;
+        $this->ocrPageAllowed = [];
 
         $view = $this->getView();
 
@@ -247,6 +263,12 @@ class IiifSearch extends AbstractHelper
         // manifest in that case. But some viewers or users can try direct
         // requests.
         if (!$this->prepareSearchIndexAndImages()) {
+            return null;
+        }
+
+        // Without any readable page there is no transcription to search in, so
+        // report the search as unavailable rather than as empty.
+        if (!$this->hasAllowedOcrPage()) {
             return null;
         }
 
@@ -285,7 +307,7 @@ class IiifSearch extends AbstractHelper
         $pivot['baseResultUrl'] = $this->baseResultUrl;
         $pivot['baseCanvasUrl'] = $this->baseCanvasUrl;
 
-        $result = $this->searchFulltext();
+        $result = $this->filterDeniedOcrPages($this->searchFulltext());
 
         if ($this->searchMediaValues) {
             $resultValues = $this->searchMediaValues($result ? $result['hit'] : 0, $result ? $result['media_ids'] : []);
@@ -347,6 +369,92 @@ class IiifSearch extends AbstractHelper
      * ]
      * ```
      */
+    /**
+     * The ocr of a page follows the access level of the file it belongs to. The
+     * check is memoized, because the tsv sources ask it for each word.
+     */
+    protected function isDeniedOcrPage(int $pageIndex): bool
+    {
+        if (!$this->isAllowedOcr) {
+            return false;
+        }
+        if (!isset($this->ocrPageAllowed[$pageIndex])) {
+            $this->ocrPageAllowed[$pageIndex] = $this->isAllowedOcr->__invoke($this->item, $pageIndex);
+        }
+        return !$this->ocrPageAllowed[$pageIndex];
+    }
+
+    /**
+     * Is at least one page of the item readable? The pages are counted with the
+     * images, and a single page is assumed when the item has none, for example
+     * an item made of a single pdf.
+     */
+    protected function hasAllowedOcrPage(): bool
+    {
+        if (!$this->isAllowedOcr) {
+            return true;
+        }
+        $countPages = max(count($this->imageSizes), 1);
+        for ($pageIndex = 0; $pageIndex < $countPages; $pageIndex++) {
+            if (!$this->isDeniedOcrPage($pageIndex)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Remove the matches of the pages that are not readable.
+     *
+     * The hits are grouped by page, but only by position, without the number of
+     * the page. So rebuild them from the numbers of the hits that are kept. The
+     * numbers are identifiers used to build the uris of the results, so gaps
+     * are harmless.
+     */
+    protected function filterDeniedOcrPages(?array $result): ?array
+    {
+        if (!$this->isAllowedOcr || empty($result['resources'])) {
+            return $result;
+        }
+
+        $keptHits = [];
+        $resources = [];
+        $mediaIds = [];
+        foreach ($result['resources'] as $key => $resource) {
+            // The number of the page is one-based in all ocr sources.
+            $pageIndex = (int) ($resource['page']['number'] ?? 0) - 1;
+            if ($pageIndex < 0 || $this->isDeniedOcrPage($pageIndex)) {
+                continue;
+            }
+            $resources[] = $resource;
+            $keptHits[(int) $resource['hit']] = true;
+            if (isset($result['media_ids'][$key])) {
+                $mediaIds[] = $result['media_ids'][$key];
+            }
+        }
+
+        $hits = [];
+        foreach ($result['hits'] ?? [] as $pageHits) {
+            $kept = array_values(array_filter(
+                $pageHits['hits'] ?? [],
+                fn ($hit) => isset($keptHits[(int) $hit])
+            ));
+            if ($kept) {
+                $hits[] = [
+                    'hits' => $kept,
+                    'match' => $pageHits['match'] ?? '',
+                ];
+            }
+        }
+
+        $result['resources'] = $resources;
+        $result['media_ids'] = $mediaIds;
+        $result['hits'] = $hits;
+        $result['hit'] = count($resources);
+
+        return $resources ? $result : null;
+    }
+
     protected function searchFulltext(): ?array
     {
         if (!strlen($this->query)) {

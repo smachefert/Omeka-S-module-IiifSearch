@@ -5,6 +5,7 @@ namespace IiifSearch\Controller;
 use Laminas\Http\Response;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
+use Omeka\Api\Representation\ItemRepresentation;
 
 class SearchController extends AbstractActionController
 {
@@ -86,6 +87,10 @@ class SearchController extends AbstractActionController
         // the ALTO splitter and downstream helpers.
         if (strpos($name, 'p') === 0) {
             $pageIndex = max(0, $pageIndex - 1);
+        }
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
         }
 
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
@@ -183,6 +188,11 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
         }
         $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {
@@ -225,6 +235,10 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'No hOCR page available.'); // @translate
         }
         $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
 
         $services = $this->getEvent()->getApplication()->getServiceManager();
         $config = $services->get('Config');
@@ -339,6 +353,11 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
         }
         $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {
@@ -383,6 +402,24 @@ class SearchController extends AbstractActionController
             }
         }
         return null;
+    }
+
+    /**
+     * The OCR of a page follows the access level of the file it belongs to,
+     * checked by the plugin isAllowedOcr. The header is the one set by the
+     * module Access, so a supervision tool can check a single header on the
+     * whole chain.
+     *
+     * @return \Laminas\View\Model\JsonModel|null Null when the page is allowed.
+     */
+    protected function denyUnlessAllowedOcr(ItemRepresentation $item, int $pageIndex): ?JsonModel
+    {
+        $allowed = $this->isAllowedOcr($item, $pageIndex);
+        $this->getResponse()->getHeaders()
+            ->addHeaderLine('Omeka-S-Access-Status: ' . ($allowed ? 'allowed' : 'denied'));
+        return $allowed
+            ? null
+            : $this->errorResponse(Response::STATUS_CODE_403, 'Access to the transcription of this page is restricted.'); // @translate
     }
 
     protected function errorResponse(int $code, string $message): JsonModel

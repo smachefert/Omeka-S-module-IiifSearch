@@ -147,6 +147,39 @@ class XmlAltoSplitter extends AbstractHelper
      */
     protected function findPerPageAltoPath(ItemRepresentation $item, int $pageIndex): ?string
     {
+        $target = $this->findPerPageAltoResource($item, $pageIndex);
+        return $target
+            ? $this->basePath . '/original/' . $target->filename()
+            : null;
+    }
+
+    /**
+     * Return the resource carrying the OCR of a page, when it is an attached
+     * file.
+     *
+     * Null means that the ALTO is generated (Extract OCR job or consolidated
+     * file) and therefore not attached: the caller applies the access level of
+     * the image of the page instead.
+     */
+    public function sourceResource(ItemRepresentation $item, int $pageIndex): ?AbstractResourceEntityRepresentation
+    {
+        $altoMedia = $this->findMultipageAltoMedia($item);
+        if ($altoMedia) {
+            $path = $this->basePath . '/original/' . $altoMedia->filename();
+            if ($this->resolveFromMultipageFile($path, $item, $pageIndex)) {
+                return $altoMedia;
+            }
+        }
+
+        $target = $this->findPerPageAltoResource($item, $pageIndex);
+        return $target ? $target->inner() : null;
+    }
+
+    /**
+     * Find the per-page ALTO file resource at the given positional index.
+     */
+    protected function findPerPageAltoResource(ItemRepresentation $item, int $pageIndex): ?\IiifSearch\Stdlib\FileResource
+    {
         $itemFileResources = $this->getView()->plugin('itemFileResources');
         $altos = [];
         foreach ($itemFileResources($item) as $resource) {
@@ -161,8 +194,9 @@ class XmlAltoSplitter extends AbstractHelper
         if (!$target) {
             return null;
         }
-        $path = $this->basePath . '/original/' . $target->filename();
-        return is_readable($path) ? $path : null;
+        return is_readable($this->basePath . '/original/' . $target->filename())
+            ? $target
+            : null;
     }
 
     /**
