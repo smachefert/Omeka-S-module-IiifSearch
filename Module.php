@@ -700,14 +700,15 @@ class Module extends AbstractModule
             || (time() - (int) $cached['at']) >= 3600
         ) {
             $tools = [];
+            $cli = $services->get('Omeka\Cli');
             foreach (['pdftotext', 'pdftohtml', 'tesseract', 'ocrmypdf', 'gs', 'img2pdf'] as $tool) {
-                // `command -v` returns the resolved path (and exit 0) when the
-                // tool is on PATH, an empty string and non-zero exit otherwise.
-                // Capturing the path makes the audit message self-documenting.
-                $path = trim((string) @shell_exec(
-                    'command -v ' . escapeshellarg($tool) . ' 2>/dev/null'
-                ));
-                $tools[$tool] = $path !== '' ? $path : null;
+                // Cli::getCommandPath() returns the resolved path when the tool
+                // is on PATH, false otherwise. It goes through Omeka's strategy
+                // resolver, which honours disable_functions=shell_exec by
+                // switching to proc_open (so the audit keeps working on
+                // hardened php.ini).
+                $path = $cli->getCommandPath($tool);
+                $tools[$tool] = $path ?: null;
             }
             $cached = ['at' => time(), 'tools' => $tools];
             $settings->set($cacheKey, $cached);
@@ -752,13 +753,16 @@ class Module extends AbstractModule
         $services = $this->getServiceLocator();
         $logger = $services->get('Omeka\Logger');
 
-        // Soft requirement: OCR extraction features need poppler-utils.
-        if ((int) shell_exec('hash pdftotext 2>&- || echo 1')) {
+        // Soft requirement: OCR extraction features need poppler-utils. Probe
+        // via Omeka's Cli so disable_functions=shell_exec hosts still get a
+        // meaningful answer (Cli falls back to proc_open).
+        $cli = $services->get('Omeka\Cli');
+        if (!$cli->getCommandPath('pdftotext')) {
             $logger->warn(new Message(
                 'The command-line utility pdftotext is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
             ));
         }
-        if ((int) shell_exec('hash pdftohtml 2>&- || echo 1')) {
+        if (!$cli->getCommandPath('pdftohtml')) {
             $logger->warn(new Message(
                 'The command-line utility pdftohtml is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
             ));

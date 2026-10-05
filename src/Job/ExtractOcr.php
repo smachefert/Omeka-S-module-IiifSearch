@@ -217,7 +217,7 @@ class ExtractOcr extends AbstractJob
         $this->baseUri = $this->getArg('base_uri');
         $this->basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
 
-        if ((int) shell_exec('hash pdftotext 2>&- || echo 1')) {
+        if (!$this->cli->getCommandPath('pdftotext')) {
             $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
             $this->logger->err(
                 'The command-line utility pdftotext is not available. Install the package poppler-utils.' //@translate
@@ -225,7 +225,7 @@ class ExtractOcr extends AbstractJob
             return;
         }
 
-        if ((int) shell_exec('hash pdftohtml 2>&- || echo 1')) {
+        if (!$this->cli->getCommandPath('pdftohtml')) {
             $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
             $this->logger->err(
                 'The command-line utility pdftohtml is not available. Install the package poppler-utils.' //@translate
@@ -400,7 +400,7 @@ class ExtractOcr extends AbstractJob
 
         $this->reocrEnabled = (bool) $settings->get('iiifsearch_extract_reocr_no_text_layer', true);
         $this->ocrLanguage = trim((string) $settings->get('iiifsearch_extract_ocr_language', ''));
-        if ($this->reocrEnabled && (int) shell_exec('hash ocrmypdf 2>&- || echo 1')) {
+        if ($this->reocrEnabled && !$this->cli->getCommandPath('ocrmypdf')) {
             $this->reocrEnabled = false;
             $this->logger->info(
                 'Option "reocr pdf without text layer" is enabled but ocrmypdf is not available; pdf without text will be skipped.' // @translate
@@ -419,19 +419,19 @@ class ExtractOcr extends AbstractJob
         $this->concatMonopagePdf = (bool) $settings->get('iiifsearch_extract_concat_monopage_pdf', false);
         $this->img2pdfAvailable = false;
         if ($this->createPdfTextLayerMode !== '') {
-            if ((int) shell_exec('hash ocrmypdf 2>&- || echo 1')) {
+            if (!$this->cli->getCommandPath('ocrmypdf')) {
                 $this->createPdfTextLayerMode = '';
                 $this->logger->info(
                     'Option "create pdf with text layer" is enabled but ocrmypdf is not available; the PDF text-layer rebuild is skipped.' // @translate
                 );
             } else {
-                if ($this->concatMonopagePdf && (int) shell_exec('hash gs 2>&- || echo 1')) {
+                if ($this->concatMonopagePdf && !$this->cli->getCommandPath('gs')) {
                     $this->concatMonopagePdf = false;
                     $this->logger->info(
                         'Option "concat mono-page PDFs" is enabled but ghostscript (gs) is not available; multi-PDF items will be skipped by the text-layer rebuild.' // @translate
                     );
                 }
-                $this->img2pdfAvailable = !(int) shell_exec('hash img2pdf 2>&- || echo 1');
+                $this->img2pdfAvailable = (bool) $this->cli->getCommandPath('img2pdf');
                 if (!$this->img2pdfAvailable) {
                     $this->logger->info(
                         'Image-only items will be skipped by the PDF text-layer rebuild: img2pdf is not available.' // @translate
@@ -441,7 +441,7 @@ class ExtractOcr extends AbstractJob
         }
 
         $this->ocrImagesEnabled = (bool) $settings->get('iiifsearch_extract_ocr_images', true);
-        if ($this->ocrImagesEnabled && (int) shell_exec('hash tesseract 2>&- || echo 1')) {
+        if ($this->ocrImagesEnabled && !$this->cli->getCommandPath('tesseract')) {
             $this->ocrImagesEnabled = false;
             $this->logger->info(
                 'Option "ocr images" is enabled but tesseract is not available; image-only items will be skipped.' // @translate
@@ -698,6 +698,7 @@ class ExtractOcr extends AbstractJob
                 ));
                 return;
             }
+            try {
             if ($this->shouldStop()) {
                 if ($mode === 'all') {
                     $this->logger->warn(new Message(
@@ -970,10 +971,16 @@ class ExtractOcr extends AbstractJob
             unset($pdfMedia);
             unset($ocrMedia);
             unset($item);
-
-            // Clear the Doctrine identity map to prevent memory growth on large
-            // batches. Property scalars are cached above.
-            $this->entityManager->clear();
+            } finally {
+                // Clear the Doctrine identity map on every iteration path
+                // (success, continue, throw). Without the finally, the numerous
+                // "skip" continues — typical of mode "missing" — bypass clear()
+                // and the identity map grows until OOM (~1.5 MB / skipped item
+                // on a real run).
+                if ($this->entityManager->isOpen()) {
+                    $this->entityManager->clear();
+                }
+            }
         }
 
         if ($this->stats['no_pdf']) {
@@ -2643,7 +2650,7 @@ class ExtractOcr extends AbstractJob
             $cmd = 'gs -dBATCH -dNOPAUSE -q -sDEVICE=pdfwrite -sOutputFile='
                 . escapeshellarg($concatTemp) . ' '
                 . implode(' ', array_map('escapeshellarg', $sourcePaths));
-            @shell_exec($cmd);
+            $this->cli->execute($cmd);
             if (!file_exists($concatTemp) || !filesize($concatTemp)) {
                 $this->logger->warn(new Message(
                     'Item #%1$d: ghostscript concatenation failed; text-layer rebuild skipped.', // @translate
@@ -2659,7 +2666,7 @@ class ExtractOcr extends AbstractJob
         // Skip when the PDF already carries a text layer. pdftotext on the
         // input file: empty output (or whitespace only) ⇒ no text layer.
         $probeCmd = 'pdftotext ' . escapeshellarg($inputPath) . ' - 2>/dev/null';
-        $probe = (string) @shell_exec($probeCmd);
+        $probe = (string) $this->cli->execute($probeCmd);
         if (trim($probe) !== '') {
             $this->logger->info(new Message(
                 'Item #%1$d: PDF already carries a text layer, text-layer rebuild skipped.', // @translate
@@ -2679,7 +2686,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
             . escapeshellarg($inputPath) . ' '
             . escapeshellarg($outputTemp) . ' 2>&1';
-        $output = (string) @shell_exec($cmd);
+        $output = (string) $this->cli->execute($cmd);
         if ($concatTemp) {
             @unlink($concatTemp);
         }
@@ -2863,7 +2870,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'img2pdf '
             . implode(' ', array_map('escapeshellarg', $imagePaths))
             . ' --output ' . escapeshellarg($bundleTemp) . ' 2>&1';
-        $bundleOut = (string) @shell_exec($cmd);
+        $bundleOut = (string) $this->cli->execute($cmd);
         if (!file_exists($bundleTemp) || !filesize($bundleTemp)) {
             $this->logger->err(new Message(
                 'Item #%1$d: img2pdf failed: %2$s', // @translate
@@ -2880,7 +2887,7 @@ class ExtractOcr extends AbstractJob
         $cmd = 'ocrmypdf --skip-text' . $langArg . ' '
             . escapeshellarg($bundleTemp) . ' '
             . escapeshellarg($outputTemp) . ' 2>&1';
-        $output = (string) @shell_exec($cmd);
+        $output = (string) $this->cli->execute($cmd);
         @unlink($bundleTemp);
         if (!file_exists($outputTemp) || !filesize($outputTemp)) {
             $this->logger->err(new Message(
