@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use IiifSearch\Stdlib\FileResource;
 use IiifSearch\Stdlib\TeiStructureExtractor;
 use IiifSearch\Stdlib\XmlMediaClassifier;
 use Laminas\View\Helper\AbstractHelper;
@@ -32,6 +33,27 @@ class IiifSearchTeiStructure extends AbstractHelper
     }
 
     /**
+     * Get the TEI file of an item, that carries the table of contents.
+     *
+     * Only a public TEI is used: the structure is cached and shared by all
+     * visitors, so it must not reveal the headings of a private file. The level
+     * of access (module Access) is checked when the manifest is built.
+     */
+    public function teiResource(ItemRepresentation $item): ?FileResource
+    {
+        $classifier = new XmlMediaClassifier();
+        foreach ($this->getView()->plugin('itemFileResources')->__invoke($item) as $resource) {
+            if ($resource->isPublic()
+                && $classifier->isXmlLikeMedia($resource)
+                && $classifier->classifyMedia($resource, $this->basePath) === XmlMediaClassifier::TYPE_TEI
+            ) {
+                return $resource;
+            }
+        }
+        return null;
+    }
+
+    /**
      * @return string|null The literal structure, or null when the item has no
      *   public TEI file or when it has no section.
      */
@@ -42,21 +64,8 @@ class IiifSearchTeiStructure extends AbstractHelper
             return $this->structures[$itemId];
         }
 
-        $resources = $this->getView()->plugin('itemFileResources')->__invoke($item);
-
-        // Only a public TEI is used: the structure is cached and shared by all
-        // visitors, so it must not reveal the headings of a private file.
-        $classifier = new XmlMediaClassifier();
-        $teiPath = null;
-        foreach ($resources as $resource) {
-            if ($resource->isPublic()
-                && $classifier->isXmlLikeMedia($resource)
-                && $classifier->classifyMedia($resource, $this->basePath) === XmlMediaClassifier::TYPE_TEI
-            ) {
-                $teiPath = $resource->originalFilepath($this->basePath);
-                break;
-            }
-        }
+        $tei = $this->teiResource($item);
+        $teiPath = $tei ? $tei->originalFilepath($this->basePath) : null;
         if (!$teiPath || !is_readable($teiPath)) {
             return $this->structures[$itemId] = null;
         }
