@@ -630,7 +630,7 @@ class ExtractOcr extends AbstractJob
             // per-page alto medias.
             $existingAltoMedias = [];
             if (in_array($this->targetFormat, [self::FORMAT_ALTO, self::FORMAT_TSV, self::FORMAT_TSV_BY_WORD], true)) {
-                $existingAltoMedias = $this->findExistingAltoMedias($item);
+                $existingAltoMedias = $this->findOrMaterializeAltoSources($item);
             }
 
             // When neither pdf nor alto is present, optionally generate
@@ -1383,6 +1383,70 @@ class ExtractOcr extends AbstractJob
         return $medias;
     }
 
+    /**
+     * Like findExistingAltoMedias but also materializes hOCR, pdf2xml and TEI
+     * sources to ALTO files under files/alto/, then exposes them as filepath
+     * sources. The returned array is a heterogeneous list of
+     * MediaRepresentation (native ALTO) and string filepaths (materialized ALTO
+     * derived from another dialect).
+     *
+     * @return array<MediaRepresentation|string>
+     */
+    protected function findOrMaterializeAltoSources(ItemRepresentation $item): array
+    {
+        $classifier = $this->getXmlMediaClassifier();
+        $sources = [];
+        $converter = null;
+        $altoDir = $this->basePath . '/alto';
+        $altoDirReady = null;
+        foreach ($item->media() as $media) {
+            if ($media->mediaType() === self::FORMAT_ALTO) {
+                $sources[] = $media;
+                continue;
+            }
+            if (!$classifier->isXmlLikeMedia($media)) {
+                continue;
+            }
+            $cls = $classifier->classifyMedia($media, $this->basePath);
+            if ($cls === XmlMediaClassifier::TYPE_ALTO) {
+                $sources[] = $media;
+                continue;
+            }
+            if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
+                continue;
+            }
+            $filename = $media->filename();
+            if (!$filename) {
+                continue;
+            }
+            if ($altoDirReady === null) {
+                $altoDirReady = (bool) $this->checkDestinationDir($altoDir);
+            }
+            if (!$altoDirReady) {
+                continue;
+            }
+            $sourceFilepath = $this->basePath . '/original/' . $filename;
+            $sourceBase = pathinfo((string) $media->source(), PATHINFO_FILENAME) ?: 'media-' . $media->id();
+            $targetPath = sprintf('%s/%d-%s.alto.xml', $altoDir, $item->id(), $sourceBase);
+            if ($converter === null) {
+                $converter = new \IiifSearch\Stdlib\ToAltoConverter();
+            }
+            if ($converter->convert($sourceFilepath, $cls, $targetPath)) {
+                $sources[] = $targetPath;
+                $this->logger->info(new Message(
+                    'Item #%1$d: media #%2$d (%3$s) materialized as %4$s.', // @translate
+                    $item->id(), $media->id(), $cls, basename($targetPath)
+                ));
+            } else {
+                $this->logger->warn(new Message(
+                    'Item #%1$d: failed to materialize media #%2$d (%3$s) as alto.', // @translate
+                    $item->id(), $media->id(), $cls
+                ));
+            }
+        }
+        return $sources;
+    }
+
     protected function getXmlMediaClassifier(): XmlMediaClassifier
     {
         if (!$this->xmlMediaClassifier) {
@@ -1657,6 +1721,37 @@ class ExtractOcr extends AbstractJob
 
         $listMediaImages = $this->listMediaImagesData($item);
 
+        // Run PagePairer on the pdf medias so per-page scaling uses the paired
+        // image when several pdfs are present on the item. Each pdf contributes
+        // one PageSource per intrinsic page, mirroring the alto expansion
+        // logic. Without intrinsic page count from pdfinfo we start with one
+        // source per file; the global page counter below matches what the
+        // pairer sees only for single-page pdfs, so the pairer's contribution
+        // stays limited to file-level routing.
+        $pdfPairing = null;
+        if (count($pdfFilepaths) > 1) {
+            $pageSources = [];
+            $i = 0;
+            foreach ($pdfFilepaths as $pdfFilepath) {
+                ++$i;
+                $pageSources[] = new PageSource(
+                    $i,
+                    null,
+                    $pdfFilepath,
+                    basename($pdfFilepath),
+                    'pdf'
+                );
+            }
+            $pairer = new PagePairer($this->basePath);
+            $pdfPairing = $pairer->pair($item, $pageSources, $this->pairingMode);
+            $this->logger->info(new Message(
+                'Item #%1$d: pdf pairing method %2$s, coverage %3$s.', // @translate
+                $item->id(),
+                $pdfPairing->method,
+                number_format($pdfPairing->coverage, 2)
+            ));
+        }
+
         $hasRow = false;
         $resultTsv = [];
         $indexXmlPage = 0;
@@ -1674,7 +1769,30 @@ class ExtractOcr extends AbstractJob
             }
         }
 
+        // Precompute, per pdf, the anchor image index (0-based into
+        // $listMediaImages) the pairer would assign to its first page.
+        $pdfAnchors = [];
+        if ($pdfPairing && $pdfPairing->method !== PairingResult::METHOD_SEQUENTIAL) {
+            $imagePositionsById = [];
+            foreach ($listMediaImages as $idx => $entry) {
+                if (!empty($entry['id'])) {
+                    $imagePositionsById[(int) $entry['id']] = $idx;
+                }
+            }
+            $i = 0;
+            foreach ($pdfFilepaths as $pdfFilepath) {
+                ++$i;
+                $img = $pdfPairing->imageForPage($i);
+                if ($img && isset($imagePositionsById[(int) $img->id()])) {
+                    $pdfAnchors[$i - 1] = $imagePositionsById[(int) $img->id()];
+                }
+            }
+        }
+
+        $pdfIndex = -1;
         foreach ($pdfFilepaths as $pdfFilepath) {
+            ++$pdfIndex;
+            $pageWithinPdf = 0;
             // Create temp file that will be removed at the end of the loop.
             $tempFile = $this->tempFileFactory->build();
             $xmlFilepath = $tempFile->getTempPath() . 'pdf2xml.xml';
@@ -1710,6 +1828,7 @@ class ExtractOcr extends AbstractJob
 
             foreach ($xml->body->doc->page ?? [] as $xmlPage) {
                 ++$indexXmlPage;
+                ++$pageWithinPdf;
 
                 $pageAttribute = $xmlPage->attributes();
                 $pageWidth = (float) $pageAttribute->width;
@@ -1718,7 +1837,17 @@ class ExtractOcr extends AbstractJob
                     continue;
                 }
 
-                $mediaImage = $listMediaImages[$indexXmlPage - 1] ?? null;
+                // Pairer-driven anchor: pdf's first page goes to the paired
+                // image; subsequent pages within the same pdf go to the
+                // following image medias.
+                $mediaImage = null;
+                if (isset($pdfAnchors[$pdfIndex])) {
+                    $imgIdx = $pdfAnchors[$pdfIndex] + $pageWithinPdf - 1;
+                    $mediaImage = $listMediaImages[$imgIdx] ?? null;
+                }
+                if (!$mediaImage) {
+                    $mediaImage = $listMediaImages[$indexXmlPage - 1] ?? null;
+                }
                 $mediaImageWidth = $mediaImage ? $mediaImage['width'] : $pageWidth;
                 $mediaImageHeight = $mediaImage ? $mediaImage['height'] : $pageHeigth;
                 $scaleX = $mediaImageWidth / $pageWidth;

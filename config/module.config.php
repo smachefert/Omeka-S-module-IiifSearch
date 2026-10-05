@@ -18,6 +18,7 @@ return [
         ],
         'invokables' => [
             'iiifAltoAnnotations' => View\Helper\IiifAltoAnnotations::class,
+            'iiifAltoAnnotations2' => View\Helper\IiifAltoAnnotations2::class,
         ],
     ],
     'form_elements' => [

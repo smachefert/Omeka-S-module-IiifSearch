@@ -64,14 +64,52 @@ class SearchController extends AbstractActionController
         return $this->jsonLd($searchResponse);
     }
 
+    /**
+     * Serve a IIIF Presentation 2 AnnotationList built from a single ALTO page,
+     * suitable for canvas otherContent in v2 manifests.
+     */
     public function annotationListAction()
     {
-        // TODO Implement annotation-list action.
-        $this->getResponse()->setStatusCode(Response::STATUS_CODE_501);
-        return new JsonModel([
-            'status' => 'error',
-            'message' => $this->translate('Direct request to annotation-list is not implemented.'), // @translate
-        ]);
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        // Route param :name accepts both "p1" and bare digits; normalize.
+        $name = (string) $this->params('name');
+        $pageIndex = ltrim($name, 'p');
+        if ($pageIndex === '' || !ctype_digit($pageIndex)) {
+            return $this->errorResponse(Response::STATUS_CODE_400, 'Invalid page name.'); // @translate
+        }
+        $pageIndex = (int) $pageIndex;
+        // v2 canvas naming convention "p1" is 1-based; normalize to 0-based for
+        // the ALTO splitter and downstream helpers.
+        if (strpos($name, 'p') === 0) {
+            $pageIndex = max(0, $pageIndex - 1);
+        }
+
+        $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
+        $path = $splitter($item, $pageIndex);
+        if (!$path || !is_readable($path)) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+
+        $mtime = (int) filemtime($path);
+        $etag = $this->buildEtag('annot2', $item->id(), $pageIndex, $mtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+            return $notModified;
+        }
+
+        $annotations = $this->viewHelpers()->get('iiifAltoAnnotations2');
+        $list = $annotations($item, $pageIndex, $path);
+        if (!$list) {
+            return $this->errorResponse(Response::STATUS_CODE_500, 'Unable to build annotation list.'); // @translate
+        }
+
+        $response = $this->getResponse();
+        $this->addCacheHeaders($response->getHeaders(), $etag, $mtime, 3600);
+
+        return $this->jsonLd($list);
     }
 
     public function index2Action()

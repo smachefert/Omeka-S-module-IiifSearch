@@ -62,22 +62,39 @@ class PageSourceHintReader
         // ALTO can be large; read enough head to cover several Page elements
         // but bail if the file is enormous.
         $content = (string) @file_get_contents($filepath, false, null, 0, 1048576);
-        if ($content === '' || stripos($content, 'sourceimageinformation') === false) {
+        if ($content === '') {
             return [];
         }
+        // First pass: scan each <Page> and pick up either a nested
+        // sourceImageInformation or a PAGECLASS attribute (used by the hOCR and
+        // TEI to ALTO converters to ferry the image filename).
         $hints = [];
-        if (preg_match_all('~<(?:[\w-]+:)?Page\b[^>]*>.*?(<(?:[\w-]+:)?sourceImageInformation>.*?</(?:[\w-]+:)?sourceImageInformation>).*?</(?:[\w-]+:)?Page>~is', $content, $matches)) {
-            foreach ($matches[1] as $block) {
-                if (preg_match('~<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~i', $block, $m)) {
-                    $hints[] = trim($m[1]);
-                } else {
-                    $hints[] = '';
+        if (preg_match_all('~<(?:[\w-]+:)?Page\b([^>]*)>(.*?)</(?:[\w-]+:)?Page>~is', $content, $matches, PREG_SET_ORDER)) {
+            foreach ($matches as $page) {
+                $attrs = $page[1];
+                $body = $page[2];
+                $hint = '';
+                if (preg_match('~<(?:[\w-]+:)?sourceImageInformation>.*?<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~is', $body, $m)) {
+                    $hint = trim($m[1]);
+                } elseif (preg_match('~\bPAGECLASS\s*=\s*["\']([^"\']+)~i', $attrs, $m)) {
+                    $hint = trim($m[1]);
                 }
+                $hints[] = $hint;
             }
         }
         if ($hints) {
-            return $hints;
+            $hasAny = false;
+            foreach ($hints as $h) {
+                if ($h !== '') {
+                    $hasAny = true;
+                    break;
+                }
+            }
+            if ($hasAny) {
+                return $hints;
+            }
         }
+        // Fallback: single Description-level fileName for the whole file.
         if (preg_match('~<(?:[\w-]+:)?fileName>\s*([^<]+?)\s*</(?:[\w-]+:)?fileName>~i', $content, $m)) {
             return [trim($m[1])];
         }

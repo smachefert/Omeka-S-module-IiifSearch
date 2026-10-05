@@ -52,7 +52,18 @@ class IiifAltoAnnotations extends AbstractHelper
         // Compute scale between ALTO page coordinates and canvas pixels.
         $altoWidth = (float) $altoPage['WIDTH'];
         $altoHeight = (float) $altoPage['HEIGHT'];
-        $media = $item->media()[$page] ?? null;
+        // Pick the page-th image media rather than the page-th media of any
+        // type: items with attached ALTOs / PDFs interleaved with images would
+        // otherwise index into a non-image entry and lose the canvas
+        // dimensions. ALTO ordering itself is fixed upstream by XmlAltoSingle.
+        $imageMedias = [];
+        foreach ($item->media() as $m) {
+            $mt = (string) $m->mediaType();
+            if (strtok($mt, '/') === 'image' && $m->hasOriginal()) {
+                $imageMedias[] = $m;
+            }
+        }
+        $media = $imageMedias[$page] ?? null;
         if (!$media) {
             return null;
         }
