@@ -5,6 +5,7 @@ namespace IiifSearch\View\Helper;
 use IiifSearch\Stdlib\FileResource;
 use IiifSearch\Stdlib\TeiStructureExtractor;
 use IiifSearch\Stdlib\XmlMediaClassifier;
+use Laminas\Log\LoggerInterface;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
 
@@ -27,9 +28,15 @@ class IiifSearchTeiStructure extends AbstractHelper
      */
     protected $structures = [];
 
-    public function __construct(string $basePath)
+    /**
+     * @var \Laminas\Log\LoggerInterface
+     */
+    protected $logger;
+
+    public function __construct(string $basePath, LoggerInterface $logger)
     {
         $this->basePath = $basePath;
+        $this->logger = $logger;
     }
 
     /**
@@ -91,7 +98,24 @@ class IiifSearchTeiStructure extends AbstractHelper
             }
         }
 
-        $structure = (new TeiStructureExtractor())->extract($teiPath, $canvasByName, $index);
+        $extractor = new TeiStructureExtractor();
+        $structure = $extractor->extract($teiPath, $canvasByName, $index);
+
+        // A wrong alignment shifts all the sections, so it is reported.
+        if ($structure && $extractor->isAlignmentUncertain()) {
+            $stats = $extractor->stats();
+            if ($stats['by_name']) {
+                $this->logger->warn(
+                    'Item #{item_id}: the table of contents of the TEI file may target wrong pages: {count} pages of {total} are not found by the file names of the images, so they are placed after the previous page found.', // @translate
+                    ['item_id' => $itemId, 'count' => $stats['unmatched'], 'total' => $stats['pages']]
+                );
+            } else {
+                $this->logger->warn(
+                    'Item #{item_id}: the table of contents of the TEI file may target wrong pages: the pages are matched by order, but the TEI has {pages} pages and the item {canvases} images. Add a facsimile with the file names of the images to the TEI.', // @translate
+                    ['item_id' => $itemId, 'pages' => $stats['pages'], 'canvases' => $stats['canvases']]
+                );
+            }
+        }
 
         // The directory is protected against a direct web access.
         if (is_dir(dirname($cachePath)) || @mkdir(dirname($cachePath), 0775, true)) {

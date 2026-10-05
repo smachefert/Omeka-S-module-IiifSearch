@@ -12,7 +12,8 @@ class IiifSearchTeiStructureFactory implements FactoryInterface
     {
         $config = $services->get('Config');
         return new IiifSearchTeiStructure(
-            $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files')
+            $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files'),
+            $services->get('Omeka\Logger')
         );
     }
 }

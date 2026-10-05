@@ -28,7 +28,7 @@ class TeiStructureExtractor
     /**
      * Increment when the output changes, so the cached structures are rebuilt.
      */
-    const VERSION = 1;
+    const VERSION = 2;
 
     /**
      * The elements whose text is not part of a head, like notes or running
@@ -77,6 +77,21 @@ class TeiStructureExtractor
     protected $pageOrdinal = 0;
 
     /**
+     * @var bool Whether the pages are matched by file name or by order.
+     */
+    protected $matchByName = false;
+
+    /**
+     * @var array Ordinal and canvas of the last page matched by file name.
+     */
+    protected $lastMatched = [0, 0];
+
+    /**
+     * @var array Statistics of the last extraction, to check the alignment.
+     */
+    protected $stats = [];
+
+    /**
      * @param array $canvasByName Canvas indexes (one-based) keyed by file name,
      *   with or without extension.
      * @return string|null The structure, or null when the file has no section.
@@ -104,6 +119,14 @@ class TeiStructureExtractor
         $this->stack = [];
         $this->currentCanvas = null;
         $this->pageOrdinal = 0;
+        $this->lastMatched = [0, 0];
+        $this->stats = [
+            'pages' => 0,
+            'canvases' => $totalCanvases,
+            'by_name' => false,
+            'matched' => 0,
+            'unmatched' => 0,
+        ];
 
         // Local names are used to manage TEI P5 with namespace and TEI P4
         // without namespace.
@@ -115,6 +138,19 @@ class TeiStructureExtractor
         if (!$texts || !$texts->length) {
             return null;
         }
+
+        // The pages are matched by file name as soon as one page is, else by
+        // order. Mixing both modes would place an unmatched page by its rank in
+        // the whole document, so it may target any canvas.
+        $this->matchByName = false;
+        foreach ($xpath->query('.//*[local-name()="pb"]', $texts->item(0)) as $pb) {
+            ++$this->stats['pages'];
+            if (!$this->matchByName && $this->canvasOfName($pb)) {
+                $this->matchByName = true;
+            }
+        }
+        $this->stats['by_name'] = $this->matchByName;
+
         $this->walk($texts->item(0));
 
         return $this->format();
@@ -200,19 +236,63 @@ class TeiStructureExtractor
 
     protected function canvasOfPage(DOMElement $pb): ?int
     {
-        $facs = ltrim((string) $pb->getAttribute('facs'), '#');
-        if ($facs !== '') {
-            $file = $this->facsimiles[$facs] ?? $facs;
-            $canvas = $this->canvasByName[$this->normalizeName($file)]
-                ?? $this->canvasByName[$this->normalizeName(pathinfo($file, PATHINFO_FILENAME))]
-                ?? null;
-            if ($canvas) {
-                return $canvas;
-            }
+        if (!$this->matchByName) {
+            // Without any known image, the order of the pages is the one of
+            // the canvases.
+            return $this->pageOrdinal <= $this->totalCanvases ? $this->pageOrdinal : null;
         }
-        // Without a known image, the order of the pages is the one of the
-        // canvases.
-        return $this->pageOrdinal <= $this->totalCanvases ? $this->pageOrdinal : null;
+
+        $canvas = $this->canvasOfName($pb);
+        if ($canvas) {
+            ++$this->stats['matched'];
+            $this->lastMatched = [$this->pageOrdinal, $canvas];
+            return $canvas;
+        }
+
+        // A page that is not found is placed after the last page found, so a
+        // wrong placement does not go beyond the next page found.
+        ++$this->stats['unmatched'];
+        [$ordinal, $lastCanvas] = $this->lastMatched;
+        $canvas = $lastCanvas + $this->pageOrdinal - $ordinal;
+        return $canvas >= 1 && $canvas <= $this->totalCanvases ? $canvas : null;
+    }
+
+    /**
+     * Get the canvas of a page from the file name referenced by its facs.
+     */
+    protected function canvasOfName(DOMElement $pb): ?int
+    {
+        $facs = ltrim((string) $pb->getAttribute('facs'), '#');
+        if ($facs === '') {
+            return null;
+        }
+        $file = $this->facsimiles[$facs] ?? $facs;
+        return $this->canvasByName[$this->normalizeName($file)]
+            ?? $this->canvasByName[$this->normalizeName(pathinfo($file, PATHINFO_FILENAME))]
+            ?? null;
+    }
+
+    /**
+     * Statistics of the last extraction, to check the alignment of the pages.
+     *
+     * @return array Keys "pages", "canvases", "by_name", "matched", "unmatched".
+     */
+    public function stats(): array
+    {
+        return $this->stats;
+    }
+
+    /**
+     * Is the alignment of the pages with the canvases uncertain?
+     *
+     * By order, the number of pages should be the number of canvases. By file
+     * name, all the pages should be found.
+     */
+    public function isAlignmentUncertain(): bool
+    {
+        return $this->stats['by_name']
+            ? $this->stats['unmatched'] > 0
+            : $this->stats['pages'] !== $this->stats['canvases'];
     }
 
     protected function directHead(DOMElement $div): ?DOMElement
