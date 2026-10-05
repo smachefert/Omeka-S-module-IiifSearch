@@ -709,11 +709,23 @@ class Module extends AbstractModule
                 ['tools' => implode(', ', $missingRequired)]
             ));
         }
-        $missingOptional = array_intersect($missing, ['tesseract', 'ocrmypdf', 'gs', 'img2pdf']);
+        // List only the features lost by the missing tools, not all features.
+        $optionalTools = [
+            'tesseract' => 'extract text from page images without a text layer', // @translate
+            'ocrmypdf' => 'rebuild a pdf with an embedded text layer', // @translate
+            'gs' => 'rebuild a pdf with an embedded text layer and to concatenate mono-page pdf', // @translate
+            'img2pdf' => 'build a searchable pdf for items with images only', // @translate
+        ];
+        $missingOptional = array_intersect_key($optionalTools, array_flip($missing));
         if ($missingOptional) {
+            $translator = $services->get('MvcTranslator');
+            $list = [];
+            foreach ($missingOptional as $tool => $feature) {
+                $list[] = $tool . ' (' . $translator->translate($feature) . ')';
+            }
             $messenger->addWarning(new PsrMessage(
-                'Optional OCR tools not installed: {tools}. tesseract is needed to OCR images of pages without a text layer; ocrmypdf and ghostscript (gs) are needed to rebuild a PDF with an embedded text layer (and to concatenate mono-page PDFs); img2pdf is needed to build a searchable PDF from items that carry only images (no PDF).', // @translate
-                ['tools' => implode(', ', $missingOptional)]
+                'Optional OCR tools not installed, so these features are unavailable: {tools}.', // @translate
+                ['tools' => implode('; ', $list)]
             ));
         }
     }
