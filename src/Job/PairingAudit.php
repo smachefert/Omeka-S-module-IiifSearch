@@ -50,16 +50,16 @@ class PairingAudit extends AbstractJob
             ));
             return;
         }
-        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings']);
+        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings'], ',', '"', '\\');
 
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
             FROM `media`
-            WHERE (`media_type` IN (:pdf_media_type) AND `extension` = :pdf_extension)
+            WHERE ((`media_type` IN (:pdf_media_type) AND `extension` = :pdf_extension)
                 OR `media_type` LIKE 'image/%'
                 OR `media_type` LIKE 'application/%xml%'
                 OR `media_type` LIKE 'text/xml%'
-                OR `media_type` = 'text/html'
+                OR `media_type` = 'text/html')
             SQL;
         $bind = [
             'pdf_media_type' => ['application/pdf', 'text/pdf'],
@@ -170,7 +170,7 @@ class PairingAudit extends AbstractJob
                 $method,
                 $coverage,
                 $warnings,
-            ]);
+            ], ',', '"', '\\');
         }
         fclose($fp);
 
