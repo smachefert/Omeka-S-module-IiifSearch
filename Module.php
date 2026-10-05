@@ -220,6 +220,8 @@ class Module extends AbstractModule
 
     public function getConfigForm(PhpRenderer $renderer)
     {
+        $this->appendConfigApplyAsset($renderer);
+
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
         $formManager = $services->get('FormElementManager');
@@ -243,62 +245,12 @@ class Module extends AbstractModule
         }
         $form->prepare();
 
-        $view = $renderer;
-        $translate = $view->plugin('translate');
-        $escape = $view->plugin('escapeHtml');
+        // Module navigation bar shared with IiifServer and ImageServer, then
+        // the tabs derived declaratively from the form option "element_tabs" by
+        // the formTabs helper of module Common.
+        $moduleNav = $renderer->moduleConfigNav(['IiifServer', 'IiifSearch', 'ImageServer'], 'IiifSearch');
 
-        // Dispatch elements to tabs using element_groups.
-        $elementGroups = $form->getOption('element_groups') ?: [];
-        $tabs = array_fill_keys(array_keys($elementGroups), '');
-        $ungrouped = '';
-
-        foreach ($form as $element) {
-            if ($element instanceof \Laminas\Form\FieldsetInterface) {
-                $group = $element->getOption('element_group');
-                if ($group && isset($tabs[$group])) {
-                    $tabs[$group] .= $view->formCollection($element);
-                }
-                continue;
-            }
-            $group = $element->getOption('element_group');
-            if ($group && isset($tabs[$group])) {
-                $tabs[$group] .= $view->formRow($element);
-            } else {
-                $ungrouped .= $view->formRow($element);
-            }
-        }
-
-        $firstGroup = array_key_first($elementGroups);
-        if ($firstGroup && $ungrouped !== '') {
-            $tabs[$firstGroup] = $ungrouped . $tabs[$firstGroup];
-        }
-
-        // Module navigation bar shared with IiifServer and ImageServer.
-        $iiifModules = ['IiifServer', 'IiifSearch', 'ImageServer'];
-        $moduleNav = $view->moduleConfigNav($iiifModules, 'IiifSearch');
-
-        // Build tabs.
-        $tabNav = '';
-        $tabContent = '';
-        $isFirst = true;
-        foreach ($elementGroups as $groupName => $groupLabel) {
-            if (empty($tabs[$groupName])) {
-                continue;
-            }
-            $activeClass = $isFirst ? ' class="active"' : '';
-            $sectionClass = $isFirst ? 'section active' : 'section';
-            $tabNav .= '<li' . $activeClass . '><a href="#iiifsearch-' . $groupName . '">'
-                . $escape($translate($groupLabel)) . '</a></li>';
-            $tabContent .= '<div id="iiifsearch-' . $groupName . '" class="' . $sectionClass . '">'
-                . $tabs[$groupName] . '</div>';
-            $isFirst = false;
-        }
-
-        return $moduleNav
-            . '<ul class="section-nav" style="list-style:none;padding:0;">'
-            . $tabNav
-            . '</ul>'
-            . $tabContent;
+        return $moduleNav . $renderer->formTabs($form);
     }
 
     public function handleIiifServerManifest(Event $event): void
@@ -848,6 +800,7 @@ class Module extends AbstractModule
                 $cleanupJob->getId()
             );
             $controller->messenger()->addSuccess($message);
+            $this->redirectToConfigFormOnApply($controller);
             return true;
         }
 
@@ -862,6 +815,7 @@ class Module extends AbstractModule
                 $job->getId()
             );
             $controller->messenger()->addSuccess($message);
+            $this->redirectToConfigFormOnApply($controller);
             return true;
         }
 
@@ -871,6 +825,7 @@ class Module extends AbstractModule
         if (empty($extractParams['process'])
             || $extractParams['process'] !== $controller->translate('Process')
         ) {
+            $this->redirectToConfigFormOnApply($controller);
             return true;
         }
 
@@ -890,6 +845,7 @@ class Module extends AbstractModule
             $job->getId()
         );
         $controller->messenger()->addSuccess($message);
+        $this->redirectToConfigFormOnApply($controller);
         return true;
     }
 
@@ -910,7 +866,7 @@ class Module extends AbstractModule
             sprintf('<a href="%s">', htmlspecialchars($jobUrl)),
             $jobId,
             '</a>',
-            sprintf('<a href="%s"%s>', $logUrl, class_exists('Log\Module', false) ? '' : ' target="_blank"')
+            sprintf('<a href="%s"%s>', htmlspecialchars($logUrl), class_exists('Log\Module', false) ? '' : ' target="_blank" rel="noopener noreferrer"')
         );
         $message->setEscapeHtml(false);
         return $message;
