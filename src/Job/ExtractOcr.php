@@ -263,17 +263,39 @@ class ExtractOcr extends AbstractJob
 
         $settings = $services->get('Omeka\Settings');
 
-        // Prepare and reorder types.
-        $targetTypesFiles = $settings->get('iiifsearch_extract_types_files') ?: [];
+        // Prepare and reorder types from the per-format destination settings.
+        // Each format names its destinations (file, media, digital_object);
+        // here we pivot those settings back into the three lists the rest of
+        // the job already consumes.
+        $formatToSetting = [
+            self::FORMAT_TSV => 'iiifsearch_extract_dests_tsv',
+            self::FORMAT_TSV_BY_WORD => 'iiifsearch_extract_dests_tsv_by_word',
+            self::FORMAT_ALTO => 'iiifsearch_extract_dests_alto',
+            self::FORMAT_PDF2XML => 'iiifsearch_extract_dests_pdf2xml',
+        ];
+        $targetTypesFiles = [];
+        $targetTypesMedia = [];
+        $targetTypesDigitalObject = [];
+        foreach ($formatToSetting as $format => $key) {
+            $dests = (array) ($settings->get($key) ?: []);
+            $dests = array_values(array_intersect($dests, ['file', 'media', 'digital_object']));
+            if (in_array('file', $dests, true)) {
+                $targetTypesFiles[] = $format;
+            }
+            if (in_array('media', $dests, true)) {
+                $targetTypesMedia[] = $format;
+            }
+            if (in_array('digital_object', $dests, true)) {
+                $targetTypesDigitalObject[] = $format;
+            }
+        }
         $targetTypesFiles = array_values(array_intersect(array_keys($formats), $targetTypesFiles));
-        $targetTypesMedia = $settings->get('iiifsearch_extract_types_media') ?: [];
         $targetTypesMedia = array_values(array_intersect(array_keys($formats), $targetTypesMedia));
-        $targetTypesDigitalObject = $settings->get('iiifsearch_extract_types_digital_object') ?: [];
         $targetTypesDigitalObject = array_values(array_intersect(array_keys($formats), $targetTypesDigitalObject));
         $doModuleActive = (bool) $services->get('Omeka\ModuleManager')->getModule('DigitalObject');
         if ($targetTypesDigitalObject && !$doModuleActive) {
             $this->logger->warn(
-                'iiifsearch_extract_types_digital_object is set but the DigitalObject module is not active; those formats will be created as media instead.' // @translate
+                'A "digital_object" destination is configured but the DigitalObject module is not active; those formats will be created as media instead.' // @translate
             );
             $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
             $targetTypesDigitalObject = [];
@@ -584,6 +606,13 @@ class ExtractOcr extends AbstractJob
         ];
 
         foreach ($targetItemIds as $itemId) {
+            if (!$this->entityManager->isOpen()) {
+                $this->logger->err(new Message(
+                    'EntityManager closed before item #%1$d, aborting.', // @translate
+                    $itemId
+                ));
+                return;
+            }
             if ($this->shouldStop()) {
                 if ($mode === 'all') {
                     $this->logger->warn(new Message(
@@ -650,15 +679,13 @@ class ExtractOcr extends AbstractJob
                         $this->targetExtension, $item->id()
                     ));
                 }
-                if ($searchExistingOcrMedia) {
-                    try {
-                        $this->api->delete('media', $searchExistingOcrMedia->id());
-                    } catch (Exception $e) {
-                        // There may be a doctrine issue with module Access, but media is removed.
-                    }
+                if ($searchExistingOcrMedia
+                    && $this->canDeleteOcrMedia($searchExistingOcrMedia)
+                ) {
+                    $this->deleteOcrMediaSafely($searchExistingOcrMedia);
                     $this->logger->info(new Message(
-                        'The existing %1$s was removed for item #%2$d.', // @translate
-                        $this->targetExtension, $item->id()
+                        'The existing %1$s was removed for item #%2$d (media #%3$d).', // @translate
+                        $this->targetExtension, $item->id(), $searchExistingOcrMedia->id()
                     ));
                 }
                 if ($mode === 'existing'
@@ -825,8 +852,8 @@ class ExtractOcr extends AbstractJob
             unset($ocrMedia);
             unset($item);
 
-            // Clear the Doctrine identity map to prevent memory growth
-            // on large batches. Property scalars are cached above.
+            // Clear the Doctrine identity map to prevent memory growth on large
+            // batches. Property scalars are cached above.
             $this->entityManager->clear();
         }
 
@@ -1143,7 +1170,112 @@ class ExtractOcr extends AbstractJob
     protected function storeFileLocally(TempFile $tempFile, string $filepath): bool
     {
         $tempFilepath = $tempFile->getTempPath();
-        return copy($tempFilepath, $filepath);
+        $targetDir = dirname($filepath);
+
+        // Auto-création du dossier cible si absent (cause #1 d'échec historique
+        // : dossier files/iiif-search/ non créé à l'installation).
+        if (!is_dir($targetDir)) {
+            if (!@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+                $err = error_get_last();
+                $this->logger->err(new Message(
+                    'cannot mkdir "%1$s" (%2$s). dirname stat: %3$s. disk free: %4$s.', // @translate
+                    $targetDir,
+                    $err['message'] ?? 'unknown',
+                    $this->describePathPerms($targetDir),
+                    $this->describeDiskFree($targetDir)
+                ));
+                return false;
+            }
+            @chmod($targetDir, 0775);
+            $this->logger->info(new Message(
+                'created missing target dir "%1$s".', // @translate
+                $targetDir
+            ));
+        }
+
+        if (!is_writable($targetDir)) {
+            $this->logger->err(new Message(
+                'target dir "%1$s" not writable. %2$s disk free: %3$s.', // @translate
+                $targetDir,
+                $this->describePathPerms($targetDir),
+                $this->describeDiskFree($targetDir)
+            ));
+            return false;
+        }
+
+        if (!is_readable($tempFilepath) || !file_exists($tempFilepath)) {
+            $this->logger->err(new Message(
+                'temp file "%1$s" missing or unreadable.', // @translate
+                $tempFilepath
+            ));
+            return false;
+        }
+
+        // copy() PHP émet un Warning sans exception ; capter via @ + diag.
+        $ok = @copy($tempFilepath, $filepath);
+        if (!$ok) {
+            $err = error_get_last();
+            $size = @filesize($tempFilepath);
+            $this->logger->err(new Message(
+                'copy("%1$s"→"%2$s") FAILED. err=%3$s. src size=%4$s. dst dir: %5$s. disk free: %6$s.', // @translate
+                $tempFilepath,
+                $filepath,
+                $err['message'] ?? 'unknown',
+                $size === false ? 'unknown' : (string) $size,
+                $this->describePathPerms($targetDir),
+                $this->describeDiskFree($targetDir)
+            ));
+            return false;
+        }
+
+        @chmod($filepath, 0664);
+        if ($this->targetFormat === self::FORMAT_ALTO) {
+            (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($filepath);
+        }
+        return true;
+    }
+
+    /**
+     * Retourne owner:group mode pour un chemin existant.
+     */
+    protected function describePathPerms(string $path): string
+    {
+        if (!file_exists($path)) {
+            return sprintf('%s does not exist', $path);
+        }
+        $stat = @stat($path);
+        if ($stat === false) {
+            return sprintf('%s: stat() failed', $path);
+        }
+        $owner = function_exists('posix_getpwuid')
+            ? (posix_getpwuid($stat['uid'])['name'] ?? (string) $stat['uid'])
+            : (string) $stat['uid'];
+        $group = function_exists('posix_getgrgid')
+            ? (posix_getgrgid($stat['gid'])['name'] ?? (string) $stat['gid'])
+            : (string) $stat['gid'];
+        return sprintf('%s = %s:%s %04o', $path, $owner, $group, $stat['mode'] & 0777);
+    }
+
+    /**
+     * Retourne l'espace libre human-readable pour un chemin.
+     */
+    protected function describeDiskFree(string $path): string
+    {
+        $checkPath = $path;
+        while (!file_exists($checkPath) && $checkPath !== '/' && $checkPath !== '') {
+            $checkPath = dirname($checkPath);
+        }
+        $free = @disk_free_space($checkPath);
+        if ($free === false) {
+            return 'unknown';
+        }
+        $units = ['B', 'KB', 'MB', 'GB', 'TB'];
+        $i = 0;
+        while ($free >= 1024 && $i < count($units) - 1) {
+            $free /= 1024;
+            $i++;
+        }
+        return sprintf('%.1f %s', $free, $units[$i]);
     }
 
     /**
@@ -1362,6 +1494,7 @@ class ExtractOcr extends AbstractJob
                 }
                 return null;
             }
+            (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($tempFilepath);
         }
 
         return $tempFile;
@@ -1536,6 +1669,9 @@ class ExtractOcr extends AbstractJob
                 @unlink($altoPath);
                 continue;
             }
+            // Tag the file as module-produced so a future delete pass can
+            // distinguish it from a native alto upload.
+            (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($altoPath);
             $generated[] = $altoPath;
         }
 
@@ -1897,13 +2033,26 @@ class ExtractOcr extends AbstractJob
             $closed = fclose($fp);
             if (!$hasRow && !$this->createEmptyFile) {
                 @unlink($tsvFilepath);
-                return true;
+                // Pas de contenu et pas de fichier vide demandé : signaler
+                // explicitement l'absence de fichier au caller pour éviter que
+                // storeFileLocally() tente de lire un fichier supprimé.
+                $this->logger->notice(new Message(
+                    'Item #%1$d: no OCR rows extracted for %2$s, file not created.', // @translate
+                    $item->id(), $this->targetExtension
+                ));
+                return false;
             }
             return $closed;
         }
 
         if (!$resultTsv && !$this->createEmptyFile) {
-            return true;
+            // Idem pour by-word.tsv : aucun mot extrait => pas de fichier
+            // produit.
+            $this->logger->notice(new Message(
+                'Item #%1$d: no OCR words extracted for %2$s, file not created.', // @translate
+                $item->id(), $this->targetExtension
+            ));
+            return false;
         }
         $fp = fopen($tsvFilepath, 'w');
         if ($fp === false) {
@@ -2160,6 +2309,128 @@ class ExtractOcr extends AbstractJob
      *
      * A check is done to avoid to duplicate content.
      */
+    /**
+     * Guiding rule: only delete files the module itself created. A user upload
+     * is always preserved, whatever its mime type.
+     *
+     *  - alto: deletable iff the file carries the module's provenance marker
+     *    (see ToAltoConverter::stampProvenance()). No filename fallback: a
+     *    user-uploaded alto could share any naming pattern.
+     *  - pdf2xml: deletable iff the source ends with ".{itemId}.pdf2xml.xml"
+     *    (the module's derived-file convention).
+     *  - tsv / tsv;by-word: deletable iff the source ends with the matching
+     *    ".{itemId}.tsv" or ".{itemId}.by-word.tsv" suffix.
+     *  - anything else (image, pdf, audio/video, native tei/mets/hocr, etc.):
+     *    never.
+     */
+    protected function canDeleteOcrMedia(MediaRepresentation $media): bool
+    {
+        $mediaType = (string) $media->mediaType();
+        $source = (string) $media->source();
+        $itemId = (int) $media->item()->id();
+
+        if ($mediaType === 'application/alto+xml') {
+            $filename = (string) $media->filename();
+            if ($filename === '') {
+                return false;
+            }
+            return \IiifSearch\Stdlib\AltoProvenance::isModuleAlto(
+                $this->basePath . '/original/' . $filename
+            );
+        }
+
+        $endsWith = function (string $haystack, string $needle): bool {
+            $len = strlen($needle);
+            return $len > 0 && substr($haystack, -$len) === $needle;
+        };
+
+        if ($mediaType === 'application/vnd.pdf2xml+xml') {
+            return $source !== '' && $endsWith($source, '.' . $itemId . '.pdf2xml.xml');
+        }
+        if ($mediaType === 'text/tab-separated-values'
+            || $mediaType === 'text/tab-separated-values;by-word'
+        ) {
+            return $source !== '' && (
+                $endsWith($source, '.' . $itemId . '.tsv')
+                || $endsWith($source, '.' . $itemId . '.by-word.tsv')
+            );
+        }
+        return false;
+    }
+
+    /**
+     * Delete an OCR-derived media without poisoning Doctrine when the physical
+     * file is missing or unwritable. Omeka's MediaAdapter::deleteEntity()
+     * delegates to Store\Local::delete() inside the same EntityManager
+     * transaction; unlink() failures bubble up as RuntimeException that closes
+     * the EntityManager mid-job — even when the caller catches it. To avoid
+     * that, drop the entity through Doctrine directly and unlink the file
+     * outside any Doctrine transaction.
+     */
+    protected function deleteOcrMediaSafely(MediaRepresentation $media): void
+    {
+        $mediaId = (int) $media->id();
+        $mediaType = (string) $media->mediaType();
+        $filename = (string) $media->filename();
+        $originalPath = $filename !== ''
+            ? $this->basePath . '/original/' . $filename
+            : '';
+
+        // Hard safety net: only OCR-derived formats are eligible for file
+        // unlink. Image / audio / video / pdf medias must never have their
+        // original file removed by this job. canDeleteOcrMedia() already gates
+        // the call, but we re-check defensively here.
+        $unlinkAllowed = in_array($mediaType, [
+            'application/alto+xml',
+            'application/vnd.pdf2xml+xml',
+            'text/tab-separated-values',
+            'text/tab-separated-values;by-word',
+        ], true);
+
+        // ORM-level delete (api->delete or EntityManager::remove() + flush)
+        // cannot be used here: Omeka core registers a Doctrine event listener
+        // on Media that calls Store\Local::delete() inside the flush
+        // transaction. When unlink() fails, the RuntimeException propagates
+        // through flush() and Doctrine closes the EntityManager for the rest of
+        // the job. Raw DBAL bypasses the ORM event system entirely, so the row
+        // is dropped without ever touching the filesystem from inside a
+        // Doctrine transaction.
+        $conn = $this->entityManager->getConnection();
+        try {
+            $affected = $conn->delete('media', ['id' => $mediaId]);
+        } catch (\Throwable $e) {
+            $this->logger->warn(new Message(
+                'Unable to delete media row #%1$d via DBAL: %2$s', // @translate
+                $mediaId, $e->getMessage()
+            ));
+            return;
+        }
+        // Drop any managed copy from the identity map so further lookups on
+        // this id don't resurrect a stale instance.
+        $managed = $this->entityManager->getUnitOfWork()
+            ->tryGetById($mediaId, \Omeka\Entity\Media::class);
+        if ($managed) {
+            $this->entityManager->detach($managed);
+        }
+
+        if ($affected < 1 || !$unlinkAllowed) {
+            return;
+        }
+
+        // Best-effort unlink of the original file. Any failure is logged but
+        // never propagated: the canonical state is the database, and the row is
+        // already gone.
+        if ($originalPath !== '' && file_exists($originalPath)) {
+            if (!@unlink($originalPath)) {
+                $err = error_get_last();
+                $this->logger->warn(new Message(
+                    'Media row #%1$d deleted but file "%2$s" could not be removed: %3$s', // @translate
+                    $mediaId, $originalPath, $err['message'] ?? 'unknown'
+                ));
+            }
+        }
+    }
+
     protected function storeContentInProperty(AbstractResourceEntityRepresentation $resource, ?string $textContent): void
     {
         if ($textContent === null || $textContent === '') {
@@ -2400,40 +2671,56 @@ class ExtractOcr extends AbstractJob
         $imageSizes = [];
 
         foreach ($this->collectItemFileResources($item) as $resource) {
-            $mediaId = $resource->id();
-            $mediaType = $resource->mediaType();
-            if (strtok((string) $mediaType, '/') === 'image') {
-                // TODO The images sizes may be stored by xml files too, so
-                // skip size retrieving once the matching between images and
-                // text is done by page.
-                $mediaData = $resource->mediaData();
-                // Iiif info stored by Omeka.
-                if (isset($mediaData['width'])) {
-                    $imageSizes[] = [
-                        'id' => $mediaId,
-                        'width' => $mediaData['width'],
-                        'height' => $mediaData['height'],
-                        'source' => $resource->source(),
-                    ];
-                }
-                // Info stored by Iiif Server.
-                elseif (isset($mediaData['dimensions']['original']['width'])) {
-                    $imageSizes[] = [
-                        'id' => $mediaId,
-                        'width' => $mediaData['dimensions']['original']['width'],
-                        'height' => $mediaData['dimensions']['original']['height'],
-                        'source' => $resource->source(),
-                    ];
-                } elseif ($resource->hasOriginal() && strtok($mediaType, '/') === 'image') {
-                    $size = ['id' => $mediaId];
-                    $size += $this->imageSizeLocal($resource);
-                    $size['source'] = $resource->source();
-                    $imageSizes[] = $size;
-                }
+            $mediaType = (string) $resource->mediaType();
+            if (strtok($mediaType, '/') !== 'image') {
+                continue;
             }
+            $dim = $this->resolveImageDimensions($resource);
+            if (!$dim || (!$dim['width'] && !$dim['height'])) {
+                continue;
+            }
+            $imageSizes[] = [
+                'id' => $resource->id(),
+                'width' => (int) $dim['width'],
+                'height' => (int) $dim['height'],
+                'source' => $resource->source(),
+            ];
         }
 
         return $imageSizes;
+    }
+
+    /**
+     * Resolve image dimensions through IiifServer's mediaDimension controller
+     * plugin when available: it returns cached dimensions from media data and
+     * persists a fresh measurement on the first read, so subsequent jobs and
+     * manifests no longer fall back to expensive @getimagesize() probes. The
+     * local imageSizeLocal() probe is kept as a last-resort fallback for
+     * standalone deployments without IiifServer.
+     *
+     * @return array{width:int|null,height:int|null}|null
+     */
+    protected function resolveImageDimensions($media): ?array
+    {
+        $services = $this->getServiceLocator();
+        $plugins = $services->get('ControllerPluginManager');
+        if ($plugins->has('mediaDimension')) {
+            try {
+                $dim = $plugins->get('mediaDimension')($media, 'original');
+                if (is_array($dim)) {
+                    return [
+                        'width' => isset($dim['width']) ? (int) $dim['width'] : null,
+                        'height' => isset($dim['height']) ? (int) $dim['height'] : null,
+                    ];
+                }
+            } catch (\Throwable $e) {
+                // Fall through.
+            }
+        }
+        if (method_exists($media, 'hasOriginal') && !$media->hasOriginal()) {
+            return null;
+        }
+        return $this->imageSizeLocal($media);
     }
 
     /**

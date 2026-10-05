@@ -3,6 +3,12 @@
 namespace IiifSearch;
 
 return [
+    'service_manager' => [
+        'invokables' => [
+            Stdlib\AltoProvenance::class => Stdlib\AltoProvenance::class,
+            Stdlib\ToAltoConverter::class => Stdlib\ToAltoConverter::class,
+        ],
+    ],
     'view_manager' => [
         'strategies' => [
             'ViewJsonStrategy',
@@ -159,14 +165,15 @@ return [
 
             'iiifsearch_alto_canvas_inject' => false,
 
-            // OCR extraction (formerly module ExtractOcr).
-            'iiifsearch_extract_types_files' => [
-                'text/tab-separated-values',
-                'text/tab-separated-values;by-word',
-                'application/alto+xml',
-            ],
-            'iiifsearch_extract_types_media' => [],
-            'iiifsearch_extract_types_digital_object' => [],
+            // OCR extraction (formerly module ExtractOcr). Per-format
+            // destinations: each format is independently routed to one or more
+            // of "file" (default, flat file under files/), "media" (Omeka media
+            // on the item), "digital_object" (DigitalObject module). Flat file
+            // is the recommended default for everything.
+            'iiifsearch_extract_dests_tsv' => ['file'],
+            'iiifsearch_extract_dests_tsv_by_word' => ['file'],
+            'iiifsearch_extract_dests_alto' => ['file'],
+            'iiifsearch_extract_dests_pdf2xml' => [],
             'iiifsearch_extract_content_store' => [],
             'iiifsearch_extract_content_property' => null,
             'iiifsearch_extract_content_language' => '',

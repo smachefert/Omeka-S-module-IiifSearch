@@ -69,22 +69,23 @@ class IiifAltoAnnotations extends AbstractHelper
         if (!$resource) {
             return null;
         }
-        $mediaData = $resource->mediaData() ?: [];
-        $canvasWidth = (int) ($mediaData['dimensions']['original']['width']
-            ?? $mediaData['width'] ?? 0);
-        $canvasHeight = (int) ($mediaData['dimensions']['original']['height']
-            ?? $mediaData['height'] ?? 0);
-        // Fall back to thumbnail dimensions if width/height not stored.
-        if (!$canvasWidth || !$canvasHeight) {
+        $canvasWidth = 0;
+        $canvasHeight = 0;
+        if ($view->getHelperPluginManager()->has('mediaDimension')) {
             try {
-                $size = @getimagesize($resource->originalUrl());
-                if ($size) {
-                    $canvasWidth = (int) $size[0];
-                    $canvasHeight = (int) $size[1];
-                }
+                $dim = $view->plugin('mediaDimension')($resource, 'original');
+                $canvasWidth = (int) ($dim['width'] ?? 0);
+                $canvasHeight = (int) ($dim['height'] ?? 0);
             } catch (\Throwable $e) {
-                // Ignore.
+                // Fall through to mediaData inspection below.
             }
+        }
+        if (!$canvasWidth || !$canvasHeight) {
+            $mediaData = $resource->mediaData() ?: [];
+            $canvasWidth = $canvasWidth ?: (int) ($mediaData['dimensions']['original']['width']
+                ?? $mediaData['width'] ?? 0);
+            $canvasHeight = $canvasHeight ?: (int) ($mediaData['dimensions']['original']['height']
+                ?? $mediaData['height'] ?? 0);
         }
         $scaleX = ($altoWidth > 0 && $canvasWidth > 0) ? $canvasWidth / $altoWidth : 1.0;
         $scaleY = ($altoHeight > 0 && $canvasHeight > 0) ? $canvasHeight / $altoHeight : 1.0;

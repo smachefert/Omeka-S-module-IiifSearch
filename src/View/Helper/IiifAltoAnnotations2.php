@@ -59,11 +59,24 @@ class IiifAltoAnnotations2 extends AbstractHelper
         if (!$resource) {
             return null;
         }
-        $mediaData = $resource->mediaData() ?: [];
-        $canvasWidth = (int) ($mediaData['dimensions']['original']['width']
-            ?? $mediaData['width'] ?? 0);
-        $canvasHeight = (int) ($mediaData['dimensions']['original']['height']
-            ?? $mediaData['height'] ?? 0);
+        $canvasWidth = 0;
+        $canvasHeight = 0;
+        if ($view->getHelperPluginManager()->has('mediaDimension')) {
+            try {
+                $dim = $view->plugin('mediaDimension')($resource, 'original');
+                $canvasWidth = (int) ($dim['width'] ?? 0);
+                $canvasHeight = (int) ($dim['height'] ?? 0);
+            } catch (\Throwable $e) {
+                // Fall through to mediaData inspection below.
+            }
+        }
+        if (!$canvasWidth || !$canvasHeight) {
+            $mediaData = $resource->mediaData() ?: [];
+            $canvasWidth = $canvasWidth ?: (int) ($mediaData['dimensions']['original']['width']
+                ?? $mediaData['width'] ?? 0);
+            $canvasHeight = $canvasHeight ?: (int) ($mediaData['dimensions']['original']['height']
+                ?? $mediaData['height'] ?? 0);
+        }
         if (!$canvasWidth || !$canvasHeight) {
             try {
                 $size = @getimagesize($resource->originalUrl());

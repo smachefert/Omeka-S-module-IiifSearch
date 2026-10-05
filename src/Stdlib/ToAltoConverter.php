@@ -16,6 +16,15 @@ use XSLTProcessor;
 class ToAltoConverter
 {
     /**
+     * Provenance markers written into every alto file produced by the module.
+     * Used by {@see IiifSearch\Stdlib\AltoProvenance::isModuleAlto()} to safely
+     * distinguish module-generated alto medias (deletable) from native ones
+     * (must be preserved).
+     */
+    public const SOFTWARE_NAME = 'IiifSearch (Omeka S)';
+    public const SOFTWARE_CREATOR = 'Daniel Berthereau';
+
+    /**
      * @var string Absolute path to the directory holding the bundled XSLT.
      */
     protected $xslDir;
@@ -23,6 +32,84 @@ class ToAltoConverter
     public function __construct(?string $xslDir = null)
     {
         $this->xslDir = $xslDir ?: dirname(__DIR__, 2) . '/data/xsl';
+    }
+
+    /**
+     * Stamp an existing alto file in place with the module's provenance block.
+     * Used for alto produced outside the XSLT pipeline (tesseract, direct
+     * copy).
+     */
+    public function stampAltoFile(string $altoFilepath, ?string $version = null): bool
+    {
+        if (!is_readable($altoFilepath)) {
+            return false;
+        }
+        $dom = new DOMDocument();
+        $dom->preserveWhiteSpace = false;
+        $dom->formatOutput = true;
+        if (!@$dom->load($altoFilepath, LIBXML_NONET | LIBXML_NOBLANKS)) {
+            return false;
+        }
+        $this->stampProvenance($dom, $version);
+        return (bool) @$dom->save($altoFilepath);
+    }
+
+    /**
+     * Inject (or refresh) a Description/OCRProcessing block identifying the
+     * module as the producer of this alto document. Safe to call on alto
+     * already carrying the marker: the existing block is replaced.
+     */
+    protected function stampProvenance(DOMDocument $dom, ?string $version = null): void
+    {
+        $root = $dom->documentElement;
+        if (!$root) {
+            return;
+        }
+        $ns = $root->namespaceURI ?: 'http://www.loc.gov/standards/alto/ns-v4#';
+
+        $description = null;
+        foreach ($root->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'Description') {
+                $description = $child;
+                break;
+            }
+        }
+        if (!$description) {
+            $description = $dom->createElementNS($ns, 'Description');
+            $root->insertBefore($description, $root->firstChild);
+        }
+
+        // Drop pre-existing OCRProcessing blocks emitted by this module so the
+        // file ends up with a single canonical marker; foreign blocks (other
+        // producers in a multi-step pipeline) are kept untouched.
+        $existing = [];
+        foreach ($description->childNodes as $node) {
+            if ($node instanceof \DOMElement && $node->localName === 'OCRProcessing') {
+                $existing[] = $node;
+            }
+        }
+        foreach ($existing as $node) {
+            $names = $node->getElementsByTagNameNS($ns, 'softwareName');
+            for ($i = 0; $i < $names->length; ++$i) {
+                if (trim((string) $names->item($i)->nodeValue) === self::SOFTWARE_NAME) {
+                    $description->removeChild($node);
+                    break;
+                }
+            }
+        }
+
+        $proc = $dom->createElementNS($ns, 'OCRProcessing');
+        $proc->setAttribute('ID', 'OCR_iiifsearch');
+        $step = $dom->createElementNS($ns, 'ocrProcessingStep');
+        $software = $dom->createElementNS($ns, 'processingSoftware');
+        $software->appendChild($dom->createElementNS($ns, 'softwareCreator', self::SOFTWARE_CREATOR));
+        $software->appendChild($dom->createElementNS($ns, 'softwareName', self::SOFTWARE_NAME));
+        if ($version !== null && $version !== '') {
+            $software->appendChild($dom->createElementNS($ns, 'softwareVersion', $version));
+        }
+        $step->appendChild($software);
+        $proc->appendChild($step);
+        $description->appendChild($proc);
     }
 
     /**
@@ -40,7 +127,14 @@ class ToAltoConverter
 
         switch ($classification) {
             case XmlMediaClassifier::TYPE_ALTO:
-                return @copy($sourceFilepath, $targetFilepath);
+                // Copy native alto, then stamp the target so downstream cleanup
+                // recognises the rewritten copy as module-produced. The
+                // original source on disk is untouched.
+                if (!@copy($sourceFilepath, $targetFilepath)) {
+                    return false;
+                }
+                $this->stampAltoFile($targetFilepath);
+                return true;
             case XmlMediaClassifier::TYPE_HOCR:
                 return $this->convertHocr($sourceFilepath, $targetFilepath);
             case XmlMediaClassifier::TYPE_PDF2XML:
@@ -122,6 +216,7 @@ class ToAltoConverter
         if (!$result) {
             return false;
         }
+        $this->stampProvenance($result);
         $result->formatOutput = true;
         return (bool) @$result->save($targetFilepath);
     }

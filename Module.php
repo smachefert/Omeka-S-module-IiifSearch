@@ -598,16 +598,23 @@ class Module extends AbstractModule
 
         $this->allowFileFormats();
 
-        // Default OCR file types and pdf content store.
+        // Default OCR destinations and pdf content store. The four per-format
+        // destination lists are set independently so a partial admin override
+        // is preserved.
         $settings = $services->get('Omeka\Settings');
-        if (!$settings->get('iiifsearch_extract_types_files')) {
-            $settings->set('iiifsearch_extract_types_files', [
-                'text/tab-separated-values;by-word',
-                'application/alto+xml',
-            ]);
+        $defaults = [
+            'iiifsearch_extract_dests_tsv' => ['file'],
+            'iiifsearch_extract_dests_tsv_by_word' => ['file'],
+            'iiifsearch_extract_dests_alto' => ['file'],
+            'iiifsearch_extract_dests_pdf2xml' => [],
+        ];
+        foreach ($defaults as $key => $value) {
+            if ($settings->get($key) === null) {
+                $settings->set($key, $value);
+            }
         }
         if (!$settings->get('iiifsearch_extract_content_store')) {
-            $settings->set('iiifsearch_extract_content_store', ['media_pdf']);
+            $settings->set('iiifsearch_extract_content_store', ['pdf']);
         }
     }
 
@@ -621,6 +628,34 @@ class Module extends AbstractModule
         }
 
         $params = $controller->getRequest()->getPost();
+        $services = $this->getServiceLocator();
+        $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
+
+        $cleanupParams = $params['iiifsearch_cleanup'] ?? [];
+        if (!empty($cleanupParams['cleanup'])
+            && $cleanupParams['cleanup'] === $controller->translate('Clean up')
+        ) {
+            $cleanupArgs = [
+                'targets' => (array) ($cleanupParams['targets'] ?? []),
+                // Chained extract: CleanupMedia dispatches the follow-up
+                // ExtractOcr job at the end of its own perform(), so the two
+                // jobs run sequentially even when the queue worker would
+                // otherwise pull them concurrently.
+                'rerun_extract' => !empty($cleanupParams['rerun_extract']),
+                'rerun_base_uri' => $this->getBaseUri(),
+            ];
+            $cleanupJob = $dispatcher->dispatch(\IiifSearch\Job\CleanupMedia::class, $cleanupArgs);
+            $message = $this->buildJobLinkMessage(
+                $controller,
+                !empty($cleanupParams['rerun_extract'])
+                    ? 'Cleaning up legacy module-created medias in background; the OCR re-extraction job will be dispatched automatically when this one ends (job %1$s#%2$s%3$s, %4$slogs%3$s).' // @translate
+                    : 'Cleaning up legacy module-created medias in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
+                $cleanupJob->getId()
+            );
+            $controller->messenger()->addSuccess($message);
+            return true;
+        }
+
         $extractParams = $params['iiifsearch_bulk']
             ?? $params['iiifsearch_extract']
             ?? [];
@@ -630,7 +665,6 @@ class Module extends AbstractModule
             return true;
         }
 
-        $services = $this->getServiceLocator();
         $args = [
             'mode' => $extractParams['mode'] ?? 'all',
             'base_uri' => $this->getBaseUri(),
@@ -639,24 +673,38 @@ class Module extends AbstractModule
             'item_ids' => $extractParams['item_ids'] ?? '',
             'query' => $extractParams['query'] ?? '',
         ];
-        $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
         $job = $dispatcher->dispatch(\IiifSearch\Job\ExtractOcr::class, $args);
 
-        $message = new Message(
+        $message = $this->buildJobLinkMessage(
+            $controller,
             'Creating Extract OCR files in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
-            sprintf(
-                '<a href="%s">',
-                htmlspecialchars($controller->url()->fromRoute('admin/id', ['controller' => 'job', 'id' => $job->getId()]))
-            ),
-            $job->getId(),
-            '</a>',
-            class_exists('Log\Module', false)
-                ? sprintf('<a href="%1$s">', $controller->url()->fromRoute('admin/default', ['controller' => 'log'], ['query' => ['job_id' => $job->getId()]]))
-                : sprintf('<a href="%1$s" target="_blank">', $controller->url()->fromRoute('admin/id', ['controller' => 'job', 'action' => 'log', 'id' => $job->getId()]))
+            $job->getId()
         );
-        $message->setEscapeHtml(false);
         $controller->messenger()->addSuccess($message);
         return true;
+    }
+
+    /**
+     * Build a translatable message with HTML links to the job page and its log
+     * (Log module if present, otherwise the core job log).
+     */
+    protected function buildJobLinkMessage(AbstractController $controller, string $template, int $jobId): Message
+    {
+        $jobUrl = $controller->url()->fromRoute('admin/id', [
+            'controller' => 'job', 'id' => $jobId,
+        ]);
+        $logUrl = class_exists('Log\Module', false)
+            ? $controller->url()->fromRoute('admin/default', ['controller' => 'log'], ['query' => ['job_id' => $jobId]])
+            : $controller->url()->fromRoute('admin/id', ['controller' => 'job', 'action' => 'log', 'id' => $jobId]);
+        $message = new Message(
+            $template,
+            sprintf('<a href="%s">', htmlspecialchars($jobUrl)),
+            $jobId,
+            '</a>',
+            sprintf('<a href="%s"%s>', $logUrl, class_exists('Log\Module', false) ? '' : ' target="_blank"')
+        );
+        $message->setEscapeHtml(false);
+        return $message;
     }
 
     /**
@@ -678,13 +726,26 @@ class Module extends AbstractModule
             \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'tsv',
         ];
         $settings = $services->get('Omeka\Settings');
-        $targetTypesFiles = $settings->get('iiifsearch_extract_types_files') ?: [];
-        $targetTypesFiles = array_intersect($targetTypesFiles, array_flip($extensions));
-        $targetTypesMedia = $settings->get('iiifsearch_extract_types_media') ?: [];
-        $targetTypesMedia = array_intersect($targetTypesMedia, array_flip($extensions));
+        $formatToSetting = [
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'iiifsearch_extract_dests_tsv',
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'iiifsearch_extract_dests_tsv_by_word',
+            \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'iiifsearch_extract_dests_alto',
+            \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'iiifsearch_extract_dests_pdf2xml',
+        ];
+        $hasFileDest = false;
+        $hasResourceDest = false;
+        foreach ($formatToSetting as $format => $key) {
+            $dests = (array) ($settings->get($key) ?: []);
+            if (in_array('file', $dests, true)) {
+                $hasFileDest = true;
+            }
+            if (in_array('media', $dests, true) || in_array('digital_object', $dests, true)) {
+                $hasResourceDest = true;
+            }
+        }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
-        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted']);
-        if (!$targetTypesFiles && !$targetTypesMedia && !$targetContentStore) {
+        $targetContentStore = array_intersect($targetContentStore, ['item', 'pdf', 'extracted']);
+        if (!$hasFileDest && !$hasResourceDest && !$targetContentStore) {
             return;
         }
 

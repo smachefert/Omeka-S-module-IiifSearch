@@ -98,56 +98,55 @@ class ConfigForm extends Form
             ])
 
             ->add([
-                'name' => 'iiifsearch_extract_types_files',
+                'name' => 'iiifsearch_extract_dests_tsv',
                 'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
-                    'label' => 'Create file for formats', // @translate
-                    'info' => 'For more info on formats, see readme.', // @translate
-                    'documentation' => 'https://gitlab.com/Daniel-KM/Omeka-S-module-IiifSearch', // @translate
-                    'value_options' => [
-                        'text/tab-separated-values' => 'tsv with original order of words (quick and exact search for iiif search)', // @translate
-                        'text/tab-separated-values;by-word' => 'tsv grouped by word (very quick search for iiif search, small index)', // @translate
-                        'application/alto+xml' => 'xml alto (slow search, ocr transcription for iiif server)', // @translate
-                        'application/vnd.pdf2xml+xml' => 'pdf2xml', // @translate
-                    ],
+                    'label' => 'TSV index (full)', // @translate
+                    'info' => 'Quick and exact search for IIIF search. Recommended: file only.', // @translate
+                    'value_options' => $this->destinationOptions(),
                 ],
                 'attributes' => [
-                    'id' => 'iiifsearch_extract_types_files',
+                    'id' => 'iiifsearch_extract_dests_tsv',
                 ],
             ])
             ->add([
-                'name' => 'iiifsearch_extract_types_media',
+                'name' => 'iiifsearch_extract_dests_tsv_by_word',
                 'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
-                    'label' => 'Create media for formats', // @translate
-                    'value_options' => [
-                        'text/tab-separated-values' => 'tsv with original order of words', // @translate
-                        'text/tab-separated-values;by-word' => 'tsv grouped by word', // @translate
-                        'application/alto+xml' => 'xml alto', // @translate
-                        'application/vnd.pdf2xml+xml' => 'pdf2xml', // @translate
-                    ],
+                    'label' => 'TSV index (grouped by word)', // @translate
+                    'info' => 'Very quick search for IIIF search, small index. Recommended: file only.', // @translate
+                    'value_options' => $this->destinationOptions(),
                 ],
                 'attributes' => [
-                    'id' => 'iiifsearch_extract_types_media',
+                    'id' => 'iiifsearch_extract_dests_tsv_by_word',
                 ],
             ])
             ->add([
-                'name' => 'iiifsearch_extract_types_digital_object',
+                'name' => 'iiifsearch_extract_dests_alto',
                 'type' => CommonElement\OptionalMultiCheckbox::class,
                 'options' => [
                     'element_group' => 'extract',
-                    'label' => 'Create digital object for formats', // @translate
-                    'value_options' => [
-                        'text/tab-separated-values' => 'tsv with original order of words', // @translate
-                        'text/tab-separated-values;by-word' => 'tsv grouped by word', // @translate
-                        'application/alto+xml' => 'xml alto', // @translate
-                        'application/vnd.pdf2xml+xml' => 'pdf2xml', // @translate
-                    ],
+                    'label' => 'ALTO XML', // @translate
+                    'info' => 'OCR transcription for IIIF server. File is the default; attaching as media or digital object is also supported when you want to expose ALTO as a regular Omeka resource.', // @translate
+                    'value_options' => $this->destinationOptions(),
                 ],
                 'attributes' => [
-                    'id' => 'iiifsearch_extract_types_digital_object',
+                    'id' => 'iiifsearch_extract_dests_alto',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_dests_pdf2xml',
+                'type' => CommonElement\OptionalMultiCheckbox::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'pdf2xml (deprecated)', // @translate
+                    'info' => 'pdf2xml is an intermediate format kept for backward compatibility and not recommended anymore. Leave all destinations unchecked.', // @translate
+                    'value_options' => $this->destinationOptions(),
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_dests_pdf2xml',
                 ],
             ])
 
@@ -366,6 +365,62 @@ class ConfigForm extends Form
                 ],
             ]);
 
+        // Cleanup of legacy module-created medias. Only medias that match the
+        // strict provenance rules of ExtractOcr::canDeleteOcrMedia() will ever
+        // be touched. User uploads remain untouched.
+
+        $this
+            ->add([
+                'name' => 'iiifsearch_cleanup',
+                'type' => Fieldset::class,
+                'options' => [
+                    'element_group' => 'bulk',
+                    'label' => 'Cleanup module-created medias', // @translate
+                ],
+            ]);
+
+        $this->get('iiifsearch_cleanup')
+            ->add([
+                'name' => 'targets',
+                'type' => Element\MultiCheckbox::class,
+                'options' => [
+                    'label' => 'Formats to delete', // @translate
+                    'info' => 'Only medias produced by the module are eligible: tsv indexes whose source ends with ".{itemId}.[by-word.]tsv", pdf2xml whose source ends with ".{itemId}.pdf2xml.xml" (legacy, deprecated), and ALTO whose XML carries the module provenance marker. Medias uploaded by users are never touched, whatever their format.', // @translate
+                    'value_options' => [
+                        'tsv' => 'TSV search indexes (.{itemId}.tsv, .{itemId}.by-word.tsv)', // @translate
+                        'pdf2xml' => 'pdf2xml (deprecated, not attached anymore by recent versions)', // @translate
+                        'alto' => 'ALTO created by the module (provenance marker)', // @translate
+                    ],
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_cleanup_targets',
+                    'value' => ['tsv', 'pdf2xml'],
+                ],
+            ])
+            ->add([
+                'name' => 'rerun_extract',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'label' => 'Re-run OCR / index extraction after cleanup', // @translate
+                    'info' => 'Dispatch the Extract OCR job ("missing" mode) right after the cleanup so the deleted indexes and OCR derivatives are produced again as flat files under files/iiif-search/ and files/alto/.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_cleanup_rerun_extract',
+                    'value' => '1',
+                ],
+            ])
+            ->add([
+                'name' => 'cleanup',
+                'type' => Element\Submit::class,
+                'options' => [
+                    'label' => 'Run cleanup in background', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'cleanup',
+                    'value' => 'Clean up', // @translate
+                ],
+            ]);
+
         $inputFilter = $this->getInputFilter();
         $inputFilter
             ->add([
@@ -377,11 +432,19 @@ class ConfigForm extends Form
                 'required' => false,
             ])
             ->add([
-                'name' => 'iiifsearch_extract_types_files',
+                'name' => 'iiifsearch_extract_dests_tsv',
                 'required' => false,
             ])
             ->add([
-                'name' => 'iiifsearch_extract_types_media',
+                'name' => 'iiifsearch_extract_dests_tsv_by_word',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_dests_alto',
+                'required' => false,
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_dests_pdf2xml',
                 'required' => false,
             ])
             ->add([
@@ -396,5 +459,18 @@ class ConfigForm extends Form
                 'name' => 'iiifsearch_extract',
                 'required' => false,
             ]);
+    }
+
+    /**
+     * Destination options used by every per-format multicheckbox in the
+     * extraction tab.
+     */
+    protected function destinationOptions(): array
+    {
+        return [
+            'file' => 'flat file (recommended)', // @translate
+            'media' => 'attach as media', // @translate
+            'digital_object' => 'attach as digital object (requires DigitalObject module)', // @translate
+        ];
     }
 }

@@ -1587,7 +1587,16 @@ class IiifSearch extends AbstractHelper
 
     protected function loadXmlFromFilepath(string $filepath, ?bool $isPdf2Xml = false): ?SimpleXMLElement
     {
-        $xmlContent = file_get_contents($filepath);
+        // Avoid the file_get_contents() warning when the source file is gone
+        // (orphan media row, removed derivative, etc.). Without this guard,
+        // file_get_contents returns false and mb_detect_encoding throws a
+        // TypeError, which surfaces as a 500 to the iiif-search endpoint.
+        $xmlContent = is_string($filepath) && $filepath !== '' && is_readable($filepath)
+            ? @file_get_contents($filepath)
+            : false;
+        if ($xmlContent === false || $xmlContent === '') {
+            return null;
+        }
 
         $xmlContent = mb_convert_encoding(
             $xmlContent,
