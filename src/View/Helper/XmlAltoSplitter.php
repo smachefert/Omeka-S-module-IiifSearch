@@ -22,19 +22,10 @@ class XmlAltoSplitter extends AbstractHelper
 
     protected string $basePath;
 
-    /**
-     * Strategy to map a <Page> to a canvas:
-     * - "order": alto pages match item images by media position.
-     * - "physical_img_nr": Page/@PHYSICAL_IMG_NR (1-based).
-     * - "page_id_to_media_name": Page/@ID matches media file basename.
-     */
-    protected string $pageMatch;
-
-    public function __construct(Logger $logger, string $basePath, string $pageMatch = 'order')
+    public function __construct(Logger $logger, string $basePath)
     {
         $this->logger = $logger;
         $this->basePath = $basePath;
-        $this->pageMatch = $pageMatch;
     }
 
     /**
@@ -173,36 +164,26 @@ class XmlAltoSplitter extends AbstractHelper
             return null;
         }
 
-        switch ($this->pageMatch) {
-            case 'physical_img_nr':
-                foreach ($pages as $page) {
-                    $nr = (int) $page->getAttribute('PHYSICAL_IMG_NR');
-                    if ($nr && ($nr - 1) === $pageIndex) {
-                        return $page;
-                    }
-                }
-                return $pages[$pageIndex] ?? null;
-
-            case 'page_id_to_media_name':
-                $itemFileResources = $this->getView()->plugin('itemFileResources');
-                $resources = $itemFileResources($item);
-                $target = $resources[$pageIndex] ?? null;
-                if (!$target) {
-                    return null;
-                }
-                $base = pathinfo($target->source() ?: $target->filename(), PATHINFO_FILENAME);
-                foreach ($pages as $page) {
-                    if ($page->getAttribute('ID') === $base
-                        || $page->getAttribute('ID') === 'Page_' . $base
-                    ) {
-                        return $page;
-                    }
-                }
-                return $pages[$pageIndex] ?? null;
-
-            case 'order':
-            default:
-                return $pages[$pageIndex] ?? null;
+        // Auto-resolve: prefer PHYSICAL_IMG_NR when present, then match
+        // Page/@ID against item file basenames, fall back to positional order.
+        foreach ($pages as $page) {
+            $nr = (int) $page->getAttribute('PHYSICAL_IMG_NR');
+            if ($nr && ($nr - 1) === $pageIndex) {
+                return $page;
+            }
         }
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $resources = $itemFileResources($item);
+        $target = $resources[$pageIndex] ?? null;
+        if ($target) {
+            $base = pathinfo($target->source() ?: $target->filename(), PATHINFO_FILENAME);
+            foreach ($pages as $page) {
+                $id = $page->getAttribute('ID');
+                if ($id === $base || $id === 'Page_' . $base) {
+                    return $page;
+                }
+            }
+        }
+        return $pages[$pageIndex] ?? null;
     }
 }

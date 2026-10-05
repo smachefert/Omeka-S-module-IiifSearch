@@ -12,13 +12,10 @@ class XmlAltoSplitterFactory implements FactoryInterface
     {
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        $settings = $services->get('Omeka\Settings');
-        $pageMatch = (string) $settings->get('iiifsearch_alto_page_match', 'order');
 
         return new XmlAltoSplitter(
             $services->get('Omeka\Logger'),
-            $basePath,
-            $pageMatch
+            $basePath
         );
     }
 }

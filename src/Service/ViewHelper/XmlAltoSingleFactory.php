@@ -18,7 +18,6 @@ class XmlAltoSingleFactory
             $services->get('Omeka\Logger'),
             $helpers->get('fixUtf8'),
             $basePath,
-            $settings->get('iiifsearch_xml_image_match', 'order'),
             $settings->get('iiifsearch_xml_fix_mode', 'no')
         );
     }

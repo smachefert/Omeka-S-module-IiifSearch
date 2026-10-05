@@ -36,24 +36,17 @@ class XmlAltoSingle extends AbstractHelper
     /**
      * @var string
      */
-    protected $xmlImageMatch;
-
-    /**
-     * @var string
-     */
     protected $xmlFixMode;
 
     public function __construct(
         Logger $logger,
         FixUtf8 $fixUtf8,
         string $basePath,
-        string $xmlImageMatch,
         string $xmlFixMode
     ) {
         $this->logger = $logger;
         $this->fixUtf8 = $fixUtf8;
         $this->basePath = $basePath;
-        $this->xmlImageMatch = $xmlImageMatch;
         $this->xmlFixMode = $xmlFixMode;
     }
 

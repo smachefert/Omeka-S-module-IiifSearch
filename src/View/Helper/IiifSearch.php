@@ -118,11 +118,6 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * @var string
-     */
-    protected $xmlImageMatch;
-
-    /**
      * @var array
      */
     protected $imageSizes;
@@ -191,8 +186,7 @@ class IiifSearch extends AbstractHelper
         XmlAltoSingle $xmlAltoSingle,
         string $basePath,
         bool $searchMediaValues,
-        string $xmlFixMode,
-        string $xmlImageMatch
+        string $xmlFixMode
     ) {
         $this->api = $api;
         $this->derivativeList = $derivativeList;
@@ -203,7 +197,6 @@ class IiifSearch extends AbstractHelper
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
         $this->xmlFixMode = $xmlFixMode;
-        $this->xmlImageMatch = $xmlImageMatch;
     }
 
     /**
@@ -1109,6 +1102,32 @@ class IiifSearch extends AbstractHelper
         } catch (Exception $e) {
             return null;
         }
+
+        // Also match DigitalObjects linked to the item: collect their ids via
+        // itemFileResources, then ask the DO adapter for fulltext hits limited
+        // to that set (DOs are not item-owned so item_id filtering does not
+        // apply at the adapter level).
+        try {
+            $itemFileResources = $this->getView()->plugin('itemFileResources');
+            $doIds = [];
+            foreach ($itemFileResources($this->item) as $resource) {
+                if ($resource->isDigitalObject()) {
+                    $doIds[] = $resource->id();
+                }
+            }
+            if ($doIds) {
+                $doHits = $this->api->search('digital_objects', [
+                    'id' => $doIds,
+                    'fulltext_search' => $this->query,
+                ], ['initialize' => false, 'returnScalar' => 'id'])->getContent();
+                if ($doHits) {
+                    $mediaIds = array_merge($mediaIds, $doHits);
+                }
+            }
+        } catch (Exception $e) {
+            // DO module absent or query unsupported — keep media-only hits.
+        }
+
         $mediaIds = array_diff($mediaIds, $iiifMediaIds);
         if (!$mediaIds) {
             return null;
@@ -1222,16 +1241,10 @@ class IiifSearch extends AbstractHelper
             return false;
         }
 
-        // New pairer cascade takes precedence when configured to auto or any
-        // strategy beyond the legacy "order"/"basename" toggle. Legacy
-        // "basename" keeps using the simple pathinfo path for compatibility
-        // with pre-3.4.18 deployments that explicitly set it.
         if ($this->pairingMode !== 'sequential'
             && count($this->mediaXml) > 1
         ) {
             $this->prepareSearchPaired();
-        } elseif ($this->xmlImageMatch === 'basename') {
-            $this->prepareSearchBasename();
         }
 
         return true;
@@ -1368,33 +1381,6 @@ class IiifSearch extends AbstractHelper
             $reordered[$indexImage] = $altoByImageId[$id] ?? null;
         }
         $this->mediaXml = $reordered;
-        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
-
-        return $this;
-    }
-
-    /**
-     * Reorder files according to source basename.
-     */
-    protected function prepareSearchBasename(): self
-    {
-        $result = [];
-
-        $xmls = [];
-        foreach ($this->mediaXml as $indexXml => $media) {
-            $xmls[$indexXml] = pathinfo($media->source(), PATHINFO_FILENAME);
-        }
-
-        foreach ($this->imageSizes as $indexImage => $sizeData) {
-            $basename = pathinfo($sizeData['source'], PATHINFO_FILENAME);
-            $xmlIndex = array_search($basename, $xmls);
-            $result[$indexImage] = $xmlIndex === false
-                ? null
-                : $this->mediaXml[$xmlIndex];
-        }
-
-        $this->mediaXml = $result;
-
         $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
 
         return $this;

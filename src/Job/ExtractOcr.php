@@ -138,6 +138,14 @@ class ExtractOcr extends AbstractJob
     protected $itemFileResources;
 
     /**
+     * Target kind for the new resource created for the current format: 'media'
+     * (default) or 'digital_object'.
+     *
+     * @var string
+     */
+    protected $saveAs = 'media';
+
+    /**
      * @var array
      */
     protected $dataPdf;
@@ -149,6 +157,7 @@ class ExtractOcr extends AbstractJob
         'item' => false,
         'media_pdf' => false,
         'media_extracted' => false,
+        'digital_object_extracted' => false,
     ];
 
     /**
@@ -260,9 +269,19 @@ class ExtractOcr extends AbstractJob
         $targetTypesFiles = array_values(array_intersect(array_keys($formats), $targetTypesFiles));
         $targetTypesMedia = $settings->get('iiifsearch_extract_types_media') ?: [];
         $targetTypesMedia = array_values(array_intersect(array_keys($formats), $targetTypesMedia));
+        $targetTypesDigitalObject = $settings->get('iiifsearch_extract_types_digital_object') ?: [];
+        $targetTypesDigitalObject = array_values(array_intersect(array_keys($formats), $targetTypesDigitalObject));
+        $doModuleActive = (bool) $services->get('Omeka\ModuleManager')->getModule('DigitalObject');
+        if ($targetTypesDigitalObject && !$doModuleActive) {
+            $this->logger->warn(
+                'iiifsearch_extract_types_digital_object is set but the DigitalObject module is not active; those formats will be created as media instead.' // @translate
+            );
+            $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
+            $targetTypesDigitalObject = [];
+        }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
-        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted']);
-        if (!count($targetTypesFiles) && !count($targetTypesMedia) && !count($targetContentStore)) {
+        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted', 'digital_object_extracted']);
+        if (!count($targetTypesFiles) && !count($targetTypesMedia) && !count($targetTypesDigitalObject) && !count($targetContentStore)) {
             $this->logger->warn(
                 'No extract format to process.' // @translate
             );
@@ -311,6 +330,7 @@ class ExtractOcr extends AbstractJob
                     $this->store['item'] = in_array('item', $contentStore) && !$this->getArg('manual');
                     $this->store['media_pdf'] = in_array('media_pdf', $contentStore);
                     $this->store['media_extracted'] = in_array('media_extracted', $contentStore);
+                    $this->store['digital_object_extracted'] = in_array('digital_object_extracted', $contentStore);
                 }
             }
             if (!$this->propertyId) {
@@ -456,19 +476,23 @@ class ExtractOcr extends AbstractJob
         // Most of the time, there are one or two formats.
         $create = [];
         foreach ($targetTypesFiles as $targetType) {
-            $create[] = ['format' => $targetType, 'create_media' => false];
+            $create[] = ['format' => $targetType, 'create_media' => false, 'target_kind' => 'media'];
         }
         foreach ($targetTypesMedia as $targetType) {
-            $create[] = ['format' => $targetType, 'create_media' => true];
+            $create[] = ['format' => $targetType, 'create_media' => true, 'target_kind' => 'media'];
+        }
+        foreach ($targetTypesDigitalObject as $targetType) {
+            $create[] = ['format' => $targetType, 'create_media' => true, 'target_kind' => 'digital_object'];
         }
         // Allow to store extracted text without creating files or media.
         if (empty($create) && $contentStore) {
-            $create[] = ['format' => self::FORMAT_PDF2XML, 'create_media' => false, 'content_only' => true];
+            $create[] = ['format' => self::FORMAT_PDF2XML, 'create_media' => false, 'content_only' => true, 'target_kind' => 'media'];
         }
         foreach ($create as $key => $targetData) {
             $this->createMedia = $targetData['create_media'];
             $this->contentOnly = !empty($targetData['content_only']);
             $this->targetFormat = $targetData['format'];
+            $this->saveAs = $targetData['target_kind'] ?? 'media';
             $this->targetDirPath = $dirPaths[$this->targetFormat];
             $this->targetExtension = $extensions[$this->targetFormat];
             $this->targetMediaType = $mediaTypes[$this->targetFormat];
@@ -483,6 +507,7 @@ class ExtractOcr extends AbstractJob
                     'item' => false,
                     'media_pdf' => false,
                     'media_extracted' => false,
+                    'digital_object_extracted' => false,
                 ];
                 $this->propertyId = null;
                 $this->propertyTerm = null;
@@ -1033,12 +1058,15 @@ class ExtractOcr extends AbstractJob
         return copy($tempFilepath, $filepath);
     }
 
+    /**
+     * @return \Omeka\Api\Representation\AbstractResourceEntityRepresentation|null
+     */
     protected function storeFileInMedia(
         TempFile $tempFile,
         ?string $textContent,
         ItemRepresentation $item,
         ?MediaRepresentation $pdfMedia = null
-    ): ?MediaRepresentation {
+    ) {
         // It's not possible to save a local file via the "upload" ingester. So
         // the ingester "url" can be used, but it requires the file to be in the
         // omeka files directory. Else, use module FileSideload or inject sql.
@@ -1068,11 +1096,16 @@ class ExtractOcr extends AbstractJob
             'values_json' => '{}',
         ];
 
-        if ($this->propertyId && strlen((string) $textContent) && $this->store['media_extracted']) {
+        $storeText = $this->propertyId && strlen((string) $textContent)
+            && (
+                ($this->saveAs === 'media' && $this->store['media_extracted'])
+                || ($this->saveAs === 'digital_object' && $this->store['digital_object_extracted'])
+            );
+        if ($storeText) {
             $data[$this->propertyTerm][] = [
                 'type' => 'literal',
                 'property_id' => $this->propertyId,
-                '@value' => $textContent ,
+                '@value' => $textContent,
                 '@language' => $this->language,
             ];
             if ($pdfMedia) {
@@ -1086,7 +1119,11 @@ class ExtractOcr extends AbstractJob
         }
 
         try {
-            $media = $this->api->create('media', $data)->getContent();
+            if ($this->saveAs === 'digital_object') {
+                $media = $this->createAsDigitalObject($data, $storeFile, $item);
+            } else {
+                $media = $this->api->create('media', $data)->getContent();
+            }
         } catch (\Omeka\Api\Exception\ExceptionInterface $e) {
             // Generally a bad or missing pdf file.
             $this->logger->err($e->getMessage() ?: $e);
@@ -1102,9 +1139,75 @@ class ExtractOcr extends AbstractJob
             return null;
         }
 
-        // Move the xml file as the last media to avoid thumbnails issues.
-        $this->reorderMediasAndSetType($media);
+        if ($this->saveAs !== 'digital_object') {
+            // Move the xml file as the last media to avoid thumbnails issues.
+            $this->reorderMediasAndSetType($media);
+        }
         return $media;
+    }
+
+    /**
+     * Ingest the extracted file as a DigitalObject and link it to the item via
+     * the first property listed in DigitalObject's
+     * digitalobject_inline_properties config so digitalObjectInline picks it up
+     * downstream.
+     *
+     * @return \DigitalObject\Api\Representation\DigitalObjectRepresentation|null
+     */
+    protected function createAsDigitalObject(array $data, array $storeFile, ItemRepresentation $item)
+    {
+        $services = $this->getServiceLocator();
+        $config = $services->get('Config');
+        $linkProperties = $config['digitalobject']['config']['digitalobject_inline_properties']
+            ?? ['dcterms:hasFormat'];
+        $linkTerm = (string) reset($linkProperties);
+        if ($linkTerm === '') {
+            $this->logger->err(
+                'No digitalobject_inline_properties configured; cannot link the new digital object to the item.' // @translate
+            );
+            return null;
+        }
+        $easyMeta = $services->get('Common\EasyMeta');
+        $linkPropertyId = $easyMeta->propertyId($linkTerm);
+        if (!$linkPropertyId) {
+            $this->logger->err(new Message(
+                'Property "%s" (digitalobject_inline_properties) is unknown; cannot link the new digital object.', // @translate
+                $linkTerm
+            ));
+            return null;
+        }
+        $doData = [
+            'o:ingester' => 'sideload',
+            'ingest_filename' => $storeFile['filepath'],
+            'o:source' => $data['o:source'] ?? null,
+            'o:lang' => $data['o:lang'] ?? null,
+            'o:media_type' => $data['o:media_type'] ?? null,
+        ];
+        if (!empty($data[$this->propertyTerm])) {
+            $doData[$this->propertyTerm] = $data[$this->propertyTerm];
+        }
+        $do = $this->api->create('digital_objects', $doData)->getContent();
+        if (!$do) {
+            return null;
+        }
+        $existing = $item->value($linkTerm, ['all' => true, 'default' => []]);
+        $values = [];
+        foreach ($existing as $value) {
+            $values[] = $value->jsonSerialize();
+        }
+        $values[] = [
+            'type' => 'resource:digitalobject',
+            'property_id' => $linkPropertyId,
+            'value_resource_id' => $do->id(),
+        ];
+        $this->api->update(
+            'items',
+            $item->id(),
+            [$linkTerm => $values],
+            [],
+            ['isPartial' => true, 'collectionAction' => 'replace']
+        );
+        return $do;
     }
 
     /**

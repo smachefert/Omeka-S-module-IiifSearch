@@ -35,31 +35,6 @@ class Module extends AbstractModule
         // Re-encode decoded slashes in identifiers for search routes.
         $event->getApplication()->getEventManager()
             ->attach(MvcEvent::EVENT_ROUTE, [$this, 'reencodeIdentifierSlashes'], 1000);
-
-        $this->migratePairingSettings();
-    }
-
-    /**
-     * Map the legacy xml_image_match value onto iiifsearch_alto_pairing_mode on
-     * the first boot after upgrade. Only runs when the new setting is at its
-     * default ("auto") so manual choices are preserved. Idempotent via a
-     * one-shot flag.
-     */
-    protected function migratePairingSettings(): void
-    {
-        $services = $this->getServiceLocator();
-        $settings = $services->get('Omeka\Settings');
-        if ($settings->get('iiifsearch_pairing_migrated')) {
-            return;
-        }
-        $current = (string) $settings->get('iiifsearch_alto_pairing_mode', 'auto');
-        if ($current === 'auto') {
-            $legacy = (string) $settings->get('iiifsearch_xml_image_match', '');
-            if ($legacy === 'basename') {
-                $settings->set('iiifsearch_alto_pairing_mode', 'basename');
-            }
-        }
-        $settings->set('iiifsearch_pairing_migrated', true);
     }
 
 
@@ -240,9 +215,15 @@ class Module extends AbstractModule
             return null;
         }
 
-        $form = $formManager->get(\IiifSearch\Form\ConfigForm::class);
-        $form->init();
-        $form->setData($data);
+        if ($this->invalidConfigForm) {
+            // Reuse the failed-submit form so its per-field error messages
+            // remain attached and render inline via formRow().
+            $form = $this->invalidConfigForm;
+        } else {
+            $form = $formManager->get(\IiifSearch\Form\ConfigForm::class);
+            $form->init();
+            $form->setData($data);
+        }
         $form->prepare();
 
         $view = $renderer;
@@ -451,10 +432,15 @@ class Module extends AbstractModule
         }
 
         $media = $event->getParam('resource');
-        if (!$media instanceof \Omeka\Api\Representation\MediaRepresentation) {
+        if (!$media instanceof \Omeka\Api\Representation\AbstractResourceEntityRepresentation
+            || !method_exists($media, 'item')
+        ) {
             return;
         }
         $item = $media->item();
+        if (!$item) {
+            return;
+        }
 
         $plugins = $services->get('ViewHelperManager');
         if (!$plugins->has('xmlAltoSplitter')) {
@@ -547,15 +533,27 @@ class Module extends AbstractModule
      */
     protected function canvasPageIndex(
         \Omeka\Api\Representation\ItemRepresentation $item,
-        \Omeka\Api\Representation\MediaRepresentation $media,
-        \Omeka\Api\Representation\MediaRepresentation $altoMedia
+        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $media,
+        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $altoMedia
     ): ?int {
+        $services = $this->getServiceLocator();
+        $helpers = $services->get('ViewHelperManager');
+        $resources = $helpers->has('itemFileResources')
+            ? $helpers->get('itemFileResources')($item)
+            : null;
+        if ($resources === null) {
+            $resources = [];
+            foreach ($item->media() as $m) {
+                $resources[] = $m;
+            }
+        }
         $i = 0;
-        foreach ($item->media() as $m) {
-            if ($m->id() === $altoMedia->id()) {
+        foreach ($resources as $r) {
+            $id = method_exists($r, 'id') ? $r->id() : $r->inner()->id();
+            if ($id === $altoMedia->id()) {
                 continue;
             }
-            if ($m->id() === $media->id()) {
+            if ($id === $media->id()) {
                 return $i;
             }
             $i++;

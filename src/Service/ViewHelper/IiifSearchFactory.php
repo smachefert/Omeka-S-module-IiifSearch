@@ -24,8 +24,7 @@ class IiifSearchFactory
             $helpers->get('xmlAltoSingle'),
             $basePath,
             !$settings->get('iiifsearch_disable_search_media_values'),
-            $settings->get('iiifsearch_xml_fix_mode', 'no'),
-            $settings->get('iiifsearch_xml_image_match', 'order')
+            $settings->get('iiifsearch_xml_fix_mode', 'no')
         );
         $iiifSearch->setPairingMode((string) $settings->get('iiifsearch_alto_pairing_mode', 'auto'));
         return $iiifSearch;
