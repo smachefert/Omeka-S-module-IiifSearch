@@ -619,7 +619,9 @@ class Module extends AbstractModule
         }
 
         $params = $controller->getRequest()->getPost();
-        $extractParams = $params['iiifsearch_extract'] ?? [];
+        $extractParams = $params['iiifsearch_bulk']
+            ?? $params['iiifsearch_extract']
+            ?? [];
         if (empty($extractParams['process'])
             || $extractParams['process'] !== $controller->translate('Process')
         ) {
@@ -630,7 +632,10 @@ class Module extends AbstractModule
         $args = [
             'mode' => $extractParams['mode'] ?? 'all',
             'base_uri' => $this->getBaseUri(),
+            // 'item_ids' is kept available as an alternate selector for other
+            // entry points (api.create.post, easyAdmin batch, CLI scripts).
             'item_ids' => $extractParams['item_ids'] ?? '',
+            'query' => $extractParams['query'] ?? '',
         ];
         $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
         $job = $dispatcher->dispatch(\IiifSearch\Job\ExtractOcr::class, $args);

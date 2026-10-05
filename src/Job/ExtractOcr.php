@@ -313,6 +313,21 @@ class ExtractOcr extends AbstractJob
         if ($itemId) {
             $itemIds = trim($itemId . ' ' . $itemIds);
         }
+        // Optional Omeka query string (from form Omeka\Form\Element\Query): it
+        // narrows the item set to the API result. Combined with item_ids when
+        // both are present.
+        $query = (string) $this->getArg('query');
+        $queryItemIds = null;
+        if ($query !== '') {
+            $parsed = [];
+            parse_str($query, $parsed);
+            if ($parsed) {
+                $queryItemIds = $this->api
+                    ->search('items', $parsed, ['initialize' => false, 'returnScalar' => 'id'])
+                    ->getContent();
+                $queryItemIds = array_map('intval', $queryItemIds);
+            }
+        }
 
         // TODO Manage the case where there are multiple pdf by item (rare).
 
@@ -402,7 +417,10 @@ class ExtractOcr extends AbstractJob
         /** @var \Doctrine\DBAL\Connection $connection */
         $connection = $services->get('Omeka\Connection');
         // Select item ids having at least one pdf media, one alto media, or one
-        // image media (for tesseract-based ALTO extraction).
+        // image media (for tesseract-based ALTO extraction). When the
+        // DigitalObject module is active, union with items linked to a DO
+        // matching the same criteria so DO-only OCR sources are not missed.
+        $doModuleActive = (bool) $services->get('Omeka\ModuleManager')->getModule('DigitalObject');
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
             FROM `media`
@@ -410,6 +428,18 @@ class ExtractOcr extends AbstractJob
                 OR `media_type` = :alto_media_type
                 OR `media_type` LIKE 'image/%'
             SQL;
+        if ($doModuleActive) {
+            $sql .= <<<'SQL'
+
+                UNION
+                SELECT DISTINCT `v`.`resource_id` AS `item_id`
+                FROM `value` `v`
+                INNER JOIN `digital_object` `d` ON `v`.`value_resource_id` = `d`.`id`
+                WHERE (`d`.`media_type` IN (:pdf_media_type) AND `d`.`extension` = :pdf_extension)
+                    OR `d`.`media_type` = :alto_media_type
+                    OR `d`.`media_type` LIKE 'image/%'
+                SQL;
+        }
         $bind = [
             'pdf_media_type' => ['application/pdf', 'text/pdf'],
             'pdf_extension' => 'pdf',
@@ -423,12 +453,18 @@ class ExtractOcr extends AbstractJob
         if ($itemIds) {
             $range = $this->exprRange('item_id', $itemIds);
             if ($range) {
-                $sql .= ' AND ((' . implode(') OR (', $range) . '))';
+                // Apply the range filter to both branches of the union by
+                // wrapping the whole statement in a subquery.
+                $sql = 'SELECT `item_id` FROM (' . $sql . ') AS `t`'
+                    . ' WHERE ((' . implode(') OR (', $range) . '))';
             }
         }
         $sql .= ' ORDER BY `item_id` ASC';
         $targetItemIds = $connection->executeQuery($sql, $bind, $types)->fetchFirstColumn();
         $targetItemIds = array_map('intval', $targetItemIds);
+        if ($queryItemIds !== null) {
+            $targetItemIds = array_values(array_intersect($targetItemIds, $queryItemIds));
+        }
         $totalToProcess = count($targetItemIds);
 
         if (empty($totalToProcess)) {

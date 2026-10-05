@@ -8,6 +8,7 @@ use Common\Form\Element as CommonElement;
 use Laminas\Form\Element;
 use Laminas\Form\Fieldset;
 use Laminas\Form\Form;
+use Omeka\Form\Element as OmekaElement;
 
 class ConfigForm extends Form
 {
@@ -82,11 +83,19 @@ class ConfigForm extends Form
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_alto_canvas_inject',
-                    'value' => false,
                 ],
             ])
 
             // Extraction.
+
+            ->add([
+                'name' => 'fieldset_extract_storage',
+                'type' => \Laminas\Form\Fieldset::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Storage of indices and derivative data', // @translate
+                ],
+            ])
 
             ->add([
                 'name' => 'iiifsearch_extract_types_files',
@@ -143,15 +152,11 @@ class ConfigForm extends Form
             ])
 
             ->add([
-                'name' => 'iiifsearch_extract_create_empty_file',
-                'type' => Element\Checkbox::class,
+                'name' => 'fieldset_extract_process',
+                'type' => \Laminas\Form\Fieldset::class,
                 'options' => [
                     'element_group' => 'extract',
-                    'label' => 'Create xml file even if there is no text content', // @translate
-                    'info' => 'This option may be useful to keep the same order and number of pages and extracted texts.', // @translate
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_extract_create_empty_file',
+                    'label' => 'Process for extraction', // @translate
                 ],
             ])
 
@@ -171,6 +176,18 @@ class ConfigForm extends Form
                 'attributes' => [
                     'id' => 'iiifsearch_xml_fix_mode',
                     'value' => 'no',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_extract_create_empty_file',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'element_group' => 'extract',
+                    'label' => 'Create xml file even if there is no text content', // @translate
+                    'info' => 'This option may be useful to keep the same order and number of pages and extracted texts.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_extract_create_empty_file',
                 ],
             ])
             ->add([
@@ -214,7 +231,7 @@ class ConfigForm extends Form
                 'type' => Element\Radio::class,
                 'options' => [
                     'element_group' => 'extract',
-                    'label' => 'Page to image pairing mode', // @translate
+                    'label' => 'Page to image pairing mode when ocr is provided', // @translate
                     'info' => 'Strategy used to match each OCR page to its image. Auto runs a cascade of heuristics (METS, sourceImageInformation, basename, numeric, dimension, then sequential).', // @translate
                     'value_options' => [
                         'auto' => 'Auto (recommended)', // @translate
@@ -326,14 +343,15 @@ class ConfigForm extends Form
                 ],
             ])
             ->add([
-                'name' => 'item_ids',
-                'type' => Element\Text::class,
+                'name' => 'query',
+                'type' => OmekaElement\Query::class,
                 'options' => [
-                    'label' => 'Item ids', // @translate
+                    'label' => 'Item query', // @translate
+                    'info' => 'Restrict the job to items matching this Omeka query. Leave empty to process all items with ocr-eligible content.', // @translate
+                    'query_resource_type' => 'items',
                 ],
                 'attributes' => [
-                    'id' => 'item_ids',
-                    'placeholder' => '2-6 8 38-52 80-',
+                    'id' => 'query',
                 ],
             ])
             ->add([

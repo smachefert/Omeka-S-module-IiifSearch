@@ -160,7 +160,11 @@ return [
             'iiifsearch_alto_canvas_inject' => false,
 
             // OCR extraction (formerly module ExtractOcr).
-            'iiifsearch_extract_types_files' => [],
+            'iiifsearch_extract_types_files' => [
+                'text/tab-separated-values',
+                'text/tab-separated-values;by-word',
+                'application/alto+xml',
+            ],
             'iiifsearch_extract_types_media' => [],
             'iiifsearch_extract_types_digital_object' => [],
             'iiifsearch_extract_content_store' => [],
