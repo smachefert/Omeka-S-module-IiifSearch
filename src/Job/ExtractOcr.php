@@ -1198,6 +1198,17 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
+     * Check if the output of pdftotext contains text.
+     *
+     * The pages are separated by a form feed, that is not removed by trim(), so
+     * the output of a pdf without text layer is not empty.
+     */
+    protected function hasText(string $output): bool
+    {
+        return trim($output, " \t\n\r\0\x0B\f") !== '';
+    }
+
+    /**
      * If the pdf has no text layer and reocr is enabled, run ocrmypdf and
      * return a path to a temporary OCR'd pdf. Otherwise return the original.
      *
@@ -1215,7 +1226,7 @@ class ExtractOcr extends AbstractJob
         if ($probe === false) {
             return ['filepath' => $pdfFilepath, 'tempFile' => null];
         }
-        if (strlen(trim((string) $probe)) > 0) {
+        if ($this->hasText((string) $probe)) {
             return ['filepath' => $pdfFilepath, 'tempFile' => null];
         }
 
@@ -2752,7 +2763,7 @@ class ExtractOcr extends AbstractJob
         // input file: empty output (or whitespace only) ⇒ no text layer.
         $probeCmd = 'pdftotext ' . escapeshellarg($inputPath) . ' - 2>/dev/null';
         $probe = (string) $this->cli->execute($probeCmd);
-        if (trim($probe) !== '') {
+        if ($this->hasText($probe)) {
             $this->logger->info(new Message(
                 'Item #%1$d: PDF already carries a text layer, text-layer rebuild skipped.', // @translate
                 $itemId
