@@ -49,15 +49,8 @@ class IsAllowedOcr extends AbstractPlugin
             return true;
         }
 
-        $resource = $this->viewHelpers->get('xmlAltoSplitter')
-            ->sourceResource($item, $pageIndex);
-
-        if (!$resource) {
-            $images = $this->viewHelpers->get('itemFileResources')->images($item);
-            $image = $images[$pageIndex] ?? null;
-            $resource = $image ? $image->inner() : $item;
-        }
-
+        $resource = $this->viewHelpers->get('iiifSearchAnnotationUrl')
+            ->ocrResource($item, $pageIndex);
         return (bool) $this->isAllowedMediaContent->__invoke($resource);
     }
 }

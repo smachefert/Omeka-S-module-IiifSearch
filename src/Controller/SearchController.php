@@ -173,6 +173,47 @@ class SearchController extends AbstractActionController
     }
 
     /**
+     * Serve the consolidated alto of the item, only when all its pages are
+     * readable.
+     */
+    public function altoAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $path = $this->viewHelpers()->get('xmlAltoSplitter')->consolidatedPath($item);
+        if (!$path) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO available.'); // @translate
+        }
+
+        // The file gathers all pages, so a single denied page denies it.
+        $countPages = max($this->viewHelpers()->get('iiifSearchAnnotationUrl')->countWholeAltoPages($item), 1);
+        $pageIndex = 0;
+        while ($pageIndex < $countPages - 1 && $this->isAllowedOcr($item, $pageIndex)) {
+            ++$pageIndex;
+        }
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
+        $mtime = (int) filemtime($path);
+        $etag = $this->buildEtag('alto-full', $item->id(), $mtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+            return $notModified;
+        }
+
+        $response = $this->getResponse();
+        $headers = $response->getHeaders();
+        $headers->addHeaderLine('Content-Type', 'application/xml+alto; charset=utf-8');
+        $headers->addHeaderLine('Content-Length', (string) filesize($path));
+        $this->addCacheHeaders($headers, $etag, $mtime, 3600);
+        $response->setContent((string) file_get_contents($path));
+        return $response;
+    }
+
+    /**
      * Serve a single page extracted from a multipage ALTO XML document.
      */
     public function altoPageAction()

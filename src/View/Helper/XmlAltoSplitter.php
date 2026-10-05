@@ -72,12 +72,21 @@ class XmlAltoSplitter extends AbstractHelper
 
         // Consolidated single-file output of the extract-as-file target,
         // possibly multipage: files/alto/{item_id}.alto.xml.
-        $consolidated = sprintf('%s/alto/%d.alto.xml', $this->basePath, $item->id());
-        if (is_readable($consolidated)) {
+        $consolidated = $this->consolidatedPath($item);
+        if ($consolidated) {
             return $this->resolveFromMultipageFile($consolidated, $item, $pageIndex);
         }
 
         return null;
+    }
+
+    /**
+     * Path of the consolidated alto of the item (files/alto/{item_id}.alto.xml).
+     */
+    public function consolidatedPath(ItemRepresentation $item): ?string
+    {
+        $path = sprintf('%s/alto/%d.alto.xml', $this->basePath, $item->id());
+        return is_readable($path) ? $path : null;
     }
 
     /**

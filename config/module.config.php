@@ -164,6 +164,15 @@ return [
                             ],
                         ],
                     ],
+                    'alto' => [
+                        'type' => \Laminas\Router\Http\Literal::class,
+                        'options' => [
+                            'route' => '/alto.xml',
+                            'defaults' => [
+                                'action' => 'alto',
+                            ],
+                        ],
+                    ],
                     'annotation-page' => [
                         'type' => \Laminas\Router\Http\Regex::class,
                         'options' => [

@@ -3,6 +3,7 @@
 namespace IiifSearch\View\Helper;
 
 use Laminas\View\Helper\AbstractHelper;
+use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
 use Omeka\Api\Representation\ItemRepresentation;
 
 /**
@@ -86,5 +87,50 @@ class IiifSearchAnnotationUrl extends AbstractHelper
             return null;
         }
         return $serverUrl($path);
+    }
+
+    /**
+     * URL of the consolidated alto of the item, when it exists.
+     */
+    public function wholeAltoUrl(ItemRepresentation $item): ?string
+    {
+        $view = $this->getView();
+        if (!$view->plugin('xmlAltoSplitter')->consolidatedPath($item)) {
+            return null;
+        }
+        try {
+            $path = $view->plugin('url')('iiifsearch/alto', ['id' => $item->id()]);
+        } catch (\Throwable $e) {
+            return null;
+        }
+        return $view->plugin('serverUrl')($path);
+    }
+
+    /**
+     * Number of pages of the consolidated alto of the item, else zero.
+     */
+    public function countWholeAltoPages(ItemRepresentation $item): int
+    {
+        $splitter = $this->getView()->plugin('xmlAltoSplitter');
+        $path = $splitter->consolidatedPath($item);
+        return $path ? $splitter->countPages($path) : 0;
+    }
+
+    /**
+     * Resource whose access rules the ocr of a page.
+     *
+     * The ocr follows the attached alto when there is one, else the image of
+     * the page, else the item itself, for example an item made of a single pdf.
+     */
+    public function ocrResource(ItemRepresentation $item, int $pageIndex): AbstractResourceEntityRepresentation
+    {
+        $view = $this->getView();
+        $resource = $view->plugin('xmlAltoSplitter')->sourceResource($item, $pageIndex);
+        if ($resource) {
+            return $resource;
+        }
+        $images = $view->plugin('itemFileResources')->images($item);
+        $image = $images[$pageIndex] ?? null;
+        return $image ? $image->inner() : $item;
     }
 }
