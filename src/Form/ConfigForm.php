@@ -107,6 +107,18 @@ class ConfigForm extends Form
 ae = aa',
                 ],
             ])
+            ->add([
+                'name' => 'iiifsearch_wildcards',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Allow wildcards in the query', // @translate
+                    'info' => 'With "*" for any number of letters and "?" for one letter, for example "hu?s" or "huis*". The wildcards match whole words, and the query should have at least the minimum length without them.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_wildcards',
+                ],
+            ])
 
             // Text.
 

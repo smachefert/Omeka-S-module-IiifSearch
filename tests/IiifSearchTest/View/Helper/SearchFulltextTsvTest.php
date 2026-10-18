@@ -258,5 +258,39 @@ class SearchFulltextTsvTest extends TestCase
         $this->assertSame('huis', $this->callProtected($helper, 'wordKey', ['huijs']));
         $this->assertSame('straat', $this->callProtected($helper, 'wordKey', ['straet']));
     }
+
+    public function testTsvWildcards(): void
+    {
+        $helper = $this->buildTsvHelper([preg_quote('f?x', '/'), preg_quote('b*n', '/')]);
+        $this->setProperty($helper, 'useWildcards', true);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(3, $result['hit']);
+        $this->assertSame(['brown', 'fox', 'fox'], array_column($result['hits'], 'match'));
+
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$this->getFixturePath('sample-byword.tsv'), true]);
+        $this->assertSame(3, $result['hit']);
+    }
+
+    public function testTsvWildcardsMatchWholeWords(): void
+    {
+        $helper = $this->buildTsvHelper([preg_quote('hous*', '/')]);
+        $this->setProperty($helper, 'useWildcards', true);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(['house', 'house', 'house'], array_column($result['hits'], 'match'));
+
+        // A wildcard does not match a part of a word.
+        $helper = $this->buildTsvHelper([preg_quote('ou*', '/')]);
+        $this->setProperty($helper, 'useWildcards', true);
+        $this->assertNull($this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]));
+    }
+
+    public function testTsvWithoutWildcards(): void
+    {
+        $helper = $this->buildTsvHelper([preg_quote('f?x', '/')]);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $this->assertNull($this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]));
+    }
 }
 

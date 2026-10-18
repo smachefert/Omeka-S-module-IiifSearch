@@ -188,6 +188,13 @@ class IiifSearch extends AbstractHelper
     protected $spellingRules = [];
 
     /**
+     * Allow the wildcards "*" and "?" in the query.
+     *
+     * @var bool
+     */
+    protected $useWildcards = false;
+
+    /**
      * Cache of the keys of the words of the index.
      *
      * @var array
@@ -1617,6 +1624,7 @@ class IiifSearch extends AbstractHelper
         $this->queryTerms = null;
         $this->wordKeys = [];
         $this->spellingRules = $this->parseSpellingRules((string) $this->view->setting('iiifsearch_spelling_rules'));
+        $this->useWildcards = (bool) $this->view->setting('iiifsearch_wildcards');
 
         // TODO Manage a single word + an expression.
 
@@ -1644,8 +1652,8 @@ class IiifSearch extends AbstractHelper
             return $quotedQueryWords;
         }
 
-        $cleanQuery = $this->alnumString($this->query);
-        if (mb_strlen($cleanQuery) < $minimumQueryLength) {
+        $cleanQuery = $this->alnumString($this->query, $this->useWildcards ? '*?' : '');
+        if ($this->queryWordLength($cleanQuery) < $minimumQueryLength) {
             return [];
         }
 
@@ -1660,7 +1668,7 @@ class IiifSearch extends AbstractHelper
 
         $quotedQueryWords = [];
         foreach ($queryWords as $queryWord) {
-            if (mb_strlen($queryWord) >= $minimumQueryLength) {
+            if ($this->queryWordLength($queryWord) >= $minimumQueryLength) {
                 $quotedQueryWords[] = preg_quote($queryWord, '/');
             }
         }
@@ -2000,10 +2008,38 @@ class IiifSearch extends AbstractHelper
      */
     protected function makeTerm(string $word): array
     {
+        if ($this->useWildcards && strpbrk($word, '*?') !== false) {
+            $word = (string) preg_replace('/^[^\p{L}\p{N}*?]+|[^\p{L}\p{N}*?]+$/u', '', $word);
+            $regex = '';
+            foreach (preg_split('/([*?])/', $word, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) as $part) {
+                if ($part === '*') {
+                    $regex .= '[\p{L}\p{N}]*';
+                } elseif ($part === '?') {
+                    $regex .= '[\p{L}\p{N}]';
+                } else {
+                    $regex .= preg_quote($this->foldWord($part), '/');
+                }
+            }
+            return [
+                'text' => $word,
+                'key' => '',
+                'mode' => 'wildcard',
+                'regex' => '/^' . $regex . '$/u',
+            ];
+        }
         return [
             'text' => $word,
             'key' => $this->wordKey($word),
+            'mode' => 'plain',
         ];
+    }
+
+    /**
+     * Get the length of a query word, without the wildcards.
+     */
+    protected function queryWordLength(string $word): int
+    {
+        return mb_strlen($this->useWildcards ? str_replace(['*', '?'], '', $word) : $word);
     }
 
     /**
@@ -2029,7 +2065,14 @@ class IiifSearch extends AbstractHelper
      */
     protected function matchTerm(array $term, string $key, bool $isPart = false): bool
     {
-        if ($key === '' || $term['key'] === '') {
+        if ($key === '') {
+            return false;
+        }
+        // A wildcard matches the whole word.
+        if (($term['mode'] ?? 'plain') === 'wildcard') {
+            return preg_match($term['regex'], $key) === 1;
+        }
+        if ($term['key'] === '') {
             return false;
         }
         return $isPart
@@ -2044,7 +2087,15 @@ class IiifSearch extends AbstractHelper
      */
     protected function isFlexibleQuery(): bool
     {
-        return (bool) $this->spellingRules;
+        if ($this->spellingRules) {
+            return true;
+        }
+        foreach ($this->getQueryTerms() as $term) {
+            if (($term['mode'] ?? 'plain') !== 'plain') {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -2138,11 +2189,11 @@ class IiifSearch extends AbstractHelper
      * Returns a cleaned  string.
      *
      * Removes trailing spaces and anything else, except letters, numbers and
-     * symbols.
+     * symbols, and the characters to keep.
      */
-    protected function alnumString($string): string
+    protected function alnumString($string, string $keep = ''): string
     {
-        $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
+        $string = preg_replace('/[^\p{L}\p{N}\p{S}' . preg_quote($keep, '/') . ']/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
     }
 

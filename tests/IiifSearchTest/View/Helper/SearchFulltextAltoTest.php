@@ -216,5 +216,19 @@ class SearchFulltextAltoTest extends TestCase
         $this->assertSame('uic', $result['hits'][0]['match']);
         $this->assertSame('The q', $result['hits'][0]['before']);
     }
+
+    public function testAltoWildcards(): void
+    {
+        $helper = $this->buildAltoHelper([preg_quote('qu*', '/')]);
+        $this->setProperty($helper, 'useWildcards', true);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'quick',
+            'before' => 'The ',
+            'after' => ' brown fox',
+        ], $result['hits'][0]);
+    }
 }
 
