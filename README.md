@@ -107,6 +107,9 @@ The config form is divided in four tabs. The tab "Extract" is the most important
   By default, fulltext hits are also collected from RDF property values attached to media or digital objects of the item, returned as item-level matches.
   Disable to limit hits to OCR content only.
 
+Each match is a hit with up to five words of context before and after it in its page: `before` and `after` in Search API 1, and a `contextualizing` annotation with a `TextQuoteSelector` (`prefix`, `exact`, `suffix`) in the `annotations` of the response in Search API 2.
+The context is available for alto, hOCR, pdf2xml and the full tsv index, but not for the tsv grouped-by-word index, that does not keep the order of the words.
+
 ### Text
 
 - Expose per-page ALTO and annotations on each canvas
