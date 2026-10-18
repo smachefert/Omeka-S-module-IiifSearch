@@ -2096,9 +2096,9 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
-     * Like findExistingAltoMedias but also materializes hOCR, pdf2xml and TEI
-     * sources to ALTO files under files/alto/, then exposes them as filepath
-     * sources. The returned array is a heterogeneous list of
+     * Like findExistingAltoMedias but also materializes hOCR, PAGE, pdf2xml and
+     * TEI sources to ALTO files under files/alto/, then exposes them as
+     * filepath sources. The returned array is a heterogeneous list of
      * MediaRepresentation (native ALTO) and string filepaths (materialized ALTO
      * derived from another dialect).
      *
@@ -2124,7 +2124,7 @@ class ExtractOcr extends AbstractJob
                 $sources[] = $resource->inner();
                 continue;
             }
-            if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
+            if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PAGE, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
                 continue;
             }
             $filename = $resource->filename();
