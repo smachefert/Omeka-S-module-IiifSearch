@@ -174,6 +174,20 @@ class IiifSearch extends AbstractHelper
     protected $queryWords;
 
     /**
+     * The words of the query to match, with the same keys than queryWords.
+     *
+     * @var array|null
+     */
+    protected $queryTerms;
+
+    /**
+     * Cache of the keys of the words of the index.
+     *
+     * @var array
+     */
+    protected $wordKeys = [];
+
+    /**
      * @var bool
      */
     protected $queryIsExactSearch;
@@ -950,18 +964,12 @@ class IiifSearch extends AbstractHelper
 
         if ($processExactSearch) {
             // Search all words as an expression.
-            // In tsv, the words are more cleaned than xml during extract ocr process.
-            $cleanQueryWords = [];
-            foreach ($this->queryWords as $key => $queryWord) {
-                if ($key === 'full') {
-                    continue;
-                }
-                $word = $this->normalize($queryWord);
-                $word = mb_strtolower($word, 'UTF-8');
-                $cleanQueryWords[] = $word;
-            }
+            // The words of the index keep the punctuation, so compare keys.
+            $queryTerms = $this->getQueryTerms();
+            unset($queryTerms['full']);
+            $queryTerms = array_values($queryTerms);
 
-            $countQueryWords = count($cleanQueryWords);
+            $countQueryWords = count($queryTerms);
 
             $expressionPositions = [];
             $indexQueryWord = 0;
@@ -969,15 +977,15 @@ class IiifSearch extends AbstractHelper
             $expressionBefore = [];
             while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                 $before = $this->trackTsvContext($tracker, $data);
-                $word = mb_strtolower($data[0], 'UTF-8');
-                if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                $wordKey = $this->wordKey($data[0]);
+                if (!$this->matchTerm($queryTerms[$indexQueryWord], $wordKey)) {
                     // Reset current result, but retry with the first word.
                     $currentExpression = [];
                     if (!$indexQueryWord) {
                         continue;
                     }
                     $indexQueryWord = 0;
-                    if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                    if (!$this->matchTerm($queryTerms[$indexQueryWord], $wordKey)) {
                         continue;
                     }
                 }
@@ -1059,28 +1067,22 @@ class IiifSearch extends AbstractHelper
             $wordPositions = [$this->query => array_merge(...$expressionPositions)];
         } else {
             // Search each word ("OR").
-            // In tsv, the words are more cleaned than xml during extract ocr process.
-            $queryWordsByWords = [];
-            foreach ($this->queryWords as $queryWord) {
-                $word = $this->normalize($queryWord);
-                $word = mb_strtolower($word, 'UTF-8');
-                $queryWordsByWords[$word] = $word;
-            }
+            // The words of the index keep the punctuation, so compare keys.
+            $queryTerms = $this->getQueryTerms();
 
             $wordPositions = [];
             if ($isTsvByWord) {
                 while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
-                    if (isset($queryWordsByWords[$data[0]])) {
+                    if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $wordPositions[$data[0]] = $data[1];
                     }
                 }
             } else {
                 while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                     $before = $this->trackTsvContext($tracker, $data);
-                    $word = mb_strtolower($data[0], 'UTF-8');
-                    if (isset($queryWordsByWords[$word])) {
+                    if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $contextKey = $this->addTsvContext($tracker, $before, $data[0]);
-                        $wordPositions[$word][] = [$data[1], $data[2], $contextKey];
+                        $wordPositions[mb_strtolower($data[0], 'UTF-8')][] = [$data[1], $data[2], $contextKey];
                     }
                 }
             }
@@ -1118,6 +1120,7 @@ class IiifSearch extends AbstractHelper
 
             // All words are already found.
             foreach ($wordPositions as $chars => $wordData) {
+                $chars = $this->wordCore((string) $chars);
                 $zone = [];
                 $zone['text'] = $chars;
                 foreach ($isTsvByWord ? explode(';', $wordData) : $wordData as $pageAndPosition) {
@@ -1193,7 +1196,7 @@ class IiifSearch extends AbstractHelper
                         : null;
                     $result['hits'][] = ['hits' => [$hit]]
                         + ($context
-                            ? $this->formatContext($context['before'], $context['word'], $context['word'], $context['after'])
+                            ? $this->formatContext($context['before'], $context['word'], $this->wordCore($context['word']), $context['after'])
                             : ['match' => $resultHit['chars']]);
                 }
             }
@@ -1606,6 +1609,10 @@ class IiifSearch extends AbstractHelper
         $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length')
             ?: $this->minimumQueryLength;
 
+        // The terms are prepared from the query words when needed.
+        $this->queryTerms = null;
+        $this->wordKeys = [];
+
         // TODO Manage a single word + an expression.
 
         // TODO Should we use alnumSring() here too?
@@ -1862,12 +1869,6 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Returns a cleaned  string.
-     *
-     * Removes trailing spaces and anything else, except letters, numbers and
-     * symbols.
-     */
-    /**
      * Check if the full tsv should be used when the two tsv are available.
      *
      * The full tsv is required for exact search, and it is the only one that
@@ -1970,6 +1971,98 @@ class IiifSearch extends AbstractHelper
         ];
     }
 
+    /**
+     * Get the terms of the query, with the same keys than the query words.
+     *
+     * The terms are prepared with the query words, else they are the query
+     * words themselves.
+     *
+     * @return array Each term has keys "text" and "key".
+     */
+    protected function getQueryTerms(): array
+    {
+        if ($this->queryTerms === null) {
+            $this->queryTerms = [];
+            foreach ($this->queryWords as $index => $queryWord) {
+                $this->queryTerms[$index] = $this->makeTerm(stripslashes((string) $queryWord));
+            }
+        }
+        return $this->queryTerms;
+    }
+
+    /**
+     * Prepare a word of the query to match it against the words of the index.
+     */
+    protected function makeTerm(string $word): array
+    {
+        return [
+            'text' => $word,
+            'key' => $this->wordKey($word),
+        ];
+    }
+
+    /**
+     * Check if a word of the index matches one of the terms of the query.
+     *
+     * @param string $key The key of the word of the index.
+     */
+    protected function matchQueryTerms(array $terms, string $key): bool
+    {
+        foreach ($terms as $term) {
+            if ($this->matchTerm($term, $key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a word of the index matches a term of the query.
+     *
+     * @param string $key The key of the word of the index.
+     */
+    protected function matchTerm(array $term, string $key): bool
+    {
+        return $key !== '' && $key === $term['key'];
+    }
+
+    /**
+     * Get the word without the punctuation around it.
+     *
+     * The words of the tsv indexes keep the punctuation, like "house," or
+     * "(house".
+     */
+    protected function wordCore(string $word): string
+    {
+        return (string) preg_replace('/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/u', '', $word);
+    }
+
+    /**
+     * Get the key used to compare a word of the query and a word of the index.
+     */
+    protected function wordKey(string $word): string
+    {
+        return $this->wordKeys[$word] ??= $this->foldWord($this->wordCore($word));
+    }
+
+    /**
+     * Lower and normalize a string to compare words.
+     */
+    protected function foldWord(string $string): string
+    {
+        $string = mb_strtolower($string, 'UTF-8');
+        // The normalization is slow, so skip it for ascii.
+        return preg_match('/[^\x00-\x7F]/', $string)
+            ? $this->normalize($string)
+            : $string;
+    }
+
+    /**
+     * Returns a cleaned  string.
+     *
+     * Removes trailing spaces and anything else, except letters, numbers and
+     * symbols.
+     */
     protected function alnumString($string): string
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);

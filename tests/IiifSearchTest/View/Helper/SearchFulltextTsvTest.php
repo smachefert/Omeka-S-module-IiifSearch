@@ -14,6 +14,7 @@ use ReflectionProperty;
  * fox  on pages 1 and 2
  * quick on page 1
  * brown on page 1
+ * house with punctuation on page 3
  */
 class SearchFulltextTsvTest extends TestCase
 {
@@ -38,10 +39,11 @@ class SearchFulltextTsvTest extends TestCase
         $item->method('id')->willReturn(42);
         $this->setProperty($helper, 'item', $item);
 
-        // Image sizes: 2 pages.
+        // Image sizes: 3 pages.
         $this->setProperty($helper, 'imageSizes', [
             0 => ['id' => 101, 'width' => 2480, 'height' => 3508],
             1 => ['id' => 102, 'width' => 2480, 'height' => 3508],
+            2 => ['id' => 103, 'width' => 2480, 'height' => 3508],
         ]);
 
         $this->setProperty($helper, 'queryWords', $queryWords);
@@ -181,5 +183,46 @@ class SearchFulltextTsvTest extends TestCase
             'before' => 'The ',
             'after' => ' fox',
         ], $result['hits'][0]);
+    }
+
+    public function testTsvByWordMatchesWordsWithPunctuation(): void
+    {
+        $helper = $this->buildTsvHelper(['house']);
+        $filepath = $this->getFixturePath('sample-byword.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, true]);
+        $this->assertSame(3, $result['hit']);
+        $this->assertSame(['house', 'house', 'house'], array_column($result['hits'], 'match'));
+        $this->assertSame('house', $result['resources'][0]['zone']['text']);
+    }
+
+    public function testTsvFullMatchesWordsWithPunctuation(): void
+    {
+        $helper = $this->buildTsvHelper(['house']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(3, $result['hit']);
+        // The punctuation is part of the context.
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'house',
+            'before' => 'A ',
+            'after' => ', (house) and house.',
+        ], $result['hits'][0]);
+        $this->assertSame('A house, (', $result['hits'][1]['before']);
+        $this->assertSame(') and house.', $result['hits'][1]['after']);
+        $this->assertSame('.', $result['hits'][2]['after']);
+    }
+
+    public function testTsvFullExactSearchMatchesWordsWithPunctuation(): void
+    {
+        $helper = $this->buildTsvHelper(['house', 'and', 'full' => 'house and'], 'house and');
+        $this->setProperty($helper, 'queryIsExactSearch', true);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(1, $result['hit']);
+        // The punctuation around the expression is part of the context.
+        $this->assertSame('house) and', $result['hits'][0]['match']);
+        $this->assertSame('A house, (', $result['hits'][0]['before']);
+        $this->assertSame(' house.', $result['hits'][0]['after']);
     }
 }
