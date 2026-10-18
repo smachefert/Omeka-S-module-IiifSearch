@@ -978,7 +978,11 @@ class ExtractOcr extends AbstractJob
                 ));
             }
             if ($tempFile) {
-                $textContent = $this->extractTextContent($pdfMedia, $tempFile);
+                // Without pdf, the temp file of a tsv target is the tsv itself,
+                // so the plain text is rendered from the alto sources.
+                $textContent = !$pdfMedia && $altoSources && $this->propertyId
+                    ? $this->extractTextFromAltoSources($altoSources)
+                    : $this->extractTextContent($pdfMedia, $tempFile);
                 if ($this->contentOnly) {
                     // No file or media to create, text stored below.
                 } elseif ($this->createMedia) {
