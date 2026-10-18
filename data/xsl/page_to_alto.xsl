@@ -23,7 +23,6 @@
     - Baselines and polygons themselves: only the bbox is kept.
     - Glyphs, text styles and non-text regions (images, graphics, etc.).
 
-    @copyright Bob Coret, 2026
     @license CeCILL 2.1 https://cecill.info/licences/Licence_CeCILL_V2.1-fr.txt
 
     @version 0.1.0
