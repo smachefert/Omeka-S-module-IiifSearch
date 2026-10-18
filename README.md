@@ -111,6 +111,29 @@ The config form is divided in four tabs. The tab "Extract" is the most important
   When an item has the two tsv indexes, the one grouped by word is used for the queries, except for exact searches, because it is a bit quicker.
   Enable to use the full index for all queries, so the hits get their context.
 
+- Spelling rules to match variants of words
+  One rule by line: a list of strings separated by spaces, then `=`, then the string used to compare words. The rules apply to the query and to the text, so they are useful for old texts with many spellings of the same word. For example for early modern Dutch:
+  ```
+  ij y ie = i
+  ae = aa
+  ck = k
+  gh = g
+  cq = k
+  dt = t
+  ```
+  With these rules, a query for "huis" finds "huys" and "huijs" too. The rules are applied with `strtr()`, so the longest string is replaced first. They may find some unrelated words, so keep them short.
+
+- Allow wildcards in the query
+  `*` matches any number of letters and `?` one letter, for example `huis*` or `hu?s`. A word with a wildcard matches whole words, and it should have the minimum query length without the wildcards.
+
+- Allow fuzzy search in the query
+  `~` after a word finds the words with one different letter (an insertion, a deletion or a substitution), or two for a word of eight letters or more, for example `huis~` finds "hvis" and "huus". The number can be set with `~1` or `~2`. The distance is computed after the normalization of the words, but by byte, so it is stricter for non-latin letters.
+  Fuzzy search finds many unrelated words for short words, so it is useful mainly for long words or for texts with many errors of recognition.
+
+The words are compared without case, diacritics and punctuation around them. In the tsv indexes, a query word matches a whole word. In the xml formats (alto, hOCR, pdf2xml), it matches a part of a word too, but a word with a wildcard or a fuzzy word matches whole words.
+The IIIF Content Search API leaves the matching to the server, so the syntax for wildcards and fuzzy search is specific to this module. The matching text of the page is returned in `match` (Search API 1) and in `exact` (Search API 2), so the viewers display the variant that is found.
+On a book of 75,000 words (tsv index), the rules, the wildcards and the fuzzy search add about 20 to 40 ms by query.
+
 Each match is a hit with up to five words of context before and after it in its page: `before` and `after` in Search API 1, and a `contextualizing` annotation with a `TextQuoteSelector` (`prefix`, `exact`, `suffix`) in the `annotations` of the response in Search API 2.
 The context is available for alto, hOCR, pdf2xml and the full tsv index, but not for the tsv grouped-by-word index, that does not keep the order of the words. When the two tsv indexes are available, enable the option above to get the context.
 
