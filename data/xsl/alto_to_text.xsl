@@ -38,6 +38,10 @@
 
     <xsl:template match="alto:String">
         <xsl:value-of select="@CONTENT"/>
+        <!-- Some alto (converted from page) have no SP between words. -->
+        <xsl:if test="following-sibling::*[1][self::alto:String]">
+            <xsl:text> </xsl:text>
+        </xsl:if>
     </xsl:template>
 
     <xsl:template match="alto:SP">
