@@ -44,15 +44,15 @@ use IiifSearch\Iiif\AbstractSimpleType;
 class SearchHit extends AbstractSimpleType
 {
     protected $_storage = [
-        // A hit is the list of all matches of a page.
+        // A hit is a match, that may be highlighted by multiple annotations.
         '@type' => 'search:Hit',
         // The list of search result ids.
         'annotations' => [],
         // The whole words or strings that match.
         'match' => '',
-        // The text before the first hit.
+        // The text before the match.
         'before' => null,
-        // The text after the last hit.
+        // The text after the match.
         'after' => null,
     ];
 

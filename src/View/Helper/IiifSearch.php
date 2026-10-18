@@ -56,6 +56,11 @@ class IiifSearch extends AbstractHelper
     ];
 
     /**
+     * Number of words of context before and after each hit.
+     */
+    const CONTEXT_WORDS = 5;
+
+    /**
      * @var array
      */
     protected $supportedIndexes = self::SUPPORTED_INDEXES;
@@ -362,6 +367,8 @@ class IiifSearch extends AbstractHelper
      *                 'https://your_domain.com/omeka-s/iiif/2/104205/annotation/search-result/a6h1r1265,1074,108,32',
      *             ],
      *             'match' => 'searched-word',
+     *             'before' => 'the words before the ',
+     *             'after' => ' and the words after',
      *         ],
      *     ],
      *     'media_ids' => [1],
@@ -440,10 +447,8 @@ class IiifSearch extends AbstractHelper
                 fn ($hit) => isset($keptHits[(int) $hit])
             ));
             if ($kept) {
-                $hits[] = [
-                    'hits' => $kept,
-                    'match' => $pageHits['match'] ?? '',
-                ];
+                // Keep the match and its context.
+                $hits[] = ['hits' => $kept] + $pageHits + ['match' => ''];
             }
         }
 
@@ -554,8 +559,9 @@ class IiifSearch extends AbstractHelper
                     continue;
                 }
 
-                $hits = [];
-                $hitMatches = [];
+                // The words of the page, in order, to get the context of hits.
+                $pageWords = [];
+                $pageHits = [];
 
                 $xmlPage->registerXPathNamespace('alto', $altoNamespace);
 
@@ -564,6 +570,8 @@ class IiifSearch extends AbstractHelper
                     $matches = [];
                     $zone = [];
                     $zone['text'] = (string) $attributes->CONTENT;
+                    $wordIndex = count($pageWords);
+                    $pageWords[] = $zone['text'];
                     foreach ($this->queryWords as $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
@@ -588,20 +596,16 @@ class IiifSearch extends AbstractHelper
                             $result['resources'][] = compact('resource', 'image', 'page', 'zone', 'chars', 'hit');
                             $result['media_ids'][] = $image['id'];
 
-                            $hits[] = $hit;
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                            // TODO Get the text before first and last hit of the page.
-                            $hitMatches[] = $matches[0];
+                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
                         }
                     }
                 }
 
-                // Add hits per page.
-                if ($hits) {
-                    $result['hits'][] = [
-                        'hits' => $hits,
-                        'match' => implode(' ', array_unique($hitMatches)),
-                    ];
+                // Add one hit by match, with its context.
+                foreach ($pageHits as [$pageHit, $wordIndex, $match]) {
+                    $result['hits'][] = ['hits' => [$pageHit]]
+                        + $this->contextOf($pageWords, $wordIndex, $match);
                 }
             }
         } catch (\Throwable $e) {
@@ -697,8 +701,9 @@ class IiifSearch extends AbstractHelper
 
                 $pageIndex = $indexPageXml;
 
-                $hits = [];
-                $hitMatches = [];
+                // The words of the page, in order, to get the context of hits.
+                $pageWords = [];
+                $pageHits = [];
 
                 $words = $xpath->query(
                     ".//*[contains(@class, 'ocrx_word')]",
@@ -710,6 +715,8 @@ class IiifSearch extends AbstractHelper
                     if (!strlen($zone['text'])) {
                         continue;
                     }
+                    $wordIndex = count($pageWords);
+                    $pageWords[] = trim($zone['text']);
 
                     foreach ($this->queryWords as $chars) {
                         $matches = [];
@@ -740,17 +747,15 @@ class IiifSearch extends AbstractHelper
                             $result['resources'][] = compact('resource', 'image', 'page', 'zone', 'chars', 'hit');
                             $result['media_ids'][] = $image['id'];
 
-                            $hits[] = $hit;
-                            $hitMatches[] = $matches[0];
+                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
                         }
                     }
                 }
 
-                if ($hits) {
-                    $result['hits'][] = [
-                        'hits' => $hits,
-                        'match' => implode(' ', array_unique($hitMatches)),
-                    ];
+                // Add one hit by match, with its context.
+                foreach ($pageHits as [$pageHit, $wordIndex, $match]) {
+                    $result['hits'][] = ['hits' => [$pageHit]]
+                        + $this->contextOf($pageWords, $wordIndex, $match);
                 }
             }
         } catch (\Throwable $e) {
@@ -843,8 +848,10 @@ class IiifSearch extends AbstractHelper
                     continue;
                 }
 
-                $hits = [];
-                $hitMatches = [];
+                // The words of the page, in order, to get the context of hits.
+                // A zone is a row here, so the words are the words of the rows.
+                $pageWords = [];
+                $pageHits = [];
 
                 // 0-based row index.
                 $indexXmlLine = -1;
@@ -853,6 +860,9 @@ class IiifSearch extends AbstractHelper
                     ++$indexXmlLine;
                     $zone = [];
                     $zone['text'] = strip_tags($xmlRow->asXML());
+                    $rowStart = count($pageWords);
+                    $rowWords = preg_split('/\s+/u', trim(html_entity_decode($zone['text'], ENT_QUOTES | ENT_XML1, 'UTF-8')), -1, PREG_SPLIT_NO_EMPTY);
+                    array_push($pageWords, ...$rowWords);
 
                     foreach ($this->queryWords as $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
@@ -884,20 +894,24 @@ class IiifSearch extends AbstractHelper
                             $result['resources'][] = compact('resource', 'image', 'page', 'zone', 'chars', 'hit');
                             $result['media_ids'][] = $image['id'];
 
-                            $hits[] = $hit;
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                            // TODO Get the text before first and last hit of the page.
-                            $hitMatches[] = $matches[0];
+                            // Locate the match in the words of the row.
+                            $wordIndex = $rowStart;
+                            foreach ($rowWords as $rowIndex => $rowWord) {
+                                if (mb_stripos($rowWord, $matches[0]) !== false) {
+                                    $wordIndex = $rowStart + $rowIndex;
+                                    break;
+                                }
+                            }
+                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
                         }
                     }
                 }
 
-                // Add hits per page.
-                if ($hits) {
-                    $result['hits'][] = [
-                        'hits' => $hits,
-                        'match' => implode(' ', array_unique($hitMatches)),
-                    ];
+                // Add one hit by match, with its context.
+                foreach ($pageHits as [$pageHit, $wordIndex, $match]) {
+                    $result['hits'][] = ['hits' => [$pageHit]]
+                        + $this->contextOf($pageWords, $wordIndex, $match);
                 }
             }
         } catch (\Throwable $e) {
@@ -930,6 +944,10 @@ class IiifSearch extends AbstractHelper
             && count($this->queryWords) > 1
             && !$isTsvByWord;
 
+        // The words around the hits, for their context. The tsv by word has no
+        // order, so it has no context.
+        $tracker = [];
+
         if ($processExactSearch) {
             // Search all words as an expression.
             // In tsv, the words are more cleaned than xml during extract ocr process.
@@ -948,7 +966,9 @@ class IiifSearch extends AbstractHelper
             $expressionPositions = [];
             $indexQueryWord = 0;
             $currentExpression = [];
+            $expressionBefore = [];
             while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
+                $before = $this->trackTsvContext($tracker, $data);
                 $word = mb_strtolower($data[0], 'UTF-8');
                 if ($word !== $cleanQueryWords[$indexQueryWord]) {
                     // Reset current result, but retry with the first word.
@@ -961,10 +981,18 @@ class IiifSearch extends AbstractHelper
                         continue;
                     }
                 }
+                if (!$currentExpression) {
+                    $expressionBefore = $before;
+                }
                 $currentExpression[] = $data;
                 if (count($currentExpression) < $countQueryWords) {
                     ++$indexQueryWord;
                 } else {
+                    // Keep the context of the expression with each of its rows.
+                    $contextKey = $this->addTsvContext($tracker, $expressionBefore, implode(' ', array_column($currentExpression, 0)));
+                    foreach (array_keys($currentExpression) as $key) {
+                        $currentExpression[$key][3] = $contextKey;
+                    }
                     // Display the words as a whole, so compute xywh, but manage
                     // the case where there are multiple pages.
                     // The expression may be partial when it is on two pages.
@@ -1010,7 +1038,8 @@ class IiifSearch extends AbstractHelper
                                 min($zones['left'])
                                     . ',' . min($zones['top'])
                                     . ',' . (max($zones['right']) - min($zones['left']))
-                                    . ',' . (max($zones['bottom']) - min($zones['top']))
+                                    . ',' . (max($zones['bottom']) - min($zones['top'])),
+                                $contextKey,
                             ];
                             $expressionPositions[] = [$wholeExpression];
                         }
@@ -1047,9 +1076,11 @@ class IiifSearch extends AbstractHelper
                 }
             } else {
                 while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
+                    $before = $this->trackTsvContext($tracker, $data);
                     $word = mb_strtolower($data[0], 'UTF-8');
                     if (isset($queryWordsByWords[$word])) {
-                        $wordPositions[$word][] = [$data[1], $data[2]];
+                        $contextKey = $this->addTsvContext($tracker, $before, $data[0]);
+                        $wordPositions[$word][] = [$data[1], $data[2], $contextKey];
                     }
                 }
             }
@@ -1082,6 +1113,8 @@ class IiifSearch extends AbstractHelper
             // normalize response. The two-steps process is simpler and allows
             // to keep the hits in the right order.
             $results = [];
+            // The key of the context in the tracker, by hit.
+            $hitContexts = [];
 
             // All words are already found.
             foreach ($wordPositions as $chars => $wordData) {
@@ -1091,12 +1124,15 @@ class IiifSearch extends AbstractHelper
                     if ($isTsvByWord) {
                         $pageIndex = strtok($pageAndPosition, ':');
                         $zone['left'] = strtok(',');
+                        $contextKey = null;
                     } elseif ($processExactSearch) {
                         $pageIndex = $pageAndPosition[1];
                         $zone['left'] = strtok($pageAndPosition[2], ',');
+                        $contextKey = $pageAndPosition[3] ?? null;
                     } else {
                         $pageIndex = $pageAndPosition[0];
                         $zone['left'] = strtok($pageAndPosition[1], ',');
+                        $contextKey = $pageAndPosition[2] ?? null;
                     }
                     $zone['top'] = strtok(',');
                     $zone['width'] = strtok(',');
@@ -1133,6 +1169,9 @@ class IiifSearch extends AbstractHelper
                     $results[$pageIndex][$hit]['zone'] = $zone;
                     $results[$pageIndex][$hit]['chars'] = $chars;
                     $results[$pageIndex][$hit]['hit'] = $hit;
+                    if ($contextKey !== null) {
+                        $hitContexts[$hit] = $contextKey;
+                    }
                 }
             }
 
@@ -1142,25 +1181,21 @@ class IiifSearch extends AbstractHelper
             // The variable is reinit below, so store total first.
             $result['hit'] = $hit;
 
-            // Add hits per page for all pages.
+            // Add one hit by match for all pages, with its context if any.
             ksort($results);
             foreach ($results as $pageIndex => $resultHits) {
-                $hits = [];
-                $hitMatches = [];
                 foreach ($resultHits as $hit => $resultHit) {
                     $result['resources'][] = $resultHit;
                     $result['media_ids'][] = $resultHit['image']['id'];
 
-                    $hits[] = $hit;
-                    // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                    // TODO Get the text before first and last hit of the page.
-                    $hitMatches[] = $resultHit['chars'];
+                    $context = isset($hitContexts[$hit])
+                        ? $tracker['contexts'][$hitContexts[$hit]] ?? null
+                        : null;
+                    $result['hits'][] = ['hits' => [$hit]]
+                        + ($context
+                            ? $this->formatContext($context['before'], $context['word'], $context['word'], $context['after'])
+                            : ['match' => $resultHit['chars']]);
                 }
-
-                $result['hits'][] = [
-                    'hits' => $hits,
-                    'match' => implode(' ', array_unique($hitMatches)),
-                ];
             }
         } catch (\Throwable $e) {
             $this->logger->err(new Message(
@@ -1830,6 +1865,97 @@ class IiifSearch extends AbstractHelper
      * Removes trailing spaces and anything else, except letters, numbers and
      * symbols.
      */
+    /**
+     * Get the context of a hit from the list of the words of its page.
+     *
+     * The word may contain more than the match, for example when the query is
+     * a part of the word, so the rest of the word is part of the context.
+     *
+     * @return array With keys "match", "before" and "after".
+     */
+    protected function contextOf(array $words, int $index, string $match): array
+    {
+        $start = max(0, $index - self::CONTEXT_WORDS);
+        return $this->formatContext(
+            array_slice($words, $start, $index - $start),
+            (string) ($words[$index] ?? $match),
+            $match,
+            array_slice($words, $index + 1, self::CONTEXT_WORDS)
+        );
+    }
+
+    /**
+     * Track the words of a tsv to get the context of the hits.
+     *
+     * The tsv is read once and may be big, so the whole text is not stored:
+     * only the last words of the current page are kept, and the next words are
+     * added to the hits that are waiting for them.
+     *
+     * @param array $tracker Updated with keys "page", "words", "waiting" and
+     *   "contexts".
+     * @param array $data A row of the tsv: word, page and position.
+     * @return array The words before the current word in its page.
+     */
+    protected function trackTsvContext(array &$tracker, array $data): array
+    {
+        if (($tracker['page'] ?? null) !== $data[1]) {
+            $tracker['page'] = $data[1];
+            $tracker['words'] = [];
+            $tracker['waiting'] = [];
+        }
+        $before = $tracker['words'];
+        foreach ($tracker['waiting'] as $key => $contextKey) {
+            $tracker['contexts'][$contextKey]['after'][] = $data[0];
+            if (count($tracker['contexts'][$contextKey]['after']) >= self::CONTEXT_WORDS) {
+                unset($tracker['waiting'][$key]);
+            }
+        }
+        $tracker['words'][] = $data[0];
+        if (count($tracker['words']) > self::CONTEXT_WORDS) {
+            array_shift($tracker['words']);
+        }
+        return $before;
+    }
+
+    /**
+     * Add a hit to the tsv tracker, so it gets the next words of its page.
+     *
+     * @return int The key of the context in the tracker.
+     */
+    protected function addTsvContext(array &$tracker, array $before, string $word): int
+    {
+        $contextKey = count($tracker['contexts'] ?? []);
+        $tracker['contexts'][$contextKey] = [
+            'before' => $before,
+            'word' => $word,
+            'after' => [],
+        ];
+        $tracker['waiting'][] = $contextKey;
+        return $contextKey;
+    }
+
+    /**
+     * Format the context of a hit like the iiif search api, with the spaces
+     * between the words included in "before" and "after".
+     */
+    protected function formatContext(array $wordsBefore, string $word, string $match, array $wordsAfter): array
+    {
+        $position = strlen($match) ? mb_stripos($word, $match) : false;
+        if ($position === false) {
+            $match = $word;
+            $position = 0;
+        }
+        $before = trim(implode(' ', $wordsBefore));
+        $before = ($before === '' ? '' : $before . ' ') . mb_substr($word, 0, $position);
+        $after = trim(implode(' ', $wordsAfter));
+        $after = mb_substr($word, $position + mb_strlen($match)) . ($after === '' ? '' : ' ' . $after);
+        return [
+            'match' => $match,
+            'before' => $before === '' ? null : $before,
+            'after' => $after === '' ? null : $after,
+        ];
+    }
+
     protected function alnumString($string): string
     {
         $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
