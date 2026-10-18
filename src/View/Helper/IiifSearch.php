@@ -1362,9 +1362,10 @@ class IiifSearch extends AbstractHelper
         $this->prepareSearchOrder();
 
         // When the two tsv formats are available and the query is not an exact
-        // search, use the by-word format. For exact search, use the full format
+        // search, use the by-word format, unless the full format is preferred
+        // for the context of the hits. For exact search, use the full format
         // if available.
-        if ($this->queryIsExactSearch) {
+        if ($this->isTsvFullPreferred()) {
             $tsvByWord = $this->supportedIndexes['text/tab-separated-values;by-word'];
             unset($this->supportedIndexes['text/tab-separated-values;by-word']);
             $this->supportedIndexes['text/tab-separated-values;by-word'] = $tsvByWord;
@@ -1491,10 +1492,11 @@ class IiifSearch extends AbstractHelper
         }
 
         // Pick the optimal TSV variant: by-word for single/multi word queries
-        // (small, fast lookup), full for exact phrase search (preserves order).
+        // (small, fast lookup), full for exact phrase search (preserves order)
+        // or when preferred for the context of the hits.
         // Fall back to the other when only one variant is present.
         if ($mediaTsvFull && $mediaTsvByWord) {
-            if ($this->queryIsExactSearch) {
+            if ($this->isTsvFullPreferred()) {
                 $this->mediaTsv = $mediaTsvFull;
                 $this->index = 'text/tab-separated-values';
             } else {
@@ -1865,6 +1867,18 @@ class IiifSearch extends AbstractHelper
      * Removes trailing spaces and anything else, except letters, numbers and
      * symbols.
      */
+    /**
+     * Check if the full tsv should be used when the two tsv are available.
+     *
+     * The full tsv is required for exact search, and it is the only one that
+     * keeps the order of the words, so the context of the hits.
+     */
+    protected function isTsvFullPreferred(): bool
+    {
+        return $this->queryIsExactSearch
+            || (bool) $this->view->setting('iiifsearch_tsv_prefer_full');
+    }
+
     /**
      * Get the context of a hit from the list of the words of its page.
      *
