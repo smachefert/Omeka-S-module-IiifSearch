@@ -88,4 +88,20 @@ class QueryTermsTest extends TestCase
         [$queryWords] = $this->prepare('hu*s', ['iiifsearch_wildcards' => true]);
         $this->assertCount(1, $queryWords);
     }
+
+    public function testFuzzy(): void
+    {
+        [$queryWords, $terms] = $this->prepare('Huis~ voorstraat~ huys~2', ['iiifsearch_fuzzy' => true]);
+        $this->assertSame(['Huis~', 'voorstraat~', 'huys~2'], array_slice($queryWords, 0, 3));
+        $this->assertSame(['text' => 'Huis', 'key' => 'huis', 'mode' => 'fuzzy', 'distance' => 1], $terms[0]);
+        $this->assertSame(2, $terms[1]['distance']);
+        $this->assertSame(2, $terms[2]['distance']);
+    }
+
+    public function testFuzzyNeedsTheMinimumLength(): void
+    {
+        [$queryWords] = $this->prepare('hu~', ['iiifsearch_fuzzy' => true]);
+        $this->assertSame([], $queryWords);
+    }
 }
+

@@ -195,6 +195,13 @@ class IiifSearch extends AbstractHelper
     protected $useWildcards = false;
 
     /**
+     * Allow the fuzzy search with "~" in the query.
+     *
+     * @var bool
+     */
+    protected $useFuzzy = false;
+
+    /**
      * Cache of the keys of the words of the index.
      *
      * @var array
@@ -1625,6 +1632,7 @@ class IiifSearch extends AbstractHelper
         $this->wordKeys = [];
         $this->spellingRules = $this->parseSpellingRules((string) $this->view->setting('iiifsearch_spelling_rules'));
         $this->useWildcards = (bool) $this->view->setting('iiifsearch_wildcards');
+        $this->useFuzzy = (bool) $this->view->setting('iiifsearch_fuzzy');
 
         // TODO Manage a single word + an expression.
 
@@ -2027,6 +2035,18 @@ class IiifSearch extends AbstractHelper
                 'regex' => '/^' . $regex . '$/u',
             ];
         }
+        if ($this->useFuzzy && preg_match('/^(.+?)~([12])?$/u', $word, $matches)) {
+            $key = $this->wordKey($matches[1]);
+            return [
+                'text' => $this->wordCore($matches[1]),
+                'key' => $key,
+                'mode' => 'fuzzy',
+                // Like "AUTO" of Lucene, but a long word allows two edits.
+                'distance' => isset($matches[2])
+                    ? (int) $matches[2]
+                    : (mb_strlen($key) >= 8 ? 2 : 1),
+            ];
+        }
         return [
             'text' => $word,
             'key' => $this->wordKey($word),
@@ -2039,6 +2059,9 @@ class IiifSearch extends AbstractHelper
      */
     protected function queryWordLength(string $word): int
     {
+        if ($this->useFuzzy) {
+            $word = (string) preg_replace('/~[12]?$/', '', $word);
+        }
         return mb_strlen($this->useWildcards ? str_replace(['*', '?'], '', $word) : $word);
     }
 
@@ -2068,12 +2091,18 @@ class IiifSearch extends AbstractHelper
         if ($key === '') {
             return false;
         }
-        // A wildcard matches the whole word.
+        // A wildcard and a fuzzy term match the whole word.
         if (($term['mode'] ?? 'plain') === 'wildcard') {
             return preg_match($term['regex'], $key) === 1;
         }
         if ($term['key'] === '') {
             return false;
+        }
+        // The distance is computed by byte, so it is stricter for non-ascii
+        // letters that are not normalized.
+        if (($term['mode'] ?? 'plain') === 'fuzzy') {
+            return abs(strlen($key) - strlen($term['key'])) <= $term['distance']
+                && levenshtein($key, $term['key']) <= $term['distance'];
         }
         return $isPart
             ? strpos($key, $term['key']) !== false

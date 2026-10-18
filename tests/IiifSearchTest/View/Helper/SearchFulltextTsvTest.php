@@ -292,5 +292,39 @@ class SearchFulltextTsvTest extends TestCase
         $filepath = $this->getFixturePath('sample-full.tsv');
         $this->assertNull($this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]));
     }
+
+    public function testTsvFuzzy(): void
+    {
+        $helper = $this->buildTsvHelper(['fix~', 'quack~']);
+        $this->setProperty($helper, 'useFuzzy', true);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(['quick', 'fox', 'fox'], array_column($result['hits'], 'match'));
+
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$this->getFixturePath('sample-byword.tsv'), true]);
+        $this->assertSame(3, $result['hit']);
+    }
+
+    public function testTsvFuzzyDistance(): void
+    {
+        $filepath = $this->getFixturePath('sample-full.tsv');
+
+        $helper = $this->buildTsvHelper(['qack~']);
+        $this->setProperty($helper, 'useFuzzy', true);
+        $this->assertNull($this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]));
+
+        $helper = $this->buildTsvHelper(['qack~2']);
+        $this->setProperty($helper, 'useFuzzy', true);
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(['quick'], array_column($result['hits'], 'match'));
+    }
+
+    public function testTsvWithoutFuzzy(): void
+    {
+        // The "~" is removed like the punctuation.
+        $helper = $this->buildTsvHelper(['fix~']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $this->assertNull($this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]));
+    }
 }
 

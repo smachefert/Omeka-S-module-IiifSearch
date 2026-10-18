@@ -243,6 +243,7 @@ return [
             'iiifsearch_tsv_prefer_full' => false,
             'iiifsearch_spelling_rules' => '',
             'iiifsearch_wildcards' => false,
+            'iiifsearch_fuzzy' => false,
 
             // Three independent toggles control what the IiifServer canvas
             // event listener appends on each canvas. Inherits the legacy

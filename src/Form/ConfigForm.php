@@ -119,6 +119,18 @@ ae = aa',
                     'id' => 'iiifsearch_wildcards',
                 ],
             ])
+            ->add([
+                'name' => 'iiifsearch_fuzzy',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Allow fuzzy search in the query', // @translate
+                    'info' => 'With "~" after a word, for example "huis~", to find the words with one different letter, or two for a word of eight letters or more. The number of letters can be set with "~1" or "~2".', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_fuzzy',
+                ],
+            ])
 
             // Text.
 
