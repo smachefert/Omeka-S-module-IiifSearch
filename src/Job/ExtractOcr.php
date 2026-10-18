@@ -2315,6 +2315,16 @@ class ExtractOcr extends AbstractJob
         }
 
         $listMediaImages = $this->listMediaImagesData($item);
+        // One-based canvas number of each image media, so that the index can
+        // point to the paired image instead of the position of the alto page:
+        // a page without text (no alto) or alto medias in another order than
+        // the images would otherwise shift all following pages.
+        $canvasByImageId = [];
+        foreach ($listMediaImages as $idx => $entry) {
+            if (!empty($entry['id'])) {
+                $canvasByImageId[(int) $entry['id']] = $idx + 1;
+            }
+        }
         $isFullTsv = $format === self::FORMAT_TSV;
         $hasRow = false;
         $resultTsv = [];
@@ -2375,6 +2385,9 @@ class ExtractOcr extends AbstractJob
                     continue;
                 }
                 $mediaImage = $this->resolvePageImage($pairing, $indexPage, $listMediaImages);
+                $canvasPage = $mediaImage && isset($canvasByImageId[(int) $mediaImage['id']])
+                    ? $canvasByImageId[(int) $mediaImage['id']]
+                    : $indexPage;
                 $mediaImageWidth = $mediaImage ? $mediaImage['width'] : $pageWidth;
                 $mediaImageHeight = $mediaImage ? $mediaImage['height'] : $pageHeight;
                 $scaleX = $mediaImageWidth / $pageWidth;
@@ -2392,11 +2405,11 @@ class ExtractOcr extends AbstractJob
                     $h = round(((float) $a->HEIGHT) * $scaleY);
                     $xywh = $x . ',' . $y . ',' . $w . ',' . $h;
                     if ($isFullTsv) {
-                        fputcsv($fp, [$word, $indexPage, $xywh], "\t", "\0", "\0");
+                        fputcsv($fp, [$word, $canvasPage, $xywh], "\t", "\0", "\0");
                         $hasRow = true;
                     } else {
                         $word = mb_strtolower($word, 'UTF-8');
-                        $resultTsv[$word][] = $indexPage . ':' . $xywh;
+                        $resultTsv[$word][] = $canvasPage . ':' . $xywh;
                     }
                 }
             }
