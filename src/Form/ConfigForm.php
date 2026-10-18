@@ -92,6 +92,21 @@ class ConfigForm extends Form
                     'id' => 'iiifsearch_tsv_prefer_full',
                 ],
             ])
+            ->add([
+                'name' => 'iiifsearch_spelling_rules',
+                'type' => Element\Textarea::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Spelling rules to match variants of words', // @translate
+                    'info' => 'Each line is a list of strings separated by spaces, then "=", then the string to use to compare words, for example "ij y = i" to find "huys" and "huijs" with "huis". The rules apply to the query and to the text.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_spelling_rules',
+                    'rows' => 5,
+                    'placeholder' => 'ij y = i
+ae = aa',
+                ],
+            ])
 
             // Text.
 

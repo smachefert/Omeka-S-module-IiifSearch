@@ -181,6 +181,13 @@ class IiifSearch extends AbstractHelper
     protected $queryTerms;
 
     /**
+     * The spelling rules applied to the words to compare them, as a map.
+     *
+     * @var array
+     */
+    protected $spellingRules = [];
+
+    /**
      * Cache of the keys of the words of the index.
      *
      * @var array
@@ -581,15 +588,14 @@ class IiifSearch extends AbstractHelper
 
                 foreach ($xmlPage->xpath('descendant::alto:String') as $xmlString) {
                     $attributes = $xmlString->attributes();
-                    $matches = [];
                     $zone = [];
                     $zone['text'] = (string) $attributes->CONTENT;
                     $wordIndex = count($pageWords);
                     $pageWords[] = $zone['text'];
-                    foreach ($this->queryWords as $chars) {
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $zone['top'] = (string) @$attributes->VPOS;
                             $zone['left'] = (string) @$attributes->HPOS;
@@ -611,7 +617,7 @@ class IiifSearch extends AbstractHelper
                             $result['media_ids'][] = $image['id'];
 
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -732,11 +738,10 @@ class IiifSearch extends AbstractHelper
                     $wordIndex = count($pageWords);
                     $pageWords[] = trim($zone['text']);
 
-                    foreach ($this->queryWords as $chars) {
-                        $matches = [];
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $wordBbox = $this->parseHocrBbox(
                                 $wordNode->getAttribute('title')
@@ -761,7 +766,7 @@ class IiifSearch extends AbstractHelper
                             $result['resources'][] = compact('resource', 'image', 'page', 'zone', 'chars', 'hit');
                             $result['media_ids'][] = $image['id'];
 
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -829,7 +834,6 @@ class IiifSearch extends AbstractHelper
         $baseCanvasUrl = $this->baseCanvasUrl;
 
         $resource = $this->item;
-        $matches = [];
         try {
             // The hit index in the full resource, used to build search result
             // uris.
@@ -878,10 +882,10 @@ class IiifSearch extends AbstractHelper
                     $rowWords = preg_split('/\s+/u', trim(html_entity_decode($zone['text'], ENT_QUOTES | ENT_XML1, 'UTF-8')), -1, PREG_SPLIT_NO_EMPTY);
                     array_push($pageWords, ...$rowWords);
 
-                    foreach ($this->queryWords as $chars) {
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $attributes = $xmlRow->attributes();
                             $zone['top'] = (string) @$attributes->top;
@@ -912,12 +916,12 @@ class IiifSearch extends AbstractHelper
                             // Locate the match in the words of the row.
                             $wordIndex = $rowStart;
                             foreach ($rowWords as $rowIndex => $rowWord) {
-                                if (mb_stripos($rowWord, $matches[0]) !== false) {
+                                if (mb_stripos($rowWord, $match) !== false) {
                                     $wordIndex = $rowStart + $rowIndex;
                                     break;
                                 }
                             }
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -1612,6 +1616,7 @@ class IiifSearch extends AbstractHelper
         // The terms are prepared from the query words when needed.
         $this->queryTerms = null;
         $this->wordKeys = [];
+        $this->spellingRules = $this->parseSpellingRules((string) $this->view->setting('iiifsearch_spelling_rules'));
 
         // TODO Manage a single word + an expression.
 
@@ -2020,10 +2025,79 @@ class IiifSearch extends AbstractHelper
      * Check if a word of the index matches a term of the query.
      *
      * @param string $key The key of the word of the index.
+     * @param bool $isPart Match a part of the word, like the xml formats.
      */
-    protected function matchTerm(array $term, string $key): bool
+    protected function matchTerm(array $term, string $key, bool $isPart = false): bool
     {
-        return $key !== '' && $key === $term['key'];
+        if ($key === '' || $term['key'] === '') {
+            return false;
+        }
+        return $isPart
+            ? strpos($key, $term['key']) !== false
+            : $key === $term['key'];
+    }
+
+    /**
+     * Check if the query needs the matching by word in the xml formats.
+     *
+     * Else the xml formats keep the simple matching of the query in the text.
+     */
+    protected function isFlexibleQuery(): bool
+    {
+        return (bool) $this->spellingRules;
+    }
+
+    /**
+     * Get the text of a zone of an xml format that matches a query word.
+     *
+     * @param int|string $index The index of the query word.
+     * @param string $chars The quoted query word.
+     * @return string|null The matching text, or the word containing it.
+     */
+    protected function matchText($index, string $chars, string $text): ?string
+    {
+        if ($index === 'full' || !$this->isFlexibleQuery()) {
+            return preg_match('/' . $chars . '/Uui', $text, $matches) ? $matches[0] : null;
+        }
+        $term = $this->getQueryTerms()[$index] ?? null;
+        if (!$term) {
+            return null;
+        }
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        foreach (preg_split('/\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY) as $word) {
+            $core = $this->wordCore($word);
+            if ($this->matchTerm($term, $this->wordKey($core), true)) {
+                $position = mb_stripos($core, $term['text']);
+                return $position === false
+                    ? $core
+                    : mb_substr($core, $position, mb_strlen($term['text']));
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the spelling rules as a map for strtr().
+     *
+     * Each line is a list of strings separated by spaces, then "=", then the
+     * string to use to compare words, for example "ij y = i".
+     */
+    protected function parseSpellingRules(string $rules): array
+    {
+        $map = [];
+        foreach (preg_split('/\R/u', $rules, -1, PREG_SPLIT_NO_EMPTY) as $line) {
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+            [$froms, $to] = array_map('trim', explode('=', $line, 2));
+            $to = mb_strtolower($to, 'UTF-8');
+            foreach (preg_split('/\s+/u', mb_strtolower($froms, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) as $from) {
+                if ($from !== $to) {
+                    $map[$from] = $to;
+                }
+            }
+        }
+        return $map;
     }
 
     /**
@@ -2046,14 +2120,17 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Lower and normalize a string to compare words.
+     * Lower and normalize a string to compare words, with the spelling rules.
      */
     protected function foldWord(string $string): string
     {
         $string = mb_strtolower($string, 'UTF-8');
         // The normalization is slow, so skip it for ascii.
-        return preg_match('/[^\x00-\x7F]/', $string)
-            ? $this->normalize($string)
+        if (preg_match('/[^\x00-\x7F]/', $string)) {
+            $string = $this->normalize($string);
+        }
+        return $this->spellingRules
+            ? strtr($string, $this->spellingRules)
             : $string;
     }
 

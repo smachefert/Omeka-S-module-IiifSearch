@@ -241,6 +241,7 @@ return [
             'iiifsearch_minimum_query_length' => 3,
             'iiifsearch_disable_search_media_values' => false,
             'iiifsearch_tsv_prefer_full' => false,
+            'iiifsearch_spelling_rules' => '',
 
             // Three independent toggles control what the IiifServer canvas
             // event listener appends on each canvas. Inherits the legacy

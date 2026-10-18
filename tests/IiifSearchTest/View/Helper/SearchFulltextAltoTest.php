@@ -191,4 +191,30 @@ class SearchFulltextAltoTest extends TestCase
             'after' => ' h i j k l',
         ], $context);
     }
+
+    public function testAltoSpellingRulesMatchVariants(): void
+    {
+        $helper = $this->buildAltoHelper(['foks']);
+        $this->setProperty($helper, 'spellingRules', ['x' => 'ks']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame(2, $result['hit']);
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'fox',
+            'before' => 'The quick brown ',
+            'after' => null,
+        ], $result['hits'][0]);
+    }
+
+    public function testAltoSpellingRulesKeepPartialWords(): void
+    {
+        $helper = $this->buildAltoHelper(['uic']);
+        $this->setProperty($helper, 'spellingRules', ['x' => 'ks']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame('uic', $result['hits'][0]['match']);
+        $this->assertSame('The q', $result['hits'][0]['before']);
+    }
 }
+

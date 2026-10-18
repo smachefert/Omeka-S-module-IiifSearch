@@ -225,4 +225,38 @@ class SearchFulltextTsvTest extends TestCase
         $this->assertSame('A house, (', $result['hits'][0]['before']);
         $this->assertSame(' house.', $result['hits'][0]['after']);
     }
+
+    public function testTsvSpellingRulesMatchVariants(): void
+    {
+        $helper = $this->buildTsvHelper(['foks']);
+        $this->setProperty($helper, 'spellingRules', ['x' => 'ks']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(2, $result['hit']);
+        // The match is the word of the text.
+        $this->assertSame(['fox', 'fox'], array_column($result['hits'], 'match'));
+
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$this->getFixturePath('sample-byword.tsv'), true]);
+        $this->assertSame(2, $result['hit']);
+    }
+
+    public function testTsvWithoutSpellingRulesDoesNotMatchVariants(): void
+    {
+        $helper = $this->buildTsvHelper(['foks']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertNull($result);
+    }
+
+    public function testParseSpellingRules(): void
+    {
+        $helper = $this->buildTsvHelper(['fox']);
+        $rules = $this->callProtected($helper, 'parseSpellingRules', ["IJ y  ie = i\nae = aa\n\nwrong\ni = i\n"]);
+        $this->assertSame(['ij' => 'i', 'y' => 'i', 'ie' => 'i', 'ae' => 'aa'], $rules);
+        $this->setProperty($helper, 'spellingRules', $rules);
+        $this->assertSame('huis', $this->callProtected($helper, 'wordKey', ['Huys,']));
+        $this->assertSame('huis', $this->callProtected($helper, 'wordKey', ['huijs']));
+        $this->assertSame('straat', $this->callProtected($helper, 'wordKey', ['straet']));
+    }
 }
+
