@@ -6,8 +6,8 @@ use DOMDocument;
 use XSLTProcessor;
 
 /**
- * Convert non-alto OCR sources (hocr, pdf2xml) into a canonical ALTO file,
- * persisted on disk so the downstream pipeline only has to consume alto.
+ * Convert non-alto OCR sources (hocr, page, pdf2xml, tei) into a canonical ALTO
+ * file, persisted on disk so the downstream pipeline only has to consume alto.
  *
  * The converted file is reused on subsequent runs as long as its mtime is
  * greater than or equal to the source mtime. The target directory is the caller
@@ -192,6 +192,8 @@ class ToAltoConverter
                 return true;
             case XmlMediaClassifier::TYPE_HOCR:
                 return $this->convertHocr($sourceFilepath, $targetFilepath);
+            case XmlMediaClassifier::TYPE_PAGE:
+                return $this->convertPage($sourceFilepath, $targetFilepath);
             case XmlMediaClassifier::TYPE_PDF2XML:
                 return $this->convertPdf2xml($sourceFilepath, $targetFilepath);
             case XmlMediaClassifier::TYPE_TEI:
@@ -238,6 +240,19 @@ class ToAltoConverter
             return false;
         }
         return $this->runXslt($dom, $this->xslDir . '/hocr_to_alto.xsl', $targetFilepath);
+    }
+
+    protected function convertPage(string $sourceFilepath, string $targetFilepath): bool
+    {
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loaded = @$dom->load($sourceFilepath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        if (!$loaded) {
+            return false;
+        }
+        return $this->runXslt($dom, $this->xslDir . '/page_to_alto.xsl', $targetFilepath);
     }
 
     protected function convertPdf2xml(string $sourceFilepath, string $targetFilepath): bool
