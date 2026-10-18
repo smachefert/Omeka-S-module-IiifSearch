@@ -50,6 +50,10 @@ class Builder
             ++$index;
         }
 
+        // The hits with their context are additional annotations, separated
+        // from the matches.
+        // @link https://iiif.io/api/search/2.0/#match-context
+        $hitItems = [];
         $hitIndex = 0;
         foreach ($pivot['pageHits'] ?? [] as $pageHit) {
             $targets = [];
@@ -61,15 +65,23 @@ class Builder
             if (!$targets) {
                 continue;
             }
-            $items[] = $this->buildHit(
+            $hitItems[] = $this->buildHit(
                 $base . '/hit/' . $hitIndex,
-                (string) ($pageHit['match'] ?? ''),
+                $pageHit,
                 $targets
             );
             ++$hitIndex;
         }
 
         $page['items'] = $items;
+        if ($hitItems) {
+            $page['annotations'] = [
+                [
+                    'type' => 'AnnotationPage',
+                    'items' => $hitItems,
+                ],
+            ];
+        }
         $page['partOf'] = new AnnotationCollection([
             'id' => $base,
             'label' => ['en' => ['Search results']],
@@ -116,18 +128,33 @@ class Builder
         ]);
     }
 
-    protected function buildHit(string $id, string $match, array $targets): HitAnnotation
+    /**
+     * Build the annotation of a hit, with the match and its context in a text
+     * quote selector of each annotation of the match.
+     */
+    protected function buildHit(string $id, array $pageHit, array $targets): HitAnnotation
     {
-        $body = [
-            'type' => 'TextualBody',
-            'purpose' => 'tagging',
-            'value' => $match,
-            'format' => 'text/plain',
-        ];
+        $selector = ['type' => 'TextQuoteSelector'];
+        if (isset($pageHit['before']) && $pageHit['before'] !== '') {
+            $selector['prefix'] = (string) $pageHit['before'];
+        }
+        $selector['exact'] = (string) ($pageHit['match'] ?? '');
+        if (isset($pageHit['after']) && $pageHit['after'] !== '') {
+            $selector['suffix'] = (string) $pageHit['after'];
+        }
+
+        $specificResources = [];
+        foreach ($targets as $target) {
+            $specificResources[] = [
+                'type' => 'SpecificResource',
+                'source' => $target,
+                'selector' => [$selector],
+            ];
+        }
+
         return new HitAnnotation([
             'id' => $id,
-            'body' => $body,
-            'target' => count($targets) === 1 ? $targets[0] : $targets,
+            'target' => count($specificResources) === 1 ? $specificResources[0] : $specificResources,
         ]);
     }
 
