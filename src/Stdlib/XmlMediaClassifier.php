@@ -9,7 +9,7 @@ use Omeka\Api\Representation\MediaRepresentation;
  *
  * Required because Omeka media_type for OCR uploads is usually application/xml
  * or text/xml (rarely application/alto+xml), and the file extension is usually
- * .xml whether the payload is alto, mets, pdf2xml or another xml dialect.
+ * .xml whether the payload is alto, mets, page, pdf2xml or another xml dialect.
  * Extension or mime alone are not discriminating; only content inspection is.
  */
 class XmlMediaClassifier
@@ -19,6 +19,7 @@ class XmlMediaClassifier
     const TYPE_HOCR = 'hocr';
     const TYPE_PDF2XML = 'pdf2xml';
     const TYPE_TEI = 'tei';
+    const TYPE_PAGE = 'page';
     const TYPE_OTHER = 'other';
     const TYPE_UNKNOWN = 'unknown';
 
@@ -65,6 +66,12 @@ class XmlMediaClassifier
                 || preg_match('~class=["\'][^"\']*ocr(?:_page|x_word|_carea|_line|_par)~i', $head))
         ) {
             return self::TYPE_HOCR;
+        }
+        // PAGE (PRImA), output of laypa, Loghi, Transkribus, eScriptorium, etc.
+        // The root is the same in all versions (2009 to 2019), only the
+        // namespace changes.
+        if (preg_match('~<(?:[\w-]+:)?PcGts\b~', $head)) {
+            return self::TYPE_PAGE;
         }
         if (preg_match('~<(?:[\w-]+:)?alto\b~i', $head)) {
             return self::TYPE_ALTO;
