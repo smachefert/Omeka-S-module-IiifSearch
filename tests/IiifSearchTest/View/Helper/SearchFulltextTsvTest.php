@@ -122,4 +122,64 @@ class SearchFulltextTsvTest extends TestCase
         $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, true]);
         $this->assertNull($result);
     }
+
+    public function testTsvByWordHitsHaveNoContext(): void
+    {
+        $helper = $this->buildTsvHelper(['fox']);
+        $filepath = $this->getFixturePath('sample-byword.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, true]);
+        // The words are not ordered, so there is one hit by match without
+        // context.
+        $this->assertSame([
+            ['hits' => [1], 'match' => 'fox'],
+            ['hits' => [2], 'match' => 'fox'],
+        ], $result['hits']);
+    }
+
+    public function testTsvFullHitsHaveContext(): void
+    {
+        $helper = $this->buildTsvHelper(['fox']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(2, $result['hit']);
+        $this->assertSame([
+            [
+                'hits' => [1],
+                'match' => 'fox',
+                'before' => 'The quick brown ',
+                'after' => null,
+            ],
+            [
+                'hits' => [2],
+                'match' => 'fox',
+                'before' => 'Second page ',
+                'after' => null,
+            ],
+        ], $result['hits']);
+    }
+
+    public function testTsvFullContextAfterHit(): void
+    {
+        $helper = $this->buildTsvHelper(['quick']);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        // The words after the hit stop at the end of the page.
+        $this->assertSame('The ', $result['hits'][0]['before']);
+        $this->assertSame(' brown fox', $result['hits'][0]['after']);
+    }
+
+    public function testTsvFullExactSearchHasContext(): void
+    {
+        $helper = $this->buildTsvHelper(['quick', 'brown', 'full' => 'quick brown'], 'quick brown');
+        $this->setProperty($helper, 'queryIsExactSearch', true);
+        $filepath = $this->getFixturePath('sample-full.tsv');
+        $result = $this->callProtected($helper, 'searchFulltextTsv', [$filepath, false]);
+        $this->assertSame(1, $result['hit']);
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'quick brown',
+            'before' => 'The ',
+            'after' => ' fox',
+        ], $result['hits'][0]);
+    }
 }

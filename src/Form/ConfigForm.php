@@ -80,6 +80,19 @@ class ConfigForm extends Form
                 ],
             ])
 
+            ->add([
+                'name' => 'iiifsearch_tsv_prefer_full',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Prefer the full tsv index', // @translate
+                    'info' => 'When the two tsv indexes are available, use the full one for all queries, not only for exact searches. It gives the context of each hit; the index grouped by word is a bit quicker, but has no context.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_tsv_prefer_full',
+                ],
+            ])
+
             // Text.
 
             ->add([
