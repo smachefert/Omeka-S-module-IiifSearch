@@ -51,7 +51,7 @@ class PairingAudit extends AbstractJob
             ));
             return;
         }
-        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '\\');
+        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'page_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '\\');
 
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
@@ -110,6 +110,7 @@ class PairingAudit extends AbstractJob
             $pdfCount = 0;
             $altoCount = 0;
             $hocrCount = 0;
+            $pageCount = 0;
             $imageCount = 0;
             $altoMedias = [];
             if ($itemFileResources) {
@@ -137,6 +138,8 @@ class PairingAudit extends AbstractJob
                         $altoMedias[] = $resource->inner();
                     } elseif ($cls === XmlMediaClassifier::TYPE_HOCR) {
                         ++$hocrCount;
+                    } elseif ($cls === XmlMediaClassifier::TYPE_PAGE) {
+                        ++$pageCount;
                     }
                 }
             }
@@ -173,6 +176,7 @@ class PairingAudit extends AbstractJob
                 $pdfCount,
                 $altoCount,
                 $hocrCount,
+                $pageCount,
                 $imageCount,
                 $method,
                 $coverage,

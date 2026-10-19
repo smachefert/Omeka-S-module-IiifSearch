@@ -1132,11 +1132,12 @@ class Module extends AbstractModule
             return;
         }
 
-        // The job processes a pdf, a xml with an ocr (alto, hocr, pdf2xml, or
-        // tei with coordinates), or the images when they are ocerized. A tei is
-        // processed too when its table of contents is stored, but a xml that
-        // is not an ocr (ead, mets, tei without coordinates) produces no
-        // search file, so it would be processed at each save.
+        // The job processes a pdf, a xml with an ocr (alto, hocr, page,
+        // pdf2xml, or tei with coordinates), or the images when they are
+        // ocerized. A tei is processed too when its table of contents is
+        // stored, but a xml that is not an ocr (ead, mets, tei without
+        // coordinates) produces no search file, so it would be processed at
+        // each save.
         $xmlMediaTypes = [
             'application/alto+xml',
             'application/tei+xml',
@@ -1172,6 +1173,7 @@ class Module extends AbstractModule
                 } elseif (in_array($type, [
                     \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_ALTO,
                     \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_HOCR,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_PAGE,
                     \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_PDF2XML,
                 ], true)) {
                     $hasSource = true;

@@ -978,7 +978,11 @@ class ExtractOcr extends AbstractJob
                 ));
             }
             if ($tempFile) {
-                $textContent = $this->extractTextContent($pdfMedia, $tempFile);
+                // Without pdf, the temp file of a tsv target is the tsv itself,
+                // so the plain text is rendered from the alto sources.
+                $textContent = !$pdfMedia && $altoSources && $this->propertyId
+                    ? $this->extractTextFromAltoSources($altoSources)
+                    : $this->extractTextContent($pdfMedia, $tempFile);
                 if ($this->contentOnly) {
                     // No file or media to create, text stored below.
                 } elseif ($this->createMedia) {
@@ -2096,9 +2100,9 @@ class ExtractOcr extends AbstractJob
     }
 
     /**
-     * Like findExistingAltoMedias but also materializes hOCR, pdf2xml and TEI
-     * sources to ALTO files under files/alto/, then exposes them as filepath
-     * sources. The returned array is a heterogeneous list of
+     * Like findExistingAltoMedias but also materializes hOCR, PAGE, pdf2xml and
+     * TEI sources to ALTO files under files/alto/, then exposes them as
+     * filepath sources. The returned array is a heterogeneous list of
      * MediaRepresentation (native ALTO) and string filepaths (materialized ALTO
      * derived from another dialect).
      *
@@ -2124,7 +2128,7 @@ class ExtractOcr extends AbstractJob
                 $sources[] = $resource->inner();
                 continue;
             }
-            if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
+            if (!in_array($cls, [XmlMediaClassifier::TYPE_HOCR, XmlMediaClassifier::TYPE_PAGE, XmlMediaClassifier::TYPE_PDF2XML, XmlMediaClassifier::TYPE_TEI], true)) {
                 continue;
             }
             $filename = $resource->filename();
@@ -2315,6 +2319,16 @@ class ExtractOcr extends AbstractJob
         }
 
         $listMediaImages = $this->listMediaImagesData($item);
+        // One-based canvas number of each image media, so that the index can
+        // point to the paired image instead of the position of the alto page:
+        // a page without text (no alto) or alto medias in another order than
+        // the images would otherwise shift all following pages.
+        $canvasByImageId = [];
+        foreach ($listMediaImages as $idx => $entry) {
+            if (!empty($entry['id'])) {
+                $canvasByImageId[(int) $entry['id']] = $idx + 1;
+            }
+        }
         $isFullTsv = $format === self::FORMAT_TSV;
         $hasRow = false;
         $resultTsv = [];
@@ -2375,6 +2389,9 @@ class ExtractOcr extends AbstractJob
                     continue;
                 }
                 $mediaImage = $this->resolvePageImage($pairing, $indexPage, $listMediaImages);
+                $canvasPage = $mediaImage && isset($canvasByImageId[(int) $mediaImage['id']])
+                    ? $canvasByImageId[(int) $mediaImage['id']]
+                    : $indexPage;
                 $mediaImageWidth = $mediaImage ? $mediaImage['width'] : $pageWidth;
                 $mediaImageHeight = $mediaImage ? $mediaImage['height'] : $pageHeight;
                 $scaleX = $mediaImageWidth / $pageWidth;
@@ -2392,11 +2409,11 @@ class ExtractOcr extends AbstractJob
                     $h = round(((float) $a->HEIGHT) * $scaleY);
                     $xywh = $x . ',' . $y . ',' . $w . ',' . $h;
                     if ($isFullTsv) {
-                        fputcsv($fp, [$word, $indexPage, $xywh], "\t", "\0", "\0");
+                        fputcsv($fp, [$word, $canvasPage, $xywh], "\t", "\0", "\0");
                         $hasRow = true;
                     } else {
                         $word = mb_strtolower($word, 'UTF-8');
-                        $resultTsv[$word][] = $indexPage . ':' . $xywh;
+                        $resultTsv[$word][] = $canvasPage . ':' . $xywh;
                     }
                 }
             }

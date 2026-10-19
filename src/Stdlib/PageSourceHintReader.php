@@ -10,6 +10,7 @@ namespace IiifSearch\Stdlib;
  * - ALTO: Description/sourceImageInformation/fileName.
  * - hOCR: <*[class~="ocr_page"] title="image foo.tif; bbox …">
  * - TEI:  <facsimile><surface @source="…">
+ * - PAGE: <Page @imageFilename="…">
  *
  * Returns null when no hint is present; the file is read only once, no caching
  * here since PageSource construction is itself a one-shot per item.
@@ -47,6 +48,8 @@ class PageSourceHintReader
                 return $this->readHocrHints($filepath);
             case XmlMediaClassifier::TYPE_TEI:
                 return $this->readTeiHints($filepath);
+            case XmlMediaClassifier::TYPE_PAGE:
+                return $this->readPageHints($filepath);
         }
         return [];
     }
@@ -146,6 +149,26 @@ class PageSourceHintReader
         if (!$hints && preg_match_all('~<(?:[\w-]+:)?graphic\b[^>]*\s(?:[\w-]+:)?url=["\']([^"\']+)~i', $content, $matches)) {
             foreach ($matches[1] as $url) {
                 $hints[] = trim($url);
+            }
+        }
+        return $hints;
+    }
+
+    /**
+     * One hint per <Page @imageFilename> (a single page in most PAGE files).
+     *
+     * @return string[]
+     */
+    protected function readPageHints(string $filepath): array
+    {
+        $content = (string) @file_get_contents($filepath, false, null, 0, 1048576);
+        if ($content === '') {
+            return [];
+        }
+        $hints = [];
+        if (preg_match_all('~<(?:[\w-]+:)?Page\b[^>]*\simageFilename=["\']([^"\']*)~', $content, $matches)) {
+            foreach ($matches[1] as $filename) {
+                $hints[] = trim($filename);
             }
         }
         return $hints;
