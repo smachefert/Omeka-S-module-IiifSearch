@@ -174,6 +174,41 @@ class IiifSearch extends AbstractHelper
     protected $queryWords;
 
     /**
+     * The words of the query to match, with the same keys than queryWords.
+     *
+     * @var array|null
+     */
+    protected $queryTerms;
+
+    /**
+     * The spelling rules applied to the words to compare them, as a map.
+     *
+     * @var array
+     */
+    protected $spellingRules = [];
+
+    /**
+     * Allow the wildcards "*" and "?" in the query.
+     *
+     * @var bool
+     */
+    protected $useWildcards = false;
+
+    /**
+     * Allow the fuzzy search with "~" in the query.
+     *
+     * @var bool
+     */
+    protected $useFuzzy = false;
+
+    /**
+     * Cache of the keys of the words of the index.
+     *
+     * @var array
+     */
+    protected $wordKeys = [];
+
+    /**
      * @var bool
      */
     protected $queryIsExactSearch;
@@ -567,15 +602,14 @@ class IiifSearch extends AbstractHelper
 
                 foreach ($xmlPage->xpath('descendant::alto:String') as $xmlString) {
                     $attributes = $xmlString->attributes();
-                    $matches = [];
                     $zone = [];
                     $zone['text'] = (string) $attributes->CONTENT;
                     $wordIndex = count($pageWords);
                     $pageWords[] = $zone['text'];
-                    foreach ($this->queryWords as $chars) {
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $zone['top'] = (string) @$attributes->VPOS;
                             $zone['left'] = (string) @$attributes->HPOS;
@@ -597,7 +631,7 @@ class IiifSearch extends AbstractHelper
                             $result['media_ids'][] = $image['id'];
 
                             // TODO Get matches as whole world and all matches in last time (preg_match_all).
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -718,11 +752,10 @@ class IiifSearch extends AbstractHelper
                     $wordIndex = count($pageWords);
                     $pageWords[] = trim($zone['text']);
 
-                    foreach ($this->queryWords as $chars) {
-                        $matches = [];
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $wordBbox = $this->parseHocrBbox(
                                 $wordNode->getAttribute('title')
@@ -747,7 +780,7 @@ class IiifSearch extends AbstractHelper
                             $result['resources'][] = compact('resource', 'image', 'page', 'zone', 'chars', 'hit');
                             $result['media_ids'][] = $image['id'];
 
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -815,7 +848,6 @@ class IiifSearch extends AbstractHelper
         $baseCanvasUrl = $this->baseCanvasUrl;
 
         $resource = $this->item;
-        $matches = [];
         try {
             // The hit index in the full resource, used to build search result
             // uris.
@@ -864,10 +896,10 @@ class IiifSearch extends AbstractHelper
                     $rowWords = preg_split('/\s+/u', trim(html_entity_decode($zone['text'], ENT_QUOTES | ENT_XML1, 'UTF-8')), -1, PREG_SPLIT_NO_EMPTY);
                     array_push($pageWords, ...$rowWords);
 
-                    foreach ($this->queryWords as $chars) {
+                    foreach ($this->queryWords as $index => $chars) {
                         if (!empty($this->imageSizes[$pageIndex]['width'])
                             && !empty($this->imageSizes[$pageIndex]['height'])
-                            && preg_match('/' . $chars . '/Uui', $zone['text'], $matches) > 0
+                            && ($match = $this->matchText($index, $chars, $zone['text'])) !== null
                         ) {
                             $attributes = $xmlRow->attributes();
                             $zone['top'] = (string) @$attributes->top;
@@ -898,12 +930,12 @@ class IiifSearch extends AbstractHelper
                             // Locate the match in the words of the row.
                             $wordIndex = $rowStart;
                             foreach ($rowWords as $rowIndex => $rowWord) {
-                                if (mb_stripos($rowWord, $matches[0]) !== false) {
+                                if (mb_stripos($rowWord, $match) !== false) {
                                     $wordIndex = $rowStart + $rowIndex;
                                     break;
                                 }
                             }
-                            $pageHits[] = [$hit, $wordIndex, $matches[0]];
+                            $pageHits[] = [$hit, $wordIndex, $match];
                         }
                     }
                 }
@@ -950,18 +982,12 @@ class IiifSearch extends AbstractHelper
 
         if ($processExactSearch) {
             // Search all words as an expression.
-            // In tsv, the words are more cleaned than xml during extract ocr process.
-            $cleanQueryWords = [];
-            foreach ($this->queryWords as $key => $queryWord) {
-                if ($key === 'full') {
-                    continue;
-                }
-                $word = $this->normalize($queryWord);
-                $word = mb_strtolower($word, 'UTF-8');
-                $cleanQueryWords[] = $word;
-            }
+            // The words of the index keep the punctuation, so compare keys.
+            $queryTerms = $this->getQueryTerms();
+            unset($queryTerms['full']);
+            $queryTerms = array_values($queryTerms);
 
-            $countQueryWords = count($cleanQueryWords);
+            $countQueryWords = count($queryTerms);
 
             $expressionPositions = [];
             $indexQueryWord = 0;
@@ -969,15 +995,15 @@ class IiifSearch extends AbstractHelper
             $expressionBefore = [];
             while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                 $before = $this->trackTsvContext($tracker, $data);
-                $word = mb_strtolower($data[0], 'UTF-8');
-                if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                $wordKey = $this->wordKey($data[0]);
+                if (!$this->matchTerm($queryTerms[$indexQueryWord], $wordKey)) {
                     // Reset current result, but retry with the first word.
                     $currentExpression = [];
                     if (!$indexQueryWord) {
                         continue;
                     }
                     $indexQueryWord = 0;
-                    if ($word !== $cleanQueryWords[$indexQueryWord]) {
+                    if (!$this->matchTerm($queryTerms[$indexQueryWord], $wordKey)) {
                         continue;
                     }
                 }
@@ -1059,28 +1085,22 @@ class IiifSearch extends AbstractHelper
             $wordPositions = [$this->query => array_merge(...$expressionPositions)];
         } else {
             // Search each word ("OR").
-            // In tsv, the words are more cleaned than xml during extract ocr process.
-            $queryWordsByWords = [];
-            foreach ($this->queryWords as $queryWord) {
-                $word = $this->normalize($queryWord);
-                $word = mb_strtolower($word, 'UTF-8');
-                $queryWordsByWords[$word] = $word;
-            }
+            // The words of the index keep the punctuation, so compare keys.
+            $queryTerms = $this->getQueryTerms();
 
             $wordPositions = [];
             if ($isTsvByWord) {
                 while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
-                    if (isset($queryWordsByWords[$data[0]])) {
+                    if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $wordPositions[$data[0]] = $data[1];
                     }
                 }
             } else {
                 while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
                     $before = $this->trackTsvContext($tracker, $data);
-                    $word = mb_strtolower($data[0], 'UTF-8');
-                    if (isset($queryWordsByWords[$word])) {
+                    if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $contextKey = $this->addTsvContext($tracker, $before, $data[0]);
-                        $wordPositions[$word][] = [$data[1], $data[2], $contextKey];
+                        $wordPositions[mb_strtolower($data[0], 'UTF-8')][] = [$data[1], $data[2], $contextKey];
                     }
                 }
             }
@@ -1118,6 +1138,7 @@ class IiifSearch extends AbstractHelper
 
             // All words are already found.
             foreach ($wordPositions as $chars => $wordData) {
+                $chars = $this->wordCore((string) $chars);
                 $zone = [];
                 $zone['text'] = $chars;
                 foreach ($isTsvByWord ? explode(';', $wordData) : $wordData as $pageAndPosition) {
@@ -1193,7 +1214,7 @@ class IiifSearch extends AbstractHelper
                         : null;
                     $result['hits'][] = ['hits' => [$hit]]
                         + ($context
-                            ? $this->formatContext($context['before'], $context['word'], $context['word'], $context['after'])
+                            ? $this->formatContext($context['before'], $context['word'], $this->wordCore($context['word']), $context['after'])
                             : ['match' => $resultHit['chars']]);
                 }
             }
@@ -1606,6 +1627,13 @@ class IiifSearch extends AbstractHelper
         $minimumQueryLength = $this->view->setting('iiifsearch_minimum_query_length')
             ?: $this->minimumQueryLength;
 
+        // The terms are prepared from the query words when needed.
+        $this->queryTerms = null;
+        $this->wordKeys = [];
+        $this->spellingRules = $this->parseSpellingRules((string) $this->view->setting('iiifsearch_spelling_rules'));
+        $this->useWildcards = (bool) $this->view->setting('iiifsearch_wildcards');
+        $this->useFuzzy = (bool) $this->view->setting('iiifsearch_fuzzy');
+
         // TODO Manage a single word + an expression.
 
         // TODO Should we use alnumSring() here too?
@@ -1632,8 +1660,8 @@ class IiifSearch extends AbstractHelper
             return $quotedQueryWords;
         }
 
-        $cleanQuery = $this->alnumString($this->query);
-        if (mb_strlen($cleanQuery) < $minimumQueryLength) {
+        $cleanQuery = $this->alnumString($this->query, $this->useWildcards ? '*?' : '');
+        if ($this->queryWordLength($cleanQuery) < $minimumQueryLength) {
             return [];
         }
 
@@ -1648,7 +1676,7 @@ class IiifSearch extends AbstractHelper
 
         $quotedQueryWords = [];
         foreach ($queryWords as $queryWord) {
-            if (mb_strlen($queryWord) >= $minimumQueryLength) {
+            if ($this->queryWordLength($queryWord) >= $minimumQueryLength) {
                 $quotedQueryWords[] = preg_quote($queryWord, '/');
             }
         }
@@ -1862,12 +1890,6 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Returns a cleaned  string.
-     *
-     * Removes trailing spaces and anything else, except letters, numbers and
-     * symbols.
-     */
-    /**
      * Check if the full tsv should be used when the two tsv are available.
      *
      * The full tsv is required for exact search, and it is the only one that
@@ -1970,9 +1992,237 @@ class IiifSearch extends AbstractHelper
         ];
     }
 
-    protected function alnumString($string): string
+    /**
+     * Get the terms of the query, with the same keys than the query words.
+     *
+     * The terms are prepared with the query words, else they are the query
+     * words themselves.
+     *
+     * @return array Each term has keys "text" and "key".
+     */
+    protected function getQueryTerms(): array
     {
-        $string = preg_replace('/[^\p{L}\p{N}\p{S}]/u', ' ', (string) $string);
+        if ($this->queryTerms === null) {
+            $this->queryTerms = [];
+            foreach ($this->queryWords as $index => $queryWord) {
+                $this->queryTerms[$index] = $this->makeTerm(stripslashes((string) $queryWord));
+            }
+        }
+        return $this->queryTerms;
+    }
+
+    /**
+     * Prepare a word of the query to match it against the words of the index.
+     */
+    protected function makeTerm(string $word): array
+    {
+        if ($this->useWildcards && strpbrk($word, '*?') !== false) {
+            $word = (string) preg_replace('/^[^\p{L}\p{N}*?]+|[^\p{L}\p{N}*?]+$/u', '', $word);
+            $regex = '';
+            foreach (preg_split('/([*?])/', $word, -1, PREG_SPLIT_DELIM_CAPTURE | PREG_SPLIT_NO_EMPTY) as $part) {
+                if ($part === '*') {
+                    $regex .= '[\p{L}\p{N}]*';
+                } elseif ($part === '?') {
+                    $regex .= '[\p{L}\p{N}]';
+                } else {
+                    $regex .= preg_quote($this->foldWord($part), '/');
+                }
+            }
+            return [
+                'text' => $word,
+                'key' => '',
+                'mode' => 'wildcard',
+                'regex' => '/^' . $regex . '$/u',
+            ];
+        }
+        if ($this->useFuzzy && preg_match('/^(.+?)~([12])?$/u', $word, $matches)) {
+            $key = $this->wordKey($matches[1]);
+            return [
+                'text' => $this->wordCore($matches[1]),
+                'key' => $key,
+                'mode' => 'fuzzy',
+                // Like "AUTO" of Lucene, but a long word allows two edits.
+                'distance' => isset($matches[2])
+                    ? (int) $matches[2]
+                    : (mb_strlen($key) >= 8 ? 2 : 1),
+            ];
+        }
+        return [
+            'text' => $word,
+            'key' => $this->wordKey($word),
+            'mode' => 'plain',
+        ];
+    }
+
+    /**
+     * Get the length of a query word, without the wildcards.
+     */
+    protected function queryWordLength(string $word): int
+    {
+        if ($this->useFuzzy) {
+            $word = (string) preg_replace('/~[12]?$/', '', $word);
+        }
+        return mb_strlen($this->useWildcards ? str_replace(['*', '?'], '', $word) : $word);
+    }
+
+    /**
+     * Check if a word of the index matches one of the terms of the query.
+     *
+     * @param string $key The key of the word of the index.
+     */
+    protected function matchQueryTerms(array $terms, string $key): bool
+    {
+        foreach ($terms as $term) {
+            if ($this->matchTerm($term, $key)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Check if a word of the index matches a term of the query.
+     *
+     * @param string $key The key of the word of the index.
+     * @param bool $isPart Match a part of the word, like the xml formats.
+     */
+    protected function matchTerm(array $term, string $key, bool $isPart = false): bool
+    {
+        if ($key === '') {
+            return false;
+        }
+        // A wildcard and a fuzzy term match the whole word.
+        if (($term['mode'] ?? 'plain') === 'wildcard') {
+            return preg_match($term['regex'], $key) === 1;
+        }
+        if ($term['key'] === '') {
+            return false;
+        }
+        // The distance is computed by byte, so it is stricter for non-ascii
+        // letters that are not normalized.
+        if (($term['mode'] ?? 'plain') === 'fuzzy') {
+            return abs(strlen($key) - strlen($term['key'])) <= $term['distance']
+                && levenshtein($key, $term['key']) <= $term['distance'];
+        }
+        return $isPart
+            ? strpos($key, $term['key']) !== false
+            : $key === $term['key'];
+    }
+
+    /**
+     * Check if the query needs the matching by word in the xml formats.
+     *
+     * Else the xml formats keep the simple matching of the query in the text.
+     */
+    protected function isFlexibleQuery(): bool
+    {
+        if ($this->spellingRules) {
+            return true;
+        }
+        foreach ($this->getQueryTerms() as $term) {
+            if (($term['mode'] ?? 'plain') !== 'plain') {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Get the text of a zone of an xml format that matches a query word.
+     *
+     * @param int|string $index The index of the query word.
+     * @param string $chars The quoted query word.
+     * @return string|null The matching text, or the word containing it.
+     */
+    protected function matchText($index, string $chars, string $text): ?string
+    {
+        if ($index === 'full' || !$this->isFlexibleQuery()) {
+            return preg_match('/' . $chars . '/Uui', $text, $matches) ? $matches[0] : null;
+        }
+        $term = $this->getQueryTerms()[$index] ?? null;
+        if (!$term) {
+            return null;
+        }
+        $text = html_entity_decode($text, ENT_QUOTES | ENT_XML1, 'UTF-8');
+        foreach (preg_split('/\s+/u', $text, -1, PREG_SPLIT_NO_EMPTY) as $word) {
+            $core = $this->wordCore($word);
+            if ($this->matchTerm($term, $this->wordKey($core), true)) {
+                $position = mb_stripos($core, $term['text']);
+                return $position === false
+                    ? $core
+                    : mb_substr($core, $position, mb_strlen($term['text']));
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Get the spelling rules as a map for strtr().
+     *
+     * Each line is a list of strings separated by spaces, then "=", then the
+     * string to use to compare words, for example "ij y = i".
+     */
+    protected function parseSpellingRules(string $rules): array
+    {
+        $map = [];
+        foreach (preg_split('/\R/u', $rules, -1, PREG_SPLIT_NO_EMPTY) as $line) {
+            if (strpos($line, '=') === false) {
+                continue;
+            }
+            [$froms, $to] = array_map('trim', explode('=', $line, 2));
+            $to = mb_strtolower($to, 'UTF-8');
+            foreach (preg_split('/\s+/u', mb_strtolower($froms, 'UTF-8'), -1, PREG_SPLIT_NO_EMPTY) as $from) {
+                if ($from !== $to) {
+                    $map[$from] = $to;
+                }
+            }
+        }
+        return $map;
+    }
+
+    /**
+     * Get the word without the punctuation around it.
+     *
+     * The words of the tsv indexes keep the punctuation, like "house," or
+     * "(house".
+     */
+    protected function wordCore(string $word): string
+    {
+        return (string) preg_replace('/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/u', '', $word);
+    }
+
+    /**
+     * Get the key used to compare a word of the query and a word of the index.
+     */
+    protected function wordKey(string $word): string
+    {
+        return $this->wordKeys[$word] ??= $this->foldWord($this->wordCore($word));
+    }
+
+    /**
+     * Lower and normalize a string to compare words, with the spelling rules.
+     */
+    protected function foldWord(string $string): string
+    {
+        $string = mb_strtolower($string, 'UTF-8');
+        // The normalization is slow, so skip it for ascii.
+        if (preg_match('/[^\x00-\x7F]/', $string)) {
+            $string = $this->normalize($string);
+        }
+        return $this->spellingRules
+            ? strtr($string, $this->spellingRules)
+            : $string;
+    }
+
+    /**
+     * Returns a cleaned  string.
+     *
+     * Removes trailing spaces and anything else, except letters, numbers and
+     * symbols, and the characters to keep.
+     */
+    protected function alnumString($string, string $keep = ''): string
+    {
+        $string = preg_replace('/[^\p{L}\p{N}\p{S}' . preg_quote($keep, '/') . ']/u', ' ', (string) $string);
         return trim(preg_replace('/\s+/', ' ', $string));
     }
 

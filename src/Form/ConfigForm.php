@@ -92,6 +92,45 @@ class ConfigForm extends Form
                     'id' => 'iiifsearch_tsv_prefer_full',
                 ],
             ])
+            ->add([
+                'name' => 'iiifsearch_spelling_rules',
+                'type' => Element\Textarea::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Spelling rules to match variants of words', // @translate
+                    'info' => 'Each line is a list of strings separated by spaces, then "=", then the string to use to compare words, for example "ij y = i" to find "huys" and "huijs" with "huis". The rules apply to the query and to the text.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_spelling_rules',
+                    'rows' => 5,
+                    'placeholder' => 'ij y = i
+ae = aa',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_wildcards',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Allow wildcards in the query', // @translate
+                    'info' => 'With "*" for any number of letters and "?" for one letter, for example "hu?s" or "huis*". The wildcards match whole words, and the query should have at least the minimum length without them.', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_wildcards',
+                ],
+            ])
+            ->add([
+                'name' => 'iiifsearch_fuzzy',
+                'type' => Element\Checkbox::class,
+                'options' => [
+                    'tab' => 'search',
+                    'label' => 'Allow fuzzy search in the query', // @translate
+                    'info' => 'With "~" after a word, for example "huis~", to find the words with one different letter, or two for a word of eight letters or more. The number of letters can be set with "~1" or "~2".', // @translate
+                ],
+                'attributes' => [
+                    'id' => 'iiifsearch_fuzzy',
+                ],
+            ])
 
             // Text.
 
