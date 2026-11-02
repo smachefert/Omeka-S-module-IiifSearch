@@ -842,13 +842,8 @@ class ExtractOcr extends AbstractJob
             if ($this->contentOnly) {
                 // No file or media to check, skip to text extraction.
             } elseif ($mode === 'all' || $mode === 'existing') {
-                if ($searchExistingOcrFile) {
-                    @unlink($localSearchFilepath);
-                    $this->logger->info(new Message(
-                        'The existing %1$s was removed for item #%2$d.', // @translate
-                        $this->targetExtension, $item->id()
-                    ));
-                }
+                // The existing file is replaced only when the new one is ready,
+                // so a failed extraction keeps it.
                 if ($searchExistingOcrMedia
                     && $this->canDeleteOcrMedia($searchExistingOcrMedia)
                 ) {
@@ -1025,6 +1020,13 @@ class ExtractOcr extends AbstractJob
                 }
             } else {
                 ++$countFailed;
+            }
+
+            if (!$hasOcrFile && !$this->createMedia && $searchExistingOcrFile) {
+                $this->logger->warn(new Message(
+                    'The existing %1$s of item #%2$d was kept, because no new file was created.', // @translate
+                    $this->targetExtension, $item->id()
+                ));
             }
 
             // Avoid memory issue.
@@ -1502,9 +1504,14 @@ class ExtractOcr extends AbstractJob
         }
 
         // copy() PHP émet un Warning sans exception ; capter via @ + diag.
-        $ok = @copy($tempFilepath, $filepath);
+        // Copy beside the target, then rename it, so an existing file is
+        // replaced only by a complete one.
+        $partFilepath = $filepath . '.part';
+        $ok = @copy($tempFilepath, $partFilepath)
+            && @rename($partFilepath, $filepath);
         if (!$ok) {
             $err = error_get_last();
+            @unlink($partFilepath);
             $size = @filesize($tempFilepath);
             $this->logger->err(new Message(
                 'copy("%1$s"→"%2$s") FAILED. err=%3$s. src size=%4$s. dst dir: %5$s. disk free: %6$s.', // @translate
