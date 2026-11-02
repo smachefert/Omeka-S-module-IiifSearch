@@ -1908,22 +1908,59 @@ class IiifSearch extends AbstractHelper
     }
 
     /**
-     * Get the context of a hit from the list of the words of its page.
+     * Get the context of a hit from the list of the zones of its page.
      *
-     * The word may contain more than the match, for example when the query is
-     * a part of the word, so the rest of the word is part of the context.
+     * A zone is a word in most ocr, but it may be a whole line, for example in
+     * the alto of eScriptorium or Kraken, so the context is counted in words,
+     * inside the zone of the match too. The zone may contain more than the
+     * match, for example when the query is a part of a word, so the rest of
+     * the word is part of the context.
      *
      * @return array With keys "match", "before" and "after".
      */
-    protected function contextOf(array $words, int $index, string $match): array
+    protected function contextOf(array $zones, int $index, string $match): array
     {
+        $zone = (string) ($zones[$index] ?? $match);
+        $offset = strlen($match) ? mb_stripos($zone, $match) : false;
+        if ($offset === false) {
+            $offset = 0;
+            $match = $zone;
+        }
+        $beforeText = mb_substr($zone, 0, $offset);
+        $afterText = mb_substr($zone, $offset + mb_strlen($match));
+
+        // The parts of the word of the match are glued to it.
+        $prefix = preg_match('/(\S+)$/u', $beforeText, $matches) ? $matches[1] : '';
+        $suffix = preg_match('/^(\S+)/u', $afterText, $matches) ? $matches[1] : '';
+
+        // Each zone has one word at least, so the zones around are enough.
         $start = max(0, $index - self::CONTEXT_WORDS);
-        return $this->formatContext(
-            array_slice($words, $start, $index - $start),
-            (string) ($words[$index] ?? $match),
-            $match,
-            array_slice($words, $index + 1, self::CONTEXT_WORDS)
+        $wordsBefore = array_merge(
+            $this->splitWords(implode(' ', array_slice($zones, $start, $index - $start))),
+            $this->splitWords(mb_substr($beforeText, 0, mb_strlen($beforeText) - mb_strlen($prefix)))
         );
+        $wordsAfter = array_merge(
+            $this->splitWords(mb_substr($afterText, mb_strlen($suffix))),
+            $this->splitWords(implode(' ', array_slice($zones, $index + 1, self::CONTEXT_WORDS)))
+        );
+
+        $before = implode(' ', array_slice($wordsBefore, -self::CONTEXT_WORDS));
+        $before = ($before === '' ? '' : $before . ' ') . $prefix;
+        $after = implode(' ', array_slice($wordsAfter, 0, self::CONTEXT_WORDS));
+        $after = $suffix . ($after === '' ? '' : ' ' . $after);
+        return [
+            'match' => $match,
+            'before' => $before === '' ? null : $before,
+            'after' => $after === '' ? null : $after,
+        ];
+    }
+
+    /**
+     * Split a text into words.
+     */
+    protected function splitWords(string $text): array
+    {
+        return preg_split('/\s+/u', trim($text), -1, PREG_SPLIT_NO_EMPTY) ?: [];
     }
 
     /**
