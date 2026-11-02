@@ -297,18 +297,23 @@ class XmlAltoSingle extends AbstractHelper
         $altoLayoutDom = null;
 
         $first = true;
+        $leadingEmptyPages = 0;
         foreach ($mediaData as $fileData) {
             $currentXml = $this->loadXmlFromFilepath($fileData['filepath'], $fileData['id'] ?? null);
             if (!$currentXml) {
-                $this->logger->err(new Message(
-                    'Error: Cannot get XML content from media #%d.', // @translate
-                    $fileData['id']
-                ));
-                if (!$alto) {
-                    return null;
+                // A null filepath is a page without xml, not an error.
+                if ($fileData['filepath']) {
+                    $this->logger->err(new Message(
+                        'Error: Cannot get XML content from media #%d.', // @translate
+                        $fileData['id']
+                    ));
                 }
                 // Insert an empty page to keep page indexes.
-                $altoLayout->addChild('Page');
+                if ($alto) {
+                    $altoLayout->addChild('Page');
+                } else {
+                    ++$leadingEmptyPages;
+                }
                 continue;
             }
 
@@ -323,6 +328,11 @@ class XmlAltoSingle extends AbstractHelper
                 $currentXmlFirstPage = $altoLayout->Page;
                 if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
                     $altoLayout->addChild('Page');
+                }
+                // Prepend the empty pages of the leading pages without xml.
+                $firstPageDom = dom_import_simplexml($altoLayout->Page[0]);
+                for ($i = 0; $i < $leadingEmptyPages; ++$i) {
+                    $altoLayoutDom->insertBefore(dom_import_simplexml($altoLayout->addChild('Page')), $firstPageDom);
                 }
                 continue;
             }

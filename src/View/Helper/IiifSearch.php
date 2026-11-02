@@ -1582,8 +1582,9 @@ class IiifSearch extends AbstractHelper
             $id = (int) ($sizeData['id'] ?? 0);
             $reordered[$indexImage] = $altoByImageId[$id] ?? null;
         }
+        // An image without paired xml keeps a null to preserve positions.
         $this->mediaXml = $reordered;
-        $this->mediaXmlFirst = count($this->mediaXml) ? reset($this->mediaXml) : null;
+        $this->mediaXmlFirst = current(array_filter($this->mediaXml)) ?: null;
 
         return $this;
     }
@@ -1747,6 +1748,11 @@ class IiifSearch extends AbstractHelper
             // Files are already checked.
             $mediaData = [];
             foreach ($this->mediaXml as $media) {
+                // Keep an empty page for an image without xml.
+                if (!$media) {
+                    $mediaData[] = ['id' => null, 'filepath' => null];
+                    continue;
+                }
                 $mediaId = $media->id();
                 $filename = $media->filename();
                 $filepath = $this->basePath . '/original/' . $filename;
