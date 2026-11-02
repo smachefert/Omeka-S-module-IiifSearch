@@ -135,9 +135,9 @@ class ExtractOcr extends AbstractJob
     protected $propertyTerm;
 
     /**
-     * @var bool
+     * @var string "public", "private" or "access".
      */
-    protected $propertyIsPublic = true;
+    protected $contentVisibility = 'public';
 
     /**
      * @var string
@@ -403,7 +403,7 @@ class ExtractOcr extends AbstractJob
                 if ($this->propertyId) {
                     $this->propertyTerm = $prop;
                     $this->language = $settings->get('iiifsearch_extract_content_language');
-                    $this->propertyIsPublic = $settings->get('iiifsearch_extract_content_visibility') !== 'private';
+                    $this->contentVisibility = (string) $settings->get('iiifsearch_extract_content_visibility', 'public');
                     $this->store['item'] = in_array('item', $contentStore) && !$this->getArg('manual');
                     $this->store['pdf'] = in_array('pdf', $contentStore);
                     $this->store['extracted'] = in_array('extracted', $contentStore);
@@ -1617,7 +1617,7 @@ class ExtractOcr extends AbstractJob
                 'property_id' => $this->propertyId,
                 '@value' => $textContent,
                 '@language' => $this->language,
-                'is_public' => $this->propertyIsPublic,
+                'is_public' => $this->isContentPublic($pdfMedia ?: $item),
             ];
             if ($pdfMedia) {
                 $data['dcterms:isFormatOf'][] = [
@@ -2902,6 +2902,49 @@ class ExtractOcr extends AbstractJob
         );
     }
 
+    /**
+     * Check if the text extracted from a resource can be public.
+     *
+     * With the option "access", the text of an item is public only when all its
+     * images (or the item without image) are public and freely available with
+     * the module Access, without current embargo. The text of a media follows
+     * the media.
+     */
+    protected function isContentPublic(AbstractResourceEntityRepresentation $resource): bool
+    {
+        if ($this->contentVisibility !== 'access') {
+            return $this->contentVisibility !== 'private';
+        }
+
+        $resources = [$resource];
+        if ($resource instanceof ItemRepresentation) {
+            $images = $this->getServiceLocator()->get('ViewHelperManager')
+                ->get('itemFileResources')->images($resource);
+            foreach ($images as $image) {
+                $resources[] = $image->inner();
+            }
+        }
+
+        $plugins = $this->getServiceLocator()->get('ControllerPluginManager');
+        $accessStatus = $plugins->has('accessStatus') ? $plugins->get('accessStatus') : null;
+        $isUnderEmbargo = $plugins->has('isUnderEmbargo') ? $plugins->get('isUnderEmbargo') : null;
+        foreach ($resources as $res) {
+            if (!$res->isPublic()) {
+                return false;
+            }
+            if ($accessStatus) {
+                $status = $accessStatus($res);
+                if ($status && $status->getLevel() !== \Access\Entity\AccessStatus::FREE) {
+                    return false;
+                }
+            }
+            if ($isUnderEmbargo && $isUnderEmbargo($res)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     protected function storeContentInProperty(AbstractResourceEntityRepresentation $resource, ?string $textContent): void
     {
         if ($textContent === null || $textContent === '') {
@@ -2913,7 +2956,7 @@ class ExtractOcr extends AbstractJob
             'property_id' => $this->propertyId,
             '@value' => $textContent,
             '@language' => $this->language,
-            'is_public' => $this->propertyIsPublic,
+            'is_public' => $this->isContentPublic($resource),
         ];
 
         $existingValues = $resource->value($this->propertyTerm, ['all' => true]);

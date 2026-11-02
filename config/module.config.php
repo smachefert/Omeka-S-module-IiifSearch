@@ -8,6 +8,9 @@ return [
             Stdlib\AltoProvenance::class => Stdlib\AltoProvenance::class,
             Stdlib\ToAltoConverter::class => Stdlib\ToAltoConverter::class,
         ],
+        'factories' => [
+            Stdlib\ContentVisibility::class => Service\Stdlib\ContentVisibilityFactory::class,
+        ],
     ],
     'media_ingesters' => [
         'invokables' => [

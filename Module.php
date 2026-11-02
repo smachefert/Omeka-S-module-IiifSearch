@@ -276,6 +276,13 @@ class Module extends AbstractModule
             [$this, 'warnOcrAccessMismatch']
         );
 
+        // Visibility of the extracted text according to the module Access.
+        $sharedEventManager->attach(
+            'Access',
+            'access.status.updated',
+            [$this, 'handleAccessStatusUpdated']
+        );
+
         // EasyAdmin batch job entries.
         $sharedEventManager->attach(
             \EasyAdmin\Form\CheckAndFixForm::class,
@@ -992,6 +999,27 @@ class Module extends AbstractModule
     /**
      * Warn the admin when the alto of a page is more open than its image.
      */
+    /**
+     * Update the visibility of the extracted text when the access changes.
+     */
+    public function handleAccessStatusUpdated(Event $event): void
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        if ($settings->get('iiifsearch_extract_content_visibility') !== 'access') {
+            return;
+        }
+
+        $term = $settings->get('iiifsearch_extract_content_property');
+        $propertyId = $term ? $services->get('Common\EasyMeta')->propertyId($term) : null;
+        if (!$propertyId) {
+            return;
+        }
+
+        $services->get(\IiifSearch\Stdlib\ContentVisibility::class)
+            ->update($propertyId, $event->getParam('resource_ids'));
+    }
+
     public function warnOcrAccessMismatch(Event $event): void
     {
         $services = $this->getServiceLocator();

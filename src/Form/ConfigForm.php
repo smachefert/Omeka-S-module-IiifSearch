@@ -417,10 +417,11 @@ ae = aa',
                     'tab' => 'extract',
                     'element_group' => 'fieldset_extract_search',
                     'label' => 'Visibility of the property with raw text', // @translate
-                    'info' => 'With the module Access, a public value is visible even when the files are reserved, so the text should be private in that case.', // @translate
+                    'info' => 'With the module Access, a public value is visible even when the files are reserved, so the text should be private in that case, or should follow the access of the files. The visibility is set when the text is extracted and, with the last option, updated automatically when the access of the files changes.', // @translate
                     'value_options' => [
                         'public' => 'Public', // @translate
                         'private' => 'Private', // @translate
+                        'access' => 'According to the visibility and the access of the files (module Access)', // @translate
                     ],
                 ],
                 'attributes' => [
