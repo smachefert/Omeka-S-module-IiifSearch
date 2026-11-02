@@ -51,6 +51,25 @@ class AltoRouteTest extends AbstractHttpControllerTestCase
         $this->assertSame(file_get_contents($this->altoPath), $this->getResponse()->getContent());
     }
 
+    public function testWholeAltoWithInvalidUtf8IsFixed(): void
+    {
+        $this->writeConsolidatedAlto();
+        // A windows-1252 file name in an alto declared as utf-8.
+        file_put_contents($this->altoPath, strtr((string) file_get_contents($this->altoPath), [
+            '<Layout' => "<!-- D\xE9dicace --><Layout",
+        ]));
+        $this->assertFalse(mb_check_encoding((string) file_get_contents($this->altoPath), 'UTF-8'));
+        $this->logout();
+
+        $this->dispatch('/iiif/search/' . $this->itemId . '/alto.xml');
+
+        $this->assertResponseStatusCode(200);
+        $content = $this->getResponse()->getContent();
+        $this->assertTrue(mb_check_encoding($content, 'UTF-8'));
+        $this->assertStringContainsString('Dédicace', $content);
+        $this->assertResponseHeaderContains('Content-Length', (string) strlen($content));
+    }
+
     public function testWholeAltoIsMissing(): void
     {
         $this->logout();

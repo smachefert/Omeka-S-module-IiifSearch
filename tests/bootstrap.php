@@ -13,6 +13,7 @@ require dirname(__DIR__, 3) . '/modules/Common/tests/Bootstrap.php';
         'Common',
         '?IiifServer',
         '?Access',
+        '?DigitalObject',
         'IiifSearch',
     ],
     'IiifSearchTest',

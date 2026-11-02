@@ -3,6 +3,7 @@
 namespace IiifSearchTest\Job;
 
 use IiifSearch\Job\ExtractOcr;
+use IiifSearch\View\Helper\FixUtf8;
 use Laminas\Log\Logger;
 use Laminas\Log\Writer\Noop;
 use Omeka\Api\Representation\ItemRepresentation;
@@ -93,6 +94,20 @@ class ExtractOcrAltoTsvTest extends TestCase
         );
     }
 
+    public function testFullTsvFromAltoWithInvalidUtf8(): void
+    {
+        // A windows-1252 file name in an alto declared as utf-8.
+        $alto = strtr($this->alto('http://www.loc.gov/standards/alto/ns-v3#'), [
+            '<Layout>' => "<Description><sourceImageInformation><fileName>D\xE9dicace.jpg</fileName></sourceImageInformation></Description><Layout>",
+            'premier' => 'été',
+        ]);
+        $this->assertTrue($this->extract($alto, ExtractOcr::FORMAT_TSV));
+        $this->assertSame(
+            "Chapitre\t1\t10,20,30,40\nete\t1\t50,20,30,40\n",
+            file_get_contents($this->tsvFilepath)
+        );
+    }
+
     public function testAltoWithCoordinates(): void
     {
         $this->assertTrue($this->hasCoordinates($this->alto('http://www.loc.gov/standards/alto/ns-v3#')));
@@ -139,6 +154,7 @@ class ExtractOcrAltoTsvProxy extends ExtractOcr
     public function proxyExtract(string $altoFilepath, string $tsvFilepath, ItemRepresentation $item, string $format): bool
     {
         $this->logger = new Logger(['writers' => [['name' => Noop::class]]]);
+        $this->fixUtf8 = new FixUtf8();
         $this->createEmptyFile = false;
         $this->targetExtension = 'tsv';
         return $this->extractTextToTsvFromAlto($altoFilepath, $tsvFilepath, $item, $format);
