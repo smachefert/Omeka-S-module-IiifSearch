@@ -308,7 +308,7 @@ ae = aa',
                 'options' => [
                     'tab' => 'pdf',
                     'label' => 'Concatenate mono-page PDFs before re-OCR', // @translate
-                    'info' => 'When an item carries several single-page PDFs (typically a scanned book split per page), concatenate them via ghostscript into a single multi-page PDF before running ocrmypdf. The result is always created as a new media / digital object — never used to update one of the source rows in place — because there is no unambiguous "primary" row to overwrite.', // @translate
+                    'info' => 'When an item carries several single-page PDFs (typically a scanned book split per page), concatenate them via ghostscript into a single multi-page PDF before running ocrmypdf. The result is always created as a new media / digital object (never used to update one of the source rows in place) because there is no unambiguous "primary" row to overwrite.', // @translate
                 ],
                 'attributes' => [
                     'id' => 'iiifsearch_extract_concat_monopage_pdf',
@@ -352,11 +352,11 @@ ae = aa',
                         'auto' => 'Auto (recommended)', // @translate
                         'mets' => 'Force METS structMap', // @translate
                         'source_image_information' => 'Force alto/hocr image hint', // @translate
-                        'basename' => 'Force basename', // @translate
-                        'basename_dir' => 'Force basename + directory', // @translate
+                        'basename' => 'Force base file name', // @translate
+                        'basename_dir' => 'Force base file name + directory', // @translate
                         'numeric' => 'Force numeric token', // @translate
                         'numeric_dir' => 'Force numeric token + directory', // @translate
-                        'dimension' => 'Force aspect ratio', // @translate
+                        'dimension' => 'Force ratio height/width', // @translate
                         'sequential' => 'Force sequential position', // @translate
                     ],
                 ],

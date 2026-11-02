@@ -789,10 +789,10 @@ class Module extends AbstractModule
         }
         // List only the features lost by the missing tools, not all features.
         $optionalTools = [
-            'tesseract' => 'extract text from page images without a text layer', // @translate
-            'ocrmypdf' => 'rebuild a pdf with an embedded text layer', // @translate
-            'gs' => 'rebuild a pdf with an embedded text layer and to concatenate mono-page pdf', // @translate
-            'img2pdf' => 'build a searchable pdf for items with images only', // @translate
+            'tesseract' => 'Extract text from page images without a text layer', // @translate
+            'ocrmypdf' => 'Rebuild a pdf with an embedded text layer', // @translate
+            'gs' => 'Rebuild a pdf with an embedded text layer and concatenate mono-page pdf', // @translate
+            'img2pdf' => 'Build a searchable pdf for items with images only', // @translate
         ];
         $missingOptional = array_intersect_key($optionalTools, array_flip($missing));
         if ($missingOptional) {

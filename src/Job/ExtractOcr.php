@@ -332,11 +332,11 @@ class ExtractOcr extends AbstractJob
             $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
             $targetTypesDigitalObject = [];
         } elseif ($targetTypesDigitalObject
-            && version_compare((string) $services->get('Omeka\ModuleManager')->getModule('DigitalObject')->getIni('version'), '3.4.3', '<')
+            && version_compare((string) $services->get('Omeka\ModuleManager')->getModule('DigitalObject')->getIni('version'), '3.4.2', '<')
         ) {
-            // The internal temp file is managed since DigitalObject 3.4.3.
+            // The internal temp file is managed since DigitalObject 3.4.2.
             $this->logger->warn(
-                'A "digital_object" destination is configured but the module DigitalObject should be upgraded to version 3.4.3 or later; those formats will be created as media instead.' // @translate
+                'A "digital_object" destination is configured but the module DigitalObject should be upgraded to version 3.4.2 or later; those formats will be created as media instead.' // @translate
             );
             $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
             $targetTypesDigitalObject = [];
@@ -1522,7 +1522,7 @@ class ExtractOcr extends AbstractJob
             @unlink($partFilepath);
             $size = @filesize($tempFilepath);
             $this->logger->err(new Message(
-                'copy("%1$s"→"%2$s") FAILED. err=%3$s. src size=%4$s. dst dir: %5$s. disk free: %6$s.', // @translate
+                'Copy from "%1$s" to "%2$s" failed. err=%3$s. src size=%4$s. dst dir: %5$s. disk free: %6$s.', // @translate
                 $tempFilepath,
                 $filepath,
                 $err['message'] ?? 'unknown',
