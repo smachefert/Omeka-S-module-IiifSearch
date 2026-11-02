@@ -9,6 +9,12 @@ return [
             Stdlib\ToAltoConverter::class => Stdlib\ToAltoConverter::class,
         ],
     ],
+    'media_ingesters' => [
+        'invokables' => [
+            // This is an internal ingester.
+            'iiifsearch_ocr' => Media\Ingester\OcrFile::class,
+        ],
+    ],
     'view_manager' => [
         'strategies' => [
             'ViewJsonStrategy',

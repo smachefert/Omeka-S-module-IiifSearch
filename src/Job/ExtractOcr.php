@@ -1590,12 +1590,15 @@ class ExtractOcr extends AbstractJob
         ItemRepresentation $item,
         ?AbstractResourceEntityRepresentation $pdfMedia = null
     ) {
-        // It's not possible to save a local file via the "upload" ingester. So
-        // the ingester "url" can be used, but it requires the file to be in the
-        // omeka files directory. Else, use module FileSideload or inject sql.
-        $storeFile = $this->makeTempFileDownloadable($tempFile, '/extractocr');
-        if (!$storeFile) {
-            return null;
+        // A media is attached via the internal ingester, that takes the temp
+        // file itself, without http request, so the access to files/temp/ may
+        // be denied by the web server. A digital object is still sideloaded.
+        $storeFile = null;
+        if ($this->saveAs === 'digital_object') {
+            $storeFile = $this->makeTempFileDownloadable($tempFile, '/extractocr');
+            if (!$storeFile) {
+                return null;
+            }
         }
 
         $currentPosition = count($item->media());
@@ -1610,8 +1613,8 @@ class ExtractOcr extends AbstractJob
             'o:item' => [
                 'o:id' => $item->id(),
             ],
-            'o:ingester' => 'url',
-            'ingest_url' => $storeFile['url'],
+            'o:ingester' => 'iiifsearch_ocr',
+            'ingest_tempfile' => $tempFile,
             'o:source' => $source,
             'o:lang' => $this->language,
             'o:media_type' => $this->targetMediaType,
@@ -1653,7 +1656,9 @@ class ExtractOcr extends AbstractJob
             $this->logger->err($e);
             return null;
         } finally {
-            @unlink($storeFile['filepath']);
+            if ($storeFile) {
+                @unlink($storeFile['filepath']);
+            }
         }
 
         if (!$media) {
