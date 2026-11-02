@@ -24,7 +24,6 @@ class IiifSearchFactory
             $helpers->get('xmlAltoSingle'),
             $basePath,
             !$settings->get('iiifsearch_disable_search_media_values'),
-            XmlAltoSingleFactory::resolveXmlFixMode($settings->get('iiifsearch_xml_fix_mode')),
             $plugins->has('isAllowedOcr') ? $plugins->get('isAllowedOcr') : null
         );
         $iiifSearch->setPairingMode((string) $settings->get('iiifsearch_alto_pairing_mode', 'auto'));

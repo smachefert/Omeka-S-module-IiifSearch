@@ -43,7 +43,7 @@ class ExtractOcr extends AbstractJob
     protected $entityManager;
 
     /**
-     * @var \IiifSearch\View\Helper\FixUtf8|null
+     * @var \IiifSearch\View\Helper\FixUtf8
      */
     protected $fixUtf8;
 
@@ -235,7 +235,7 @@ class ExtractOcr extends AbstractJob
         $services = $this->getServiceLocator();
         $helpers = $services->get('ViewHelperManager');
         $this->api = $services->get('Omeka\ApiManager');
-        $this->fixUtf8 = $helpers->has('FixUtf8') ? $helpers->get('FixUtf8') : null;
+        $this->fixUtf8 = $helpers->get('fixUtf8');
         $this->logger = $services->get('Omeka\Logger');
         $referenceIdProcessor = new \Laminas\Log\Processor\ReferenceId();
         $referenceIdProcessor->setReferenceId('extract-ocr/extract-ocr/job_' . $this->job->getId());
@@ -1818,7 +1818,7 @@ class ExtractOcr extends AbstractJob
             }
 
             $xmlContent = file_get_contents($pdfXmlPath);
-            $xmlContent = $this->cleanXmlContent((string) $xmlContent);
+            $xmlContent = $this->cleanXmlContent((string) $xmlContent, $pdfFilepath);
             $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
             if (!$xmlContent) {
                 $tempPdfXml->delete();
@@ -2332,14 +2332,25 @@ class ExtractOcr extends AbstractJob
                 return false;
             }
             // Fix invalid utf-8 and remove control characters from bad ocr.
-            $content = $this->cleanXmlContent($content);
-            $xml = simplexml_load_string(
+            $content = $this->cleanXmlContent($content, $altoFilepath);
+            $xml = @simplexml_load_string(
                 $content,
                 null,
                 LIBXML_BIGLINES | LIBXML_COMPACT | LIBXML_NOBLANKS | LIBXML_PARSEHUGE | LIBXML_NONET
             );
             if ($xml === false) {
-                continue;
+                $xml = $this->fixXmlDom($content);
+                if (!$xml) {
+                    $this->logger->err(new Message(
+                        'Unable to read the xml of file "%s".', // @translate
+                        $altoFilepath
+                    ));
+                    continue;
+                }
+                $this->logger->warn(new Message(
+                    'Malformed xml repaired in file "%s": the file should be fixed.', // @translate
+                    $altoFilepath
+                ));
             }
 
             // Register default namespace as 'alto' for xpath.
@@ -2542,7 +2553,7 @@ class ExtractOcr extends AbstractJob
             }
 
             $content = file_get_contents($xmlFilepath);
-            $content = $this->cleanXmlContent((string) $content);
+            $content = $this->cleanXmlContent((string) $content, $pdfFilepath);
             $xml = simplexml_load_string($content, null,
                 LIBXML_BIGLINES | LIBXML_COMPACT | LIBXML_NOBLANKS | LIBXML_PARSEHUGE | LIBXML_NONET
             );
@@ -2642,9 +2653,13 @@ class ExtractOcr extends AbstractJob
      * Some ocr tools declare utf-8 but output windows-1252 bytes, for example
      * in the source file name, so the unicode regex fails and returns null.
      */
-    protected function cleanXmlContent(string $xmlContent): string
+    protected function cleanXmlContent(string $xmlContent, string $filepath): string
     {
-        if ($this->fixUtf8 && !mb_check_encoding($xmlContent, 'UTF-8')) {
+        if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $this->logger->warn(new Message(
+                'Invalid utf-8 characters fixed in the xml of file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
             $xmlContent = $this->fixUtf8->__invoke($xmlContent);
         }
         return preg_replace('/[^\PCc^\PCn^\PCs]/u', '', $xmlContent) ?? $xmlContent;

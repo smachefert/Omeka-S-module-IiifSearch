@@ -33,21 +33,14 @@ class XmlAltoSingle extends AbstractHelper
      */
     protected $basePath;
 
-    /**
-     * @var string
-     */
-    protected $xmlFixMode;
-
     public function __construct(
         Logger $logger,
         FixUtf8 $fixUtf8,
-        string $basePath,
-        string $xmlFixMode
+        string $basePath
     ) {
         $this->logger = $logger;
         $this->fixUtf8 = $fixUtf8;
         $this->basePath = $basePath;
-        $this->xmlFixMode = $xmlFixMode;
     }
 
     /**
@@ -237,13 +230,16 @@ class XmlAltoSingle extends AbstractHelper
         // Fix windows-1252 bytes in a xml declared as utf-8. Skipped when the
         // content is valid, because the regex is slow.
         if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $this->logger->warn(new Message(
+                'Invalid utf-8 characters fixed in the xml of file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
             $xmlContent = $this->fixUtf8->__invoke($xmlContent);
         }
 
         try {
-            $currentXml = in_array($this->xmlFixMode, ['dom', 'all'], true)
-                ? $this->fixXmlDom($xmlContent)
-                : @simplexml_load_string($xmlContent, null, LIBXML_NONET);
+            $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET)
+                ?: $this->repairXml($xmlContent, $filepath);
         } catch (Exception $e) {
             $this->logger->err(new Message(
                 'Error: XML content is incorrect for media #%d.', // @translate
@@ -261,6 +257,21 @@ class XmlAltoSingle extends AbstractHelper
         }
 
         return $currentXml;
+    }
+
+    /**
+     * Repair a malformed xml and log it, so the file can be fixed.
+     */
+    protected function repairXml(string $xmlContent, string $filepath): ?SimpleXMLElement
+    {
+        $xml = $this->fixXmlDom($xmlContent);
+        if ($xml) {
+            $this->logger->warn(new Message(
+                'Malformed xml repaired in file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
+        }
+        return $xml;
     }
 
     /**

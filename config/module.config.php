@@ -22,7 +22,6 @@ return [
     ],
     'view_helpers' => [
         'factories' => [
-            'fixUtf8' => Service\ViewHelper\FixUtf8Factory::class,
             'iiifSearch' => Service\ViewHelper\IiifSearchFactory::class,
             'iiifSearch2' => Service\ViewHelper\IiifSearch2Factory::class,
             'iiifSearchTeiStructure' => Service\ViewHelper\IiifSearchTeiStructureFactory::class,
@@ -31,6 +30,7 @@ return [
             'xmlAltoSplitter' => Service\ViewHelper\XmlAltoSplitterFactory::class,
         ],
         'invokables' => [
+            'fixUtf8' => View\Helper\FixUtf8::class,
             'iiifAltoAnnotations' => View\Helper\IiifAltoAnnotations::class,
             'iiifAltoAnnotations2' => View\Helper\IiifAltoAnnotations2::class,
             'iiifSearchAnnotationUrl' => View\Helper\IiifSearchAnnotationUrl::class,
@@ -286,7 +286,6 @@ return [
             'iiifsearch_tei_structure_property' => 'dcterms:tableOfContents',
             'iiifsearch_extract_content_language' => '',
             'iiifsearch_extract_create_empty_file' => false,
-            'iiifsearch_xml_fix_mode' => [],
             'iiifsearch_extract_reocr_no_text_layer' => false,
 
             // Optional PDF text-layer rebuild. When set to 'update' the source

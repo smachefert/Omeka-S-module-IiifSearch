@@ -115,11 +115,6 @@ class IiifSearch extends AbstractHelper
     /**
      * @var string
      */
-    protected $xmlFixMode;
-
-    /**
-     * @var string
-     */
     protected $pairingMode = 'auto';
 
     public function setPairingMode(string $mode): self
@@ -244,7 +239,6 @@ class IiifSearch extends AbstractHelper
         XmlAltoSingle $xmlAltoSingle,
         string $basePath,
         bool $searchMediaValues,
-        string $xmlFixMode,
         ?IsAllowedOcr $isAllowedOcr = null
     ) {
         $this->isAllowedOcr = $isAllowedOcr;
@@ -256,7 +250,6 @@ class IiifSearch extends AbstractHelper
         $this->xmlAltoSingle = $xmlAltoSingle;
         $this->basePath = $basePath;
         $this->searchMediaValues = $searchMediaValues;
-        $this->xmlFixMode = $xmlFixMode;
     }
 
     /**
@@ -1810,6 +1803,10 @@ class IiifSearch extends AbstractHelper
         // Fix windows-1252 bytes in a xml declared as utf-8. Skipped when the
         // content is valid, because the regex is slow.
         if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $this->logger->warn(new Message(
+                'Invalid utf-8 characters fixed in the xml of file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
             $xmlContent = $this->fixUtf8->__invoke($xmlContent);
         }
 
@@ -1829,9 +1826,8 @@ class IiifSearch extends AbstractHelper
             if ($isPdf2Xml) {
                 $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
             }
-            $currentXml = in_array($this->xmlFixMode, ['dom', 'all'], true)
-                ? $this->fixXmlDom($xmlContent)
-                : @simplexml_load_string($xmlContent, null, LIBXML_NONET);
+            $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET)
+                ?: $this->repairXml($xmlContent, $filepath);
         } catch (\Throwable $e) {
             if ($hasNoMedia || !$this->mediaXmlFirst) {
                 $this->logger->err(new Message(
@@ -1863,6 +1859,21 @@ class IiifSearch extends AbstractHelper
         }
 
         return $currentXml;
+    }
+
+    /**
+     * Repair a malformed xml and log it, so the file can be fixed.
+     */
+    protected function repairXml(string $xmlContent, string $filepath): ?SimpleXMLElement
+    {
+        $xml = $this->fixXmlDom($xmlContent);
+        if ($xml) {
+            $this->logger->warn(new Message(
+                'Malformed xml repaired in file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
+        }
+        return $xml;
     }
 
     /**

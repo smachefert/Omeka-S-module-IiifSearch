@@ -260,23 +260,6 @@ ae = aa',
             ])
 
             ->add([
-                'name' => 'iiifsearch_xml_fix_mode',
-                'type' => CommonElement\OptionalMultiCheckbox::class,
-                'options' => [
-                    'tab' => 'extract',
-                    'element_group' => 'fieldset_extract_process',
-                    'label' => 'Fix bad xml and invalid utf-8 characters', // @translate
-                    'info' => 'Independent strategies for repairing malformed OCR XML. Leave both unchecked to disable. DOM is quick (single pass via DOMDocument); regex is slow (per-character UTF-8 fix-up). Both can be enabled together for maximum coverage on degraded files.', // @translate
-                    'value_options' => [
-                        'dom' => 'Via DOM (quick)', // @translate
-                        'regex' => 'Via regex (slow)', // @translate
-                    ],
-                ],
-                'attributes' => [
-                    'id' => 'iiifsearch_xml_fix_mode',
-                ],
-            ])
-            ->add([
                 'name' => 'iiifsearch_extract_create_empty_file',
                 'type' => Element\Checkbox::class,
                 'options' => [
@@ -630,10 +613,6 @@ ae = aa',
         $inputFilter
             ->add([
                 'name' => 'iiifsearch_versions',
-                'required' => false,
-            ])
-            ->add([
-                'name' => 'iiifsearch_xml_fix_mode',
                 'required' => false,
             ])
             ->add([
