@@ -22,7 +22,8 @@ use Omeka\Stdlib\Message;
  * @var \Omeka\Mvc\Controller\Plugin\Messenger $messenger
  */
 $plugins = $services->get('ControllerPluginManager');
-$url = $services->get('ViewHelperManager')->get('url');
+$helpers = $services->get('ViewHelperManager');
+$url = $helpers->get('url');
 $api = $plugins->get('api');
 $logger = $services->get('Omeka\Logger');
 $settings = $services->get('Omeka\Settings');
@@ -43,10 +44,10 @@ if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActi
 }
 
 
-if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.33')) {
+if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.34')) {
     $message = new Message(
         $translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-        'IiifServer', '3.6.33'
+        'IiifServer', '3.6.34'
     );
     $messenger->addError($message);
     throw new \Omeka\Module\Exception\ModuleCannotInstallException((string) $translate('Missing requirement. Unable to upgrade.')); // @translate
@@ -293,7 +294,7 @@ if (version_compare($oldVersion, '3.4.16', '<')) {
     }
 
     $message = new Message(
-        'Extraction settings have been reorganised per format. Each format (TSV, by-word TSV, ALTO, pdf2xml) now exposes its own list of destinations (file / media / digital object). The recommended defaults are: file for TSV, by-word TSV and ALTO; nothing for pdf2xml (deprecated). ALTO may additionally be attached as media or digital object if you need it exposed as a regular Omeka resource — but TSV and pdf2xml should never be.' // @translate
+        'Extraction settings have been reorganised per format. Each format (TSV, by-word TSV, ALTO, pdf2xml) now exposes its own list of destinations (file / media / digital object). The recommended defaults are: file for TSV, by-word TSV and ALTO; nothing for pdf2xml (deprecated). ALTO may additionally be attached as media or digital object if you need it exposed as a regular Omeka resource. TSV and pdf2xml should never be.' // @translate
     );
     $messenger->addSuccess($message);
 
@@ -399,5 +400,13 @@ if (version_compare($oldVersion, '3.4.16', '<')) {
 
     $messenger->addSuccess(new Message(
         'The table of contents of a tei file attached to an item is now extracted and used as structures of the manifest by the module IIIF Server. It can be stored in a property too (option "Store the table of contents of the TEI file in a property").' // @translate
+    ));
+}
+
+if (version_compare($oldVersion, '3.4.17', '<')) {
+    $settings->delete('iiifsearch_xml_fix_mode');
+
+    $messenger->addSuccess(new Message(
+        'The invalid utf-8 characters and the malformed xml files are now repaired automatically, only when needed, so the option to fix them was removed. Each repaired file is logged, so it can be fixed.' // @translate
     ));
 }

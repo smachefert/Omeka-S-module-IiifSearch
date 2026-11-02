@@ -163,10 +163,10 @@ class Module extends AbstractModule
             $errors[] = (string) $message;
         }
 
-        if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.33')) {
+        if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.34')) {
             $message = new \Omeka\Stdlib\Message(
                 $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-                'IiifServer', '3.6.33'
+                'IiifServer', '3.6.34'
             );
             $errors[] = (string) $message;
         }
