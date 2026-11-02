@@ -37,7 +37,7 @@ vendor/bin/phpunit -c modules/IiifSearch/phpunit.xml --testdox
 
 * Old options for badly formatted xml files
 
-The old option to fix bad Microsoft xml files `iiifserver_enable_utf8_fix` that might be added in the file `config/local.config.php` of Omeka was replaced by an option in the config form and is no more needed and can be removed:
+The old option to fix bad Microsoft xml files `iiifserver_enable_utf8_fix` that might be added in the file `config/local.config.php` of Omeka is no more needed and can be removed: the invalid utf-8 characters and the malformed xml are now repaired automatically, only when needed.
 
 ```php
     'iiifserver' => [
@@ -175,9 +175,10 @@ The context is available for alto, hOCR, pdf2xml and the full tsv index, but not
 
 ### Extract
 
-- Fix bad xml and invalid utf-8 characters (issue related to files created with Microsoft Windows)
-  Strategy for repairing malformed XML/UTF-8 in OCR sources: `no`, `dom` (quick, via DOMDocument), `regex` (slow, per-character), `all` (both).
-  Of course, for performance, it is better to fix files before upload.
+- Bad xml and invalid utf-8 characters
+  The invalid utf-8 characters (generally windows-1252 bytes in a file declared
+  as utf-8) and the malformed xml are repaired automatically, only when needed.
+  Each repaired file is logged: for performance, it is better to fix it.
 
 - Per-format destinations
   There are four independent multi-checkboxes pick where each format should be written:
@@ -213,6 +214,9 @@ The context is available for alto, hOCR, pdf2xml and the full tsv index, but not
 
 - Language code of the content
   Optional ISO language tag applied to the stored text value.
+
+- Visibility of the property with raw text
+  The stored text may be public, private, or follow the visibility and the access of the files with the module [Access](https://gitlab.com/Daniel-KM/Omeka-S-module-Access): the text of an item is public only when all its images (or the item without image) are public, freely available and not under embargo; the text of a media follows the media. A public value is visible even when the files are reserved, so do not set it public with reserved files. The visibility is set when the text is extracted. With the option following the access, it is updated automatically when the module Access updates the access of the files (save of a resource, batch edit, rebuild of the access index, end of embargo).
 
 - Create xml file even if there is no text content
   Useful to keep a stable page count and ordering when some pages have no recoverable text.
@@ -301,3 +305,10 @@ Contact
 
 * Sylvain Machefert, Université Bordeaux 3 (see [symac](https://github.com/symac))
 * Daniel Berthereau, (see [Daniel-KM](https://gitlab.com/Daniel-KM))
+
+
+[installing a module]: https://omeka.org/s/docs/user-manual/modules/#installing-modules
+[Common]: https://gitlab.com/Daniel-KM/Omeka-S-module-Common
+[IiifSearch.zip]: https://gitlab.com/Daniel-KM/Omeka-S-module-IiifSearch/-/releases
+[Iiif Server]: https://gitlab.com/Daniel-KM/Omeka-S-module-IiifServer
+[Iiif Search response]: https://iiif.io/api/search/
