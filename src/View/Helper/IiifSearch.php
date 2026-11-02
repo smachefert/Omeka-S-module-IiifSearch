@@ -2196,7 +2196,15 @@ class IiifSearch extends AbstractHelper
      */
     protected function wordKey(string $word): string
     {
-        return $this->wordKeys[$word] ??= $this->foldWord($this->wordCore($word));
+        if (isset($this->wordKeys[$word])) {
+            return $this->wordKeys[$word];
+        }
+        // The index of a big book has many distinct words, so the cache is
+        // limited to keep the memory low.
+        if (count($this->wordKeys) >= 100000) {
+            $this->wordKeys = [];
+        }
+        return $this->wordKeys[$word] = $this->foldWord($this->wordCore($word));
     }
 
     /**
