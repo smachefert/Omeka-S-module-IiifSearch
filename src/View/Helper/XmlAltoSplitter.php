@@ -157,9 +157,15 @@ class XmlAltoSplitter extends AbstractHelper
     protected function findPerPageAltoPath(ItemRepresentation $item, int $pageIndex): ?string
     {
         $target = $this->findPerPageAltoResource($item, $pageIndex);
-        return $target
-            ? $this->basePath . '/original/' . $target->filename()
-            : null;
+        if (!$target) {
+            return null;
+        }
+        // The alto of a page may contain several pages, for example an export
+        // of a whole range of pages, so extract the requested one.
+        $path = $this->basePath . '/original/' . $target->filename();
+        return $this->countPages($path) > 1
+            ? $this->resolveFromMultipageFile($path, $item, $pageIndex)
+            : $path;
     }
 
     /**
@@ -233,25 +239,28 @@ class XmlAltoSplitter extends AbstractHelper
     }
 
     /**
-     * Find the first item resource (media or DigitalObject) that is an ALTO XML
+     * Find the item resource (media or DigitalObject) that is an ALTO XML
      * containing more than one Page element.
+     *
+     * It is used only when it is the single ALTO of the item: the ALTO of each
+     * page has priority, even if one of them contains several pages.
      */
     public function findMultipageAltoMedia(ItemRepresentation $item): ?AbstractResourceEntityRepresentation
     {
         $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $altos = [];
         foreach ($itemFileResources($item) as $resource) {
-            if ($resource->mediaType() !== 'application/alto+xml') {
-                continue;
-            }
-            $path = $this->basePath . '/original/' . $resource->filename();
-            if (!is_readable($path)) {
-                continue;
-            }
-            if ($this->countPages($path) > 1) {
-                return $resource->inner();
+            if ($resource->mediaType() === 'application/alto+xml') {
+                $altos[] = $resource;
             }
         }
-        return null;
+        if (count($altos) !== 1) {
+            return null;
+        }
+        $path = $this->basePath . '/original/' . $altos[0]->filename();
+        return is_readable($path) && $this->countPages($path) > 1
+            ? $altos[0]->inner()
+            : null;
     }
 
     public function countPages(string $sourcePath): int
@@ -333,9 +342,21 @@ class XmlAltoSplitter extends AbstractHelper
 
         // Auto-resolve: prefer PHYSICAL_IMG_NR when present, then match
         // Page/@ID against item file basenames, fall back to positional order.
+        // The standard does not set the first number: it is 1 for most tools,
+        // but 0 for some ones, like eScriptorium.
+        $first = 1;
         foreach ($pages as $page) {
-            $nr = (int) $page->getAttribute('PHYSICAL_IMG_NR');
-            if ($nr && ($nr - 1) === $pageIndex) {
+            if ($page->hasAttribute('PHYSICAL_IMG_NR')
+                && (int) $page->getAttribute('PHYSICAL_IMG_NR') === 0
+            ) {
+                $first = 0;
+                break;
+            }
+        }
+        foreach ($pages as $page) {
+            if ($page->hasAttribute('PHYSICAL_IMG_NR')
+                && (int) $page->getAttribute('PHYSICAL_IMG_NR') - $first === $pageIndex
+            ) {
                 return $page;
             }
         }
