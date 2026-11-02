@@ -2417,7 +2417,7 @@ class ExtractOcr extends AbstractJob
                     $h = round(((float) $a->HEIGHT) * $scaleY);
                     $xywh = $x . ',' . $y . ',' . $w . ',' . $h;
                     if ($isFullTsv) {
-                        fputcsv($fp, [$word, $canvasPage, $xywh], "\t", "\0", "\0");
+                        fputcsv($fp, [$word, $canvasPage, $xywh], "\t", "\0", '');
                         $hasRow = true;
                     } else {
                         $word = mb_strtolower($word, 'UTF-8');
@@ -2461,7 +2461,7 @@ class ExtractOcr extends AbstractJob
             return false;
         }
         foreach ($resultTsv as $word => $positions) {
-            fputcsv($fp, [$word, implode(';', $positions)], "\t", "\0", "\0");
+            fputcsv($fp, [$word, implode(';', $positions)], "\t", "\0", '');
         }
         return fclose($fp);
     }
@@ -2630,7 +2630,7 @@ class ExtractOcr extends AbstractJob
                     $xywh = round((float) $xMin) . ',' . round((float) $yMin) . ',' . $width . ',' . $height;
 
                     if ($isFullTsv) {
-                        fputcsv($fp, [$word, $indexXmlPage, $xywh], "\t", "\0", "\0");
+                        fputcsv($fp, [$word, $indexXmlPage, $xywh], "\t", "\0", '');
                         $hasRow = true;
                     } else {
                         $word = mb_strtolower($word, 'UTF-8');
@@ -2662,7 +2662,7 @@ class ExtractOcr extends AbstractJob
             return false;
         }
         foreach ($resultTsv as $word => $positions) {
-            fputcsv($fp, [$word, implode(';', $positions)], "\t", "\0", "\0");
+            fputcsv($fp, [$word, implode(';', $positions)], "\t", "\0", '');
         }
         return fclose($fp);
     }

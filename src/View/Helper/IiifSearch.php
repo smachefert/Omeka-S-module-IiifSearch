@@ -986,7 +986,7 @@ class IiifSearch extends AbstractHelper
             $indexQueryWord = 0;
             $currentExpression = [];
             $expressionBefore = [];
-            while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
+            while (($data = fgetcsv($handle, 1000000, "\t", "\0", '')) !== false) {
                 $before = $this->trackTsvContext($tracker, $data);
                 $wordKey = $this->wordKey($data[0]);
                 if (!$this->matchTerm($queryTerms[$indexQueryWord], $wordKey)) {
@@ -1083,13 +1083,13 @@ class IiifSearch extends AbstractHelper
 
             $wordPositions = [];
             if ($isTsvByWord) {
-                while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
+                while (($data = fgetcsv($handle, 1000000, "\t", "\0", '')) !== false) {
                     if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $wordPositions[$data[0]] = $data[1];
                     }
                 }
             } else {
-                while (($data = fgetcsv($handle, 1000000, "\t", "\0", "\0")) !== false) {
+                while (($data = fgetcsv($handle, 1000000, "\t", "\0", '')) !== false) {
                     $before = $this->trackTsvContext($tracker, $data);
                     if ($this->matchQueryTerms($queryTerms, $this->wordKey($data[0]))) {
                         $contextKey = $this->addTsvContext($tracker, $before, $data[0]);

@@ -51,7 +51,7 @@ class PairingAudit extends AbstractJob
             ));
             return;
         }
-        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'page_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '\\');
+        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'page_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '');
 
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
@@ -182,7 +182,7 @@ class PairingAudit extends AbstractJob
                 $coverage,
                 $warnings,
                 implode(' | ', $access),
-            ], ',', '"', '\\');
+            ], ',', '"', '');
         }
         fclose($fp);
 
