@@ -213,12 +213,13 @@ class SearchController extends AbstractActionController
             return $notModified;
         }
 
+        $content = $this->altoContent($path);
         $response = $this->getResponse();
         $headers = $response->getHeaders();
         $headers->addHeaderLine('Content-Type', 'application/xml+alto; charset=utf-8');
-        $headers->addHeaderLine('Content-Length', (string) filesize($path));
+        $headers->addHeaderLine('Content-Length', (string) strlen($content));
         $this->addCacheHeaders($headers, $etag, $mtime, 3600);
-        $response->setContent((string) file_get_contents($path));
+        $response->setContent($content);
         return $response;
     }
 
@@ -255,12 +256,13 @@ class SearchController extends AbstractActionController
             return $notModified;
         }
 
+        $content = $this->altoContent($path);
         $response = $this->getResponse();
         $headers = $response->getHeaders();
         $headers->addHeaderLine('Content-Type', 'application/xml+alto; charset=utf-8');
-        $headers->addHeaderLine('Content-Length', (string) filesize($path));
+        $headers->addHeaderLine('Content-Length', (string) strlen($content));
         $this->addCacheHeaders($headers, $etag, $mtime, 3600);
-        $response->setContent((string) file_get_contents($path));
+        $response->setContent($content);
         return $response;
     }
 
@@ -359,9 +361,13 @@ class SearchController extends AbstractActionController
         if (!is_readable($xsltPath)) {
             return null;
         }
+        $altoContent = $this->altoContent($altoPath);
+        if ($altoContent === '') {
+            return null;
+        }
         libxml_use_internal_errors(true);
         $dom = new \DOMDocument();
-        $loaded = @$dom->load($altoPath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        $loaded = @$dom->loadXML($altoContent, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
         if (!$loaded) {
             libxml_clear_errors();
             libxml_use_internal_errors(false);
@@ -430,6 +436,20 @@ class SearchController extends AbstractActionController
         $this->addCacheHeaders($response->getHeaders(), $etag, $mtime, 3600);
 
         return $this->jsonLd($page);
+    }
+
+    /**
+     * Get the content of an alto file, with invalid utf-8 characters fixed.
+     *
+     * Some ocr tools write the file name in windows-1252 in a xml declared as
+     * utf-8, so the clients cannot parse it.
+     */
+    protected function altoContent(string $path): string
+    {
+        $content = (string) file_get_contents($path);
+        return mb_check_encoding($content, 'UTF-8')
+            ? $content
+            : (string) $this->viewHelpers()->get('fixUtf8')($content);
     }
 
     protected function resolveItem(): ?\Omeka\Api\Representation\ItemRepresentation
