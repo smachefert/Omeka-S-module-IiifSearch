@@ -63,11 +63,6 @@ class ExtractOcr extends AbstractJob
     protected $basePath;
 
     /**
-     * @var string
-     */
-    protected $baseUri;
-
-    /**
      * @var bool
      */
     protected $createEmptyFile;
@@ -251,7 +246,6 @@ class ExtractOcr extends AbstractJob
         $this->itemFileResources = $helpers->has('itemFileResources')
             ? $helpers->get('itemFileResources')
             : null;
-        $this->baseUri = $this->getArg('base_uri');
         $this->basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
 
         if (!$this->cli->getCommandPath('pdftotext')) {
@@ -266,22 +260,6 @@ class ExtractOcr extends AbstractJob
             $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
             $this->logger->err(
                 'The command-line utility pdftohtml is not available. Install the package poppler-utils.' //@translate
-            );
-            return;
-        }
-
-        if (!$this->checkDestinationDir($this->basePath . '/temp')) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(
-                'The temporary directory "files/temp" is not writeable. Fix rights or create it manually.' // @translate
-            );
-            return;
-        }
-
-        if (!$this->baseUri) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(
-                'The base uri is unknown.' // @translate
             );
             return;
         }
@@ -349,6 +327,15 @@ class ExtractOcr extends AbstractJob
         if ($targetTypesDigitalObject && !$doModuleActive) {
             $this->logger->warn(
                 'A "digital_object" destination is configured but the DigitalObject module is not active; those formats will be created as media instead.' // @translate
+            );
+            $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
+            $targetTypesDigitalObject = [];
+        } elseif ($targetTypesDigitalObject
+            && version_compare((string) $services->get('Omeka\ModuleManager')->getModule('DigitalObject')->getIni('version'), '3.4.3', '<')
+        ) {
+            // The internal temp file is managed since DigitalObject 3.4.3.
+            $this->logger->warn(
+                'A "digital_object" destination is configured but the module DigitalObject should be upgraded to version 3.4.3 or later; those formats will be created as media instead.' // @translate
             );
             $targetTypesMedia = array_values(array_unique(array_merge($targetTypesMedia, $targetTypesDigitalObject)));
             $targetTypesDigitalObject = [];
@@ -1590,16 +1577,9 @@ class ExtractOcr extends AbstractJob
         ItemRepresentation $item,
         ?AbstractResourceEntityRepresentation $pdfMedia = null
     ) {
-        // A media is attached via the internal ingester, that takes the temp
-        // file itself, without http request, so the access to files/temp/ may
-        // be denied by the web server. A digital object is still sideloaded.
-        $storeFile = null;
-        if ($this->saveAs === 'digital_object') {
-            $storeFile = $this->makeTempFileDownloadable($tempFile, '/extractocr');
-            if (!$storeFile) {
-                return null;
-            }
-        }
+        // The temp file itself is attached, without http request, so the access
+        // to files/temp/ may be denied by the web server and the module
+        // FileSideload is not required.
 
         $currentPosition = count($item->media());
 
@@ -1644,7 +1624,7 @@ class ExtractOcr extends AbstractJob
 
         try {
             if ($this->saveAs === 'digital_object') {
-                $media = $this->createAsDigitalObject($data, $storeFile, $item);
+                $media = $this->createAsDigitalObject($data, $tempFile, $item);
             } else {
                 $media = $this->api->create('media', $data)->getContent();
             }
@@ -1655,10 +1635,6 @@ class ExtractOcr extends AbstractJob
         } catch (Exception $e) {
             $this->logger->err($e);
             return null;
-        } finally {
-            if ($storeFile) {
-                @unlink($storeFile['filepath']);
-            }
         }
 
         if (!$media) {
@@ -1687,7 +1663,7 @@ class ExtractOcr extends AbstractJob
      *
      * @return \DigitalObject\Api\Representation\DigitalObjectRepresentation|null
      */
-    protected function createAsDigitalObject(array $data, array $storeFile, ItemRepresentation $item)
+    protected function createAsDigitalObject(array $data, TempFile $tempFile, ItemRepresentation $item)
     {
         $services = $this->getServiceLocator();
         $config = $services->get('Config');
@@ -1710,8 +1686,7 @@ class ExtractOcr extends AbstractJob
             return null;
         }
         $doData = [
-            'o:ingester' => 'sideload',
-            'ingest_filename' => $storeFile['filepath'],
+            'ingest_tempfile' => $tempFile,
             'o:source' => $data['o:source'] ?? null,
             'o:lang' => $data['o:lang'] ?? null,
             'o:media_type' => $data['o:media_type'] ?? null,
@@ -3343,52 +3318,6 @@ class ExtractOcr extends AbstractJob
         // Flush one time to use a transaction and to avoid a duplicate issue
         // with the index item_id/position.
         $entityManager->flush();
-    }
-
-    /**
-     * Save a temp file into the files/temp directory.
-     *
-     * @see \DerivativeMedia\Module::makeTempFileDownloadable()
-     * @see \Ebook\Mvc\Controller\Plugin\Ebook::saveFile()
-     * @see \IiifSearch\Job\ExtractOcr::makeTempFileDownloadable()
-     */
-    protected function makeTempFileDownloadable(TempFile $tempFile, string $base = ''): ?array
-    {
-        $baseDestination = '/temp';
-        $destinationDir = $this->basePath . $baseDestination . $base;
-        if (!$this->checkDestinationDir($destinationDir)) {
-            return null;
-        }
-
-        $source = $tempFile->getTempPath();
-
-        // Find a unique meaningful filename instead of a hash.
-        $name = date('Ymd_His');
-        $i = 0;
-        do {
-            $filename = $name . ($i ? '-' . $i : '') . '.' . $this->targetExtension;
-            $destination = $destinationDir . '/' . $filename;
-            if (!file_exists($destination)) {
-                $result = @copy($source, $destination);
-                if (!$result) {
-                    $this->logger->err(new Message(
-                        'File cannot be saved in temporary directory "%1$s" (temp file: "%2$s")', // @translate
-                        $destination, $source
-                    ));
-                    return null;
-                }
-                $storageId = $base . $name . ($i ? '-' . $i : '');
-                break;
-            }
-        } while (++$i);
-
-        return [
-            'filepath' => $destination,
-            'filename' => $filename,
-            'url' => $this->baseUri . $baseDestination . $base . '/' . $filename,
-            'url_file' => $baseDestination . $base . '/' . $filename,
-            'storageId' => $storageId,
-        ];
     }
 
     /**

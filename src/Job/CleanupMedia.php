@@ -189,7 +189,6 @@ class CleanupMedia extends AbstractJob
                 $dispatcher = $this->getServiceLocator()->get(\Omeka\Job\Dispatcher::class);
                 $extractJob = $dispatcher->dispatch(\IiifSearch\Job\ExtractOcr::class, [
                     'mode' => 'missing',
-                    'base_uri' => (string) ($this->getArg('rerun_base_uri') ?: ''),
                     'item_ids' => '',
                     'query' => '',
                 ]);

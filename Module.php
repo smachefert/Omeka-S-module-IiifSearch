@@ -879,7 +879,6 @@ class Module extends AbstractModule
                 // jobs run sequentially even when the queue worker would
                 // otherwise pull them concurrently.
                 'rerun_extract' => !empty($cleanupParams['rerun_extract']),
-                'rerun_base_uri' => $this->getBaseUri(),
             ];
             $cleanupJob = $dispatcher->dispatch(\IiifSearch\Job\CleanupMedia::class, $cleanupArgs);
             $message = $this->buildJobLinkMessage(
@@ -921,7 +920,6 @@ class Module extends AbstractModule
 
         $args = [
             'mode' => $extractParams['mode'] ?? 'all',
-            'base_uri' => $this->getBaseUri(),
             // 'item_ids' is kept available as an alternate selector for other
             // entry points (api.create.post, easyAdmin batch, CLI scripts).
             'item_ids' => $extractParams['item_ids'] ?? '',
@@ -1244,20 +1242,18 @@ class Module extends AbstractModule
     protected function dispatchExtractOcr(int $itemId): void
     {
         $services = $this->getServiceLocator();
-        $baseUri = $this->getBaseUri();
         if ($services->has('Common\DeferredJobDispatch')) {
             $services->get('Common\DeferredJobDispatch')->defer(
                 \IiifSearch\Job\ExtractOcr::class,
                 'iiifsearch_extract_ocr',
                 ['item_ids' => $itemId],
-                function (string $key, array $allParams) use ($baseUri) {
+                function (string $key, array $allParams) {
                     $ids = [];
                     foreach ($allParams as $p) {
                         $ids[] = $p['item_ids'];
                     }
                     return [
                         'mode' => 'all',
-                        'base_uri' => $baseUri,
                         'item_ids' => implode(' ', array_unique($ids)),
                         'manual' => true,
                         'reuse_image_alto' => true,
@@ -1269,7 +1265,6 @@ class Module extends AbstractModule
                 \IiifSearch\Job\ExtractOcr::class,
                 [
                     'mode' => 'all',
-                    'base_uri' => $baseUri,
                     'item_ids' => (string) $itemId,
                     'manual' => true,
                     'reuse_image_alto' => true,
@@ -1347,9 +1342,7 @@ class Module extends AbstractModule
         if ($process === 'iiifsearch_extract') {
             $params = $event->getParam('params');
             $event->setParam('job', \IiifSearch\Job\ExtractOcr::class);
-            $args = $params['module_tasks']['iiifsearch_extract'] ?? [];
-            $args['base_uri'] = $this->getBaseUri();
-            $event->setParam('args', $args);
+            $event->setParam('args', $params['module_tasks']['iiifsearch_extract'] ?? []);
         }
     }
 
@@ -1395,26 +1388,6 @@ class Module extends AbstractModule
         } catch (\Omeka\Api\Exception\NotFoundException $e) {
         }
         return null;
-    }
-
-    protected function getBaseUri(): string
-    {
-        $services = $this->getServiceLocator();
-        $config = $services->get('Config');
-        $baseUri = $config['file_store']['local']['base_uri'] ?? null;
-        if (!$baseUri) {
-            $helpers = $services->get('ViewHelperManager');
-            $serverUrlHelper = $helpers->get('serverUrl');
-            $basePathHelper = $helpers->get('basePath');
-            $baseUri = $serverUrlHelper($basePathHelper('files'));
-            if ($baseUri === 'http:///files' || $baseUri === 'https:///files') {
-                $t = $services->get('MvcTranslator');
-                throw new \Omeka\Mvc\Exception\RuntimeException(
-                    $t->translate('The base uri is not set (key [file_store][local][base_uri]) in the config file of Omeka "config/local.config.php". It must be set for now in order to process background jobs.') // @translate
-                );
-            }
-        }
-        return $baseUri;
     }
 
     /**
