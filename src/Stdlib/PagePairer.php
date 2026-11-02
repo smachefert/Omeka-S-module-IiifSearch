@@ -338,6 +338,7 @@ class PagePairer
         $matches = [];
         $matched = 0;
         $hasCollision = false;
+        $hintedImages = [];
         foreach ($sources as $offset => $source) {
             $page = $source->index ?: ($offset + 1);
             $hint = $source->sourceImageFileName;
@@ -349,6 +350,14 @@ class PagePairer
             $candidates = $imagesByName[$hintName] ?? [];
             $countCandidates = count($candidates);
             if ($countCandidates === 1) {
+                // Two ocr pages with the same image hint, for example an export
+                // of several pages keeping the name of the first image, are a
+                // collision too.
+                if (isset($hintedImages[$candidates[0]->id()])) {
+                    $hasCollision = true;
+                    break;
+                }
+                $hintedImages[$candidates[0]->id()] = true;
                 $matches[$page] = $candidates[0];
                 ++$matched;
             } elseif ($countCandidates > 1) {
