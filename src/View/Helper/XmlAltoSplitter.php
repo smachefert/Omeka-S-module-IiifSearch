@@ -3,6 +3,7 @@
 namespace IiifSearch\View\Helper;
 
 use Common\Stdlib\DirectoryManager;
+use Common\Stdlib\FileLock;
 use DOMDocument;
 use DOMElement;
 use Laminas\Log\Logger;
@@ -36,6 +37,11 @@ class XmlAltoSplitter extends AbstractHelper
      * @var array Alto resource by canvas index, by item id.
      */
     protected array $pairings = [];
+
+    /**
+     * @var string[] Pages extracted for the request only, by cache path.
+     */
+    protected array $requestPages = [];
 
     public function __construct(
         Logger $logger,
@@ -115,10 +121,11 @@ class XmlAltoSplitter extends AbstractHelper
         }
         $cacheDir = sprintf('%s/iiif-search/%d', $this->basePath, $item->id());
         $cachePath = sprintf('%s/alto-%d.xml', $cacheDir, $pageIndex);
-        if (file_exists($cachePath)
-            && filemtime($cachePath) >= filemtime($sourcePath)
-        ) {
+        if ($this->isFreshCache($cachePath, $sourcePath)) {
             return $cachePath;
+        }
+        if (isset($this->requestPages[$cachePath])) {
+            return $this->requestPages[$cachePath];
         }
         if (!$this->directoryManager->checkDestinationDir($cacheDir, true)) {
             return null;
@@ -127,11 +134,51 @@ class XmlAltoSplitter extends AbstractHelper
         if ($this->countPages($sourcePath) <= 1) {
             return $pageIndex === 0 ? $sourcePath : null;
         }
+
+        // Another request is splitting the same page: the page is extracted for
+        // this request only, so the response does not wait nor fail.
+        $fileLock = new FileLock();
+        if (!$fileLock->acquire($cachePath)) {
+            return $this->isFreshCache($cachePath, $sourcePath)
+                ? $cachePath
+                : $this->extractPageForRequest($sourcePath, $item, $pageIndex, $cachePath);
+        }
+        // The page may have been cached while the lock was checked.
+        if ($this->isFreshCache($cachePath, $sourcePath)) {
+            $fileLock->release($cachePath);
+            return $cachePath;
+        }
         $page = $this->extractPage($sourcePath, $item, $pageIndex);
-        if (!$page || !@file_put_contents($cachePath, $page)) {
+        $result = $page && $fileLock->write($cachePath, $page);
+        $fileLock->release($cachePath);
+        return $result ? $cachePath : null;
+    }
+
+    protected function isFreshCache(string $cachePath, string $sourcePath): bool
+    {
+        clearstatcache(true, $cachePath);
+        return file_exists($cachePath)
+            && filemtime($cachePath) >= filemtime($sourcePath);
+    }
+
+    /**
+     * Extract a page into a temp file removed at the end of the request.
+     */
+    protected function extractPageForRequest(string $sourcePath, ItemRepresentation $item, int $pageIndex, string $cachePath): ?string
+    {
+        $page = $this->extractPage($sourcePath, $item, $pageIndex);
+        if (!$page) {
             return null;
         }
-        return $cachePath;
+        $filepath = @tempnam(sys_get_temp_dir(), 'iiifsearch-alto-');
+        if (!$filepath) {
+            return null;
+        }
+        register_shutdown_function(fn () => @unlink($filepath));
+        if (!@file_put_contents($filepath, $page)) {
+            return null;
+        }
+        return $this->requestPages[$cachePath] = $filepath;
     }
 
     /**
@@ -260,17 +307,24 @@ class XmlAltoSplitter extends AbstractHelper
 
         $cacheDir = sprintf('%s/iiif-search/%d', $this->basePath, $itemId);
         $cachePath = $cacheDir . '/pairing.json';
-        $cache = is_readable($cachePath)
-            ? json_decode((string) file_get_contents($cachePath), true)
-            : null;
-        if (!is_array($cache) || ($cache['signature'] ?? null) !== $signature) {
-            $cache = [
-                'signature' => $signature,
-                'altos' => $this->computePairing($item, $altos, $canvases),
-            ];
-            if ($this->directoryManager->checkDestinationDir($cacheDir, true)) {
-                @file_put_contents($cachePath, json_encode($cache));
+        $cache = $this->readPairingCache($cachePath, $signature);
+        if (!$cache) {
+            // When another request computes the pairing, it is computed for
+            // this request only.
+            $fileLock = new FileLock();
+            $isLocked = $this->directoryManager->checkDestinationDir($cacheDir, true)
+                && $fileLock->acquire($cachePath);
+            $cache = $isLocked ? $this->readPairingCache($cachePath, $signature) : null;
+            if (!$cache) {
+                $cache = [
+                    'signature' => $signature,
+                    'altos' => $this->computePairing($item, $altos, $canvases),
+                ];
+                if ($isLocked) {
+                    $fileLock->write($cachePath, json_encode($cache));
+                }
             }
+            $fileLock->release($cachePath);
         }
 
         $result = [];
@@ -280,6 +334,16 @@ class XmlAltoSplitter extends AbstractHelper
             }
         }
         return $this->pairings[$itemId] = $result;
+    }
+
+    protected function readPairingCache(string $cachePath, string $signature): ?array
+    {
+        $cache = is_readable($cachePath)
+            ? json_decode((string) file_get_contents($cachePath), true)
+            : null;
+        return is_array($cache) && ($cache['signature'] ?? null) === $signature
+            ? $cache
+            : null;
     }
 
     /**

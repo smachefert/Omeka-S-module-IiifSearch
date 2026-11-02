@@ -2,6 +2,7 @@
 
 namespace IiifSearch\View\Helper;
 
+use Common\Stdlib\FileLock;
 use IiifSearch\Stdlib\FileResource;
 use IiifSearch\Stdlib\TeiStructureExtractor;
 use IiifSearch\Stdlib\XmlMediaClassifier;
@@ -91,11 +92,20 @@ class IiifSearchTeiStructure extends AbstractHelper
 
         $signature = md5(TeiStructureExtractor::VERSION . '|' . $teiPath . '|' . filemtime($teiPath) . '|' . json_encode($canvasByName));
         $cachePath = sprintf('%s/iiif-search/%d.toc.json', $this->basePath, $itemId);
-        if (is_readable($cachePath)) {
-            $cache = json_decode((string) file_get_contents($cachePath), true);
-            if (is_array($cache) && ($cache['signature'] ?? null) === $signature) {
-                return $this->structures[$itemId] = $cache['structure'] ?? null;
-            }
+        $cache = $this->readCache($cachePath, $signature);
+        if ($cache) {
+            return $this->structures[$itemId] = $cache['structure'] ?? null;
+        }
+
+        // When another request extracts the structure, it is extracted for this
+        // request only. The directory is protected against direct web access.
+        $fileLock = new FileLock();
+        $isLocked = (is_dir(dirname($cachePath)) || @mkdir(dirname($cachePath), 0775, true))
+            && $fileLock->acquire($cachePath);
+        $cache = $isLocked ? $this->readCache($cachePath, $signature) : null;
+        if ($cache) {
+            $fileLock->release($cachePath);
+            return $this->structures[$itemId] = $cache['structure'] ?? null;
         }
 
         $extractor = new TeiStructureExtractor();
@@ -117,14 +127,24 @@ class IiifSearchTeiStructure extends AbstractHelper
             }
         }
 
-        // The directory is protected against a direct web access.
-        if (is_dir(dirname($cachePath)) || @mkdir(dirname($cachePath), 0775, true)) {
-            @file_put_contents($cachePath, json_encode(
+        if ($isLocked) {
+            $fileLock->write($cachePath, json_encode(
                 ['signature' => $signature, 'structure' => $structure],
                 JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE
             ));
+            $fileLock->release($cachePath);
         }
 
         return $this->structures[$itemId] = $structure;
+    }
+
+    protected function readCache(string $cachePath, string $signature): ?array
+    {
+        $cache = is_readable($cachePath)
+            ? json_decode((string) file_get_contents($cachePath), true)
+            : null;
+        return is_array($cache) && ($cache['signature'] ?? null) === $signature
+            ? $cache
+            : null;
     }
 }
