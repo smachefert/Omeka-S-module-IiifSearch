@@ -1807,6 +1807,12 @@ class IiifSearch extends AbstractHelper
             return null;
         }
 
+        // Fix windows-1252 bytes in a xml declared as utf-8. Skipped when the
+        // content is valid, because the regex is slow.
+        if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
+
         $xmlContent = mb_convert_encoding(
             $xmlContent,
             'UTF-8',
@@ -1820,29 +1826,12 @@ class IiifSearch extends AbstractHelper
         }
 
         try {
-            if ($this->xmlFixMode === 'dom') {
-                if ($isPdf2Xml) {
-                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
-                }
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } elseif ($this->xmlFixMode === 'regex') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                if ($isPdf2Xml) {
-                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
-                }
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
-            } elseif ($this->xmlFixMode === 'all') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                if ($isPdf2Xml) {
-                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
-                }
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } else {
-                if ($isPdf2Xml) {
-                    $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
-                }
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
+            if ($isPdf2Xml) {
+                $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
             }
+            $currentXml = in_array($this->xmlFixMode, ['dom', 'all'], true)
+                ? $this->fixXmlDom($xmlContent)
+                : @simplexml_load_string($xmlContent, null, LIBXML_NONET);
         } catch (\Throwable $e) {
             if ($hasNoMedia || !$this->mediaXmlFirst) {
                 $this->logger->err(new Message(

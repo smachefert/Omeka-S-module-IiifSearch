@@ -234,18 +234,16 @@ class XmlAltoSingle extends AbstractHelper
             return null;
         }
 
+        // Fix windows-1252 bytes in a xml declared as utf-8. Skipped when the
+        // content is valid, because the regex is slow.
+        if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
+
         try {
-            if ($this->xmlFixMode === 'dom') {
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } elseif ($this->xmlFixMode === 'regex') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
-            } elseif ($this->xmlFixMode === 'all') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } else {
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
-            }
+            $currentXml = in_array($this->xmlFixMode, ['dom', 'all'], true)
+                ? $this->fixXmlDom($xmlContent)
+                : @simplexml_load_string($xmlContent, null, LIBXML_NONET);
         } catch (Exception $e) {
             $this->logger->err(new Message(
                 'Error: XML content is incorrect for media #%d.', // @translate
