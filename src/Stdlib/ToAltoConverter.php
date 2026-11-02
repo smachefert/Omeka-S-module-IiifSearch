@@ -2,6 +2,7 @@
 
 namespace IiifSearch\Stdlib;
 
+use Common\Stdlib\FileLock;
 use DOMDocument;
 use XSLTProcessor;
 
@@ -180,26 +181,40 @@ class ToAltoConverter
             return true;
         }
 
+        // The target may be read by the search during the conversion, so it is
+        // built in a temp file beside it, then renamed.
+        $fileLock = new FileLock();
+        $tempFilepath = $fileLock->tempFilepath($targetFilepath);
         switch ($classification) {
             case XmlMediaClassifier::TYPE_ALTO:
                 // Copy native alto, then stamp the target so downstream cleanup
                 // recognises the rewritten copy as module-produced. The
                 // original source on disk is untouched.
-                if (!@copy($sourceFilepath, $targetFilepath)) {
-                    return false;
+                $result = @copy($sourceFilepath, $tempFilepath);
+                if ($result) {
+                    $this->stampAltoFile($tempFilepath);
                 }
-                $this->stampAltoFile($targetFilepath);
-                return true;
+                break;
             case XmlMediaClassifier::TYPE_HOCR:
-                return $this->convertHocr($sourceFilepath, $targetFilepath);
+                $result = $this->convertHocr($sourceFilepath, $tempFilepath);
+                break;
             case XmlMediaClassifier::TYPE_PAGE:
-                return $this->convertPage($sourceFilepath, $targetFilepath);
+                $result = $this->convertPage($sourceFilepath, $tempFilepath);
+                break;
             case XmlMediaClassifier::TYPE_PDF2XML:
-                return $this->convertPdf2xml($sourceFilepath, $targetFilepath);
+                $result = $this->convertPdf2xml($sourceFilepath, $tempFilepath);
+                break;
             case XmlMediaClassifier::TYPE_TEI:
-                return $this->convertTei($sourceFilepath, $targetFilepath);
+                $result = $this->convertTei($sourceFilepath, $tempFilepath);
+                break;
+            default:
+                return false;
         }
-        return false;
+        if (!$result) {
+            @unlink($tempFilepath);
+            return false;
+        }
+        return $fileLock->commit($tempFilepath, $targetFilepath);
     }
 
     protected function convertTei(string $sourceFilepath, string $targetFilepath): bool

@@ -211,7 +211,12 @@ class CleanupMedia extends AbstractJob
     protected function hasOcrFile(int $itemId): bool
     {
         if (!isset($this->ocrFiles[$itemId])) {
-            $this->ocrFiles[$itemId] = (bool) (glob($this->basePath . '/iiif-search/' . $itemId . '.*tsv')
+            // The temp files of an interrupted build are not ocr files.
+            $tsvFiles = array_filter(
+                glob($this->basePath . '/iiif-search/' . $itemId . '.*tsv') ?: [],
+                fn ($filepath) => !\Common\Stdlib\FileLock::isTempOrLockFile($filepath)
+            );
+            $this->ocrFiles[$itemId] = (bool) ($tsvFiles
                 ?: (is_file($this->basePath . '/alto/' . $itemId . '.alto.xml')
                     || glob($this->basePath . '/alto/' . $itemId . '-*.alto.xml')));
         }

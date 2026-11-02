@@ -2,6 +2,7 @@
 
 namespace IiifSearch\Job;
 
+use Common\Stdlib\FileLock;
 use DateTime;
 use DOMDocument;
 use Exception;
@@ -1504,11 +1505,18 @@ class ExtractOcr extends AbstractJob
         }
 
         // copy() PHP émet un Warning sans exception ; capter via @ + diag.
-        // Copy beside the target, then rename it, so an existing file is
-        // replaced only by a complete one.
-        $partFilepath = $filepath . '.part';
-        $ok = @copy($tempFilepath, $partFilepath)
-            && @rename($partFilepath, $filepath);
+        // Copy beside the target in a file unique to the process, stamp it,
+        // then rename it, so an existing file is replaced only by a complete
+        // one. FileLock::commit() is not used, because it rejects empty files.
+        $partFilepath = (new FileLock())->tempFilepath($filepath);
+        $ok = @copy($tempFilepath, $partFilepath);
+        if ($ok) {
+            @chmod($partFilepath, 0664);
+            if ($this->targetFormat === self::FORMAT_ALTO) {
+                (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($partFilepath);
+            }
+            $ok = @rename($partFilepath, $filepath);
+        }
         if (!$ok) {
             $err = error_get_last();
             @unlink($partFilepath);
@@ -1525,10 +1533,6 @@ class ExtractOcr extends AbstractJob
             return false;
         }
 
-        @chmod($filepath, 0664);
-        if ($this->targetFormat === self::FORMAT_ALTO) {
-            (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($filepath);
-        }
         return true;
     }
 
@@ -1951,8 +1955,7 @@ class ExtractOcr extends AbstractJob
             }
 
             // Persistent target: files/alto/<item_id>-page-<NN>.alto.xml
-            $altoBase = sprintf('%s/%d-page-%03d.alto', $altoDir, $item->id(), $page);
-            $altoPath = $altoBase . '.xml';
+            $altoPath = sprintf('%s/%d-page-%03d.alto.xml', $altoDir, $item->id(), $page);
             // On save, reuse the alto of the same image: an image without text
             // has no search file, so it would be ocerized at each save. The
             // alto is checked by its source image, because the images may have
@@ -1965,16 +1968,29 @@ class ExtractOcr extends AbstractJob
                 ++$reused;
                 continue;
             }
-            // tesseract appends ".xml" to the output base when the alto config
-            // is used. Pass the base without extension.
+            // The alto may be read by the search, so it is created in a temp
+            // file beside it, then renamed. tesseract appends ".xml" to the
+            // output base when the alto config is used. Pass the base without
+            // extension.
+            $fileLock = new FileLock();
+            $tempAltoPath = $fileLock->tempFilepath($altoPath);
             $command = sprintf(
                 'tesseract %1$s %2$s%3$s alto',
                 escapeshellarg($imagePath),
-                escapeshellarg($altoBase),
+                escapeshellarg(substr($tempAltoPath, 0, -4)),
                 $langArg
             );
             $result = $this->executeCommand($command);
-            if ($result === false || !file_exists($altoPath) || !filesize($altoPath)) {
+            if ($result !== false && file_exists($tempAltoPath) && filesize($tempAltoPath)) {
+                // Tag the file as module-produced so a future delete pass can
+                // distinguish it from a native alto upload.
+                (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($tempAltoPath);
+                $result = $fileLock->commit($tempAltoPath, $altoPath);
+            } else {
+                @unlink($tempAltoPath);
+                $result = false;
+            }
+            if (!$result) {
                 $this->logger->warn(new Message(
                     'tesseract failed for image media #%1$d.', // @translate
                     $imageMedia->id()
@@ -1982,9 +1998,6 @@ class ExtractOcr extends AbstractJob
                 @unlink($altoPath);
                 continue;
             }
-            // Tag the file as module-produced so a future delete pass can
-            // distinguish it from a native alto upload.
-            (new \IiifSearch\Stdlib\ToAltoConverter())->stampAltoFile($altoPath);
             $generated[] = $altoPath;
         }
 
