@@ -90,7 +90,10 @@ final class FileResource
 
     public function source(): ?string
     {
-        return method_exists($this->inner, 'source') ? $this->inner->source() : null;
+        // The source of a media ingested from an url is an uri object until
+        // the entity is reloaded.
+        $source = method_exists($this->inner, 'source') ? $this->inner->source() : null;
+        return $source === null ? null : (string) $source;
     }
 
     public function storageId(): ?string
