@@ -2,9 +2,9 @@
 
 namespace IiifSearch\View\Helper;
 
+use IiifSearch\Stdlib\XmlRepair;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
-use SimpleXMLElement;
 
 /**
  * Build a IIIF Presentation 2 AnnotationList for a single ALTO page.
@@ -21,7 +21,7 @@ class IiifAltoAnnotations2 extends AbstractHelper
             return null;
         }
 
-        $xml = @simplexml_load_file($altoPath, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOBLANKS);
+        $xml = XmlRepair::loadFile($altoPath, LIBXML_NONET | LIBXML_NOBLANKS);
         if (!$xml) {
             return null;
         }

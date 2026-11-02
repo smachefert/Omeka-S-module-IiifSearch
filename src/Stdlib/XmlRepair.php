@@ -4,6 +4,7 @@ namespace IiifSearch\Stdlib;
 
 use DOMDocument;
 use Exception;
+use IiifSearch\View\Helper\FixUtf8;
 use SimpleXMLElement;
 
 /**
@@ -20,6 +21,25 @@ use SimpleXMLElement;
  */
 class XmlRepair
 {
+    /**
+     * Load a xml file, fixing invalid utf-8 characters and malformed xml.
+     *
+     * Some ocr tools write the file name in windows-1252 in a xml declared as
+     * utf-8, so the parser rejects the whole file.
+     */
+    public static function loadFile(string $filepath, int $options = LIBXML_NONET): ?SimpleXMLElement
+    {
+        $content = @file_get_contents($filepath);
+        if ($content === false || $content === '') {
+            return null;
+        }
+        if (!mb_check_encoding($content, 'UTF-8')) {
+            $content = (new FixUtf8())($content);
+        }
+        return @simplexml_load_string($content, SimpleXMLElement::class, $options)
+            ?: self::fixXmlDom($content);
+    }
+
     public static function fixXmlDom(string $xmlContent): ?SimpleXMLElement
     {
         libxml_use_internal_errors(true);
