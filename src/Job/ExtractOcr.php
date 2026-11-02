@@ -1818,10 +1818,7 @@ class ExtractOcr extends AbstractJob
             }
 
             $xmlContent = file_get_contents($pdfXmlPath);
-            $xmlContent = preg_replace('/[^\PCc^\PCn^\PCs]/u', '', $xmlContent);
-            if ($this->fixUtf8) {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-            }
+            $xmlContent = $this->cleanXmlContent((string) $xmlContent);
             $xmlContent = $this->fixXmlPdf2Xml($xmlContent);
             if (!$xmlContent) {
                 $tempPdfXml->delete();
@@ -2334,8 +2331,8 @@ class ExtractOcr extends AbstractJob
                 }
                 return false;
             }
-            // Remove control characters from bad ocr.
-            $content = preg_replace('/[^\PCc^\PCn^\PCs]/u', '', $content);
+            // Fix invalid utf-8 and remove control characters from bad ocr.
+            $content = $this->cleanXmlContent($content);
             $xml = simplexml_load_string(
                 $content,
                 null,
@@ -2545,7 +2542,7 @@ class ExtractOcr extends AbstractJob
             }
 
             $content = file_get_contents($xmlFilepath);
-            $content = preg_replace('/[^\PCc^\PCn^\PCs]/u', '', $content);
+            $content = $this->cleanXmlContent((string) $content);
             $xml = simplexml_load_string($content, null,
                 LIBXML_BIGLINES | LIBXML_COMPACT | LIBXML_NOBLANKS | LIBXML_PARSEHUGE | LIBXML_NONET
             );
@@ -2637,6 +2634,20 @@ class ExtractOcr extends AbstractJob
             fputcsv($fp, [$word, implode(';', $positions)], "\t", "\0", "\0");
         }
         return fclose($fp);
+    }
+
+    /**
+     * Fix invalid utf-8 and remove control characters from an xml content.
+     *
+     * Some ocr tools declare utf-8 but output windows-1252 bytes, for example
+     * in the source file name, so the unicode regex fails and returns null.
+     */
+    protected function cleanXmlContent(string $xmlContent): string
+    {
+        if ($this->fixUtf8 && !mb_check_encoding($xmlContent, 'UTF-8')) {
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
+        return preg_replace('/[^\PCc^\PCn^\PCs]/u', '', $xmlContent) ?? $xmlContent;
     }
 
     /**
