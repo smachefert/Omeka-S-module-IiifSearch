@@ -16,7 +16,8 @@ class XmlAltoSplitterFactory implements FactoryInterface
         return new XmlAltoSplitter(
             $services->get('Omeka\Logger'),
             $services->get('Common\DirectoryManager'),
-            $basePath
+            $basePath,
+            (string) $services->get('Omeka\Settings')->get('iiifsearch_alto_pairing_mode', 'auto')
         );
     }
 }

@@ -9,6 +9,11 @@ use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Api\Representation\AbstractResourceEntityRepresentation;
+use IiifSearch\Stdlib\FileResource;
+use IiifSearch\Stdlib\PagePairer;
+use IiifSearch\Stdlib\PageSource;
+use IiifSearch\Stdlib\PageSourceHintReader;
+use IiifSearch\Stdlib\PairingResult;
 use Omeka\Api\Representation\MediaRepresentation;
 
 /**
@@ -25,14 +30,23 @@ class XmlAltoSplitter extends AbstractHelper
 
     protected string $basePath;
 
+    protected string $pairingMode;
+
+    /**
+     * @var array Alto resource by canvas index, by item id.
+     */
+    protected array $pairings = [];
+
     public function __construct(
         Logger $logger,
         DirectoryManager $directoryManager,
-        string $basePath
+        string $basePath,
+        string $pairingMode = PairingResult::METHOD_AUTO
     ) {
         $this->logger = $logger;
         $this->directoryManager = $directoryManager;
         $this->basePath = $basePath;
+        $this->pairingMode = $pairingMode ?: PairingResult::METHOD_AUTO;
     }
 
     /**
@@ -193,53 +207,112 @@ class XmlAltoSplitter extends AbstractHelper
     /**
      * Find the per-page ALTO file resource at the given positional index.
      */
-    protected function findPerPageAltoResource(ItemRepresentation $item, int $pageIndex): ?\IiifSearch\Stdlib\FileResource
+    protected function findPerPageAltoResource(ItemRepresentation $item, int $pageIndex): ?FileResource
     {
-        $itemFileResources = $this->getView()->plugin('itemFileResources');
-        $altos = [];
-        $pages = [];
-        foreach ($itemFileResources($item) as $resource) {
-            if ($resource->mediaType() === 'application/alto+xml') {
-                $altos[] = $resource;
-            } else {
-                $pages[] = $resource;
-            }
-        }
-        if (count($altos) <= 1) {
-            return null;
-        }
-
-        // The alto of a page is the one with the same base name, for example
-        // "page_001.jpg" and "page_001.xml", so a missing alto does not shift
-        // the next pages. When the altos are not named like the pages, the
-        // positional order is used.
-        $altosByName = [];
-        foreach ($altos as $alto) {
-            $altosByName[$this->baseName($alto)] ??= $alto;
-        }
-        unset($altosByName['']);
-        $pageNames = array_map([$this, 'baseName'], $pages);
-        $isNamedByPage = (bool) array_intersect_key($altosByName, array_flip($pageNames));
-        $target = $isNamedByPage
-            ? $altosByName[$pageNames[$pageIndex] ?? ''] ?? null
-            : $altos[$pageIndex] ?? null;
-        if (!$target) {
-            return null;
-        }
-        return is_readable($this->basePath . '/original/' . $target->filename())
+        $target = $this->pairAltos($item)[$pageIndex] ?? null;
+        return $target && is_readable($this->basePath . '/original/' . $target->filename())
             ? $target
             : null;
     }
 
     /**
-     * Get the base name of the source of a file resource, without extension.
+     * Pair the alto of each page with the canvases, like the search.
+     *
+     * The pairing uses the mode set in the config (by default, a cascade of
+     * heuristics: METS, image hint of the alto, file name, number, etc.), so a
+     * missing alto does not shift the next pages. The result is cached, because
+     * the cascade reads all the altos.
+     *
+     * @return FileResource[] Alto resource by canvas index.
      */
-    protected function baseName(\IiifSearch\Stdlib\FileResource $resource): string
+    protected function pairAltos(ItemRepresentation $item): array
     {
-        $source = (string) $resource->source();
-        return $source === ''
-            ? ''
-            : pathinfo(basename(strtok($source, '?')), PATHINFO_FILENAME);
+        $itemId = (int) $item->id();
+        if (isset($this->pairings[$itemId])) {
+            return $this->pairings[$itemId];
+        }
+
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $altos = [];
+        $canvases = [];
+        foreach ($itemFileResources($item) as $resource) {
+            if ($resource->mediaType() === 'application/alto+xml') {
+                $altos[] = $resource;
+            } else {
+                $canvases[] = $resource;
+            }
+        }
+        if (count($altos) <= 1) {
+            return $this->pairings[$itemId] = [];
+        }
+
+        $altosById = [];
+        $signature = [$this->pairingMode];
+        foreach ($altos as $alto) {
+            $altosById[(int) $alto->id()] = $alto;
+            $filepath = $this->basePath . '/original/' . $alto->filename();
+            $signature[] = $alto->id() . ':' . $alto->filename() . ':' . (int) @filemtime($filepath);
+        }
+        foreach ($canvases as $canvas) {
+            $signature[] = (int) $canvas->id();
+        }
+        $signature = md5(implode('|', $signature));
+
+        $cacheDir = sprintf('%s/iiif-search/%d', $this->basePath, $itemId);
+        $cachePath = $cacheDir . '/pairing.json';
+        $cache = is_readable($cachePath)
+            ? json_decode((string) file_get_contents($cachePath), true)
+            : null;
+        if (!is_array($cache) || ($cache['signature'] ?? null) !== $signature) {
+            $cache = [
+                'signature' => $signature,
+                'altos' => $this->computePairing($item, $altos, $canvases),
+            ];
+            if ($this->directoryManager->checkDestinationDir($cacheDir, true)) {
+                @file_put_contents($cachePath, json_encode($cache));
+            }
+        }
+
+        $result = [];
+        foreach ($cache['altos'] as $canvasIndex => $altoId) {
+            if ($altoId && isset($altosById[$altoId])) {
+                $result[(int) $canvasIndex] = $altosById[$altoId];
+            }
+        }
+        return $this->pairings[$itemId] = $result;
+    }
+
+    /**
+     * @param FileResource[] $altos
+     * @param FileResource[] $canvases
+     * @return array Alto id by canvas index.
+     */
+    protected function computePairing(ItemRepresentation $item, array $altos, array $canvases): array
+    {
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $hintReader = new PageSourceHintReader();
+        $sources = [];
+        foreach ($altos as $index => $alto) {
+            $filepath = $this->basePath . '/original/' . $alto->filename();
+            $source = new PageSource($index + 1, $alto, $filepath, (string) $alto->source(), 'alto');
+            $source->sourceImageFileName = $hintReader->readImageHint($filepath, 'alto');
+            $sources[] = $source;
+        }
+        $pairer = new PagePairer($this->basePath, fn ($item) => $itemFileResources($item));
+        $pairing = $pairer->pair($item, $sources, $this->pairingMode);
+
+        $altoByCanvasId = [];
+        foreach ($altos as $index => $alto) {
+            $image = $pairing->resourceForPage($index + 1);
+            if ($image) {
+                $altoByCanvasId[(int) $image->id()] ??= (int) $alto->id();
+            }
+        }
+        $result = [];
+        foreach ($canvases as $canvasIndex => $canvas) {
+            $result[$canvasIndex] = $altoByCanvasId[(int) $canvas->id()] ?? null;
+        }
+        return $result;
     }
 
     /**
