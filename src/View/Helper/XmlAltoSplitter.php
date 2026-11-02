@@ -234,14 +234,14 @@ class XmlAltoSplitter extends AbstractHelper
 
         $itemFileResources = $this->getView()->plugin('itemFileResources');
         $altos = [];
-        $canvases = [];
         foreach ($itemFileResources($item) as $resource) {
             if ($resource->mediaType() === 'application/alto+xml') {
                 $altos[] = $resource;
-            } else {
-                $canvases[] = $resource;
             }
         }
+        // The canvases are the images, like in the manifest and the search, so
+        // the pdf and the text files attached to each page do not shift them.
+        $canvases = $itemFileResources->images($item);
         if (count($altos) <= 1) {
             return $this->pairings[$itemId] = [];
         }
