@@ -446,12 +446,15 @@ class XmlAltoSplitter extends AbstractHelper
         // The standard does not set the first number: it is 1 for most tools,
         // but 0 for some ones, like eScriptorium.
         $first = 1;
+        $numbers = [];
         foreach ($pages as $page) {
-            if ($page->hasAttribute('PHYSICAL_IMG_NR')
-                && (int) $page->getAttribute('PHYSICAL_IMG_NR') === 0
-            ) {
+            if (!$page->hasAttribute('PHYSICAL_IMG_NR')) {
+                continue;
+            }
+            $number = (int) $page->getAttribute('PHYSICAL_IMG_NR');
+            $numbers[$number] = true;
+            if ($number === 0) {
                 $first = 0;
-                break;
             }
         }
         foreach ($pages as $page) {
@@ -472,6 +475,13 @@ class XmlAltoSplitter extends AbstractHelper
                     return $page;
                 }
             }
+        }
+        // When the numbering is reliable (all pages numbered, all distinct), a
+        // missing number means that the page has no text, for example a page
+        // without ocr in a consolidated file, so the positional order would
+        // return the text of the next page.
+        if (count($numbers) === count($pages)) {
+            return null;
         }
         return $pages[$pageIndex] ?? null;
     }
