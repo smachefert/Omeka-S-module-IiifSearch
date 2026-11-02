@@ -197,21 +197,49 @@ class XmlAltoSplitter extends AbstractHelper
     {
         $itemFileResources = $this->getView()->plugin('itemFileResources');
         $altos = [];
+        $pages = [];
         foreach ($itemFileResources($item) as $resource) {
             if ($resource->mediaType() === 'application/alto+xml') {
                 $altos[] = $resource;
+            } else {
+                $pages[] = $resource;
             }
         }
         if (count($altos) <= 1) {
             return null;
         }
-        $target = $altos[$pageIndex] ?? null;
+
+        // The alto of a page is the one with the same base name, for example
+        // "page_001.jpg" and "page_001.xml", so a missing alto does not shift
+        // the next pages. When the altos are not named like the pages, the
+        // positional order is used.
+        $altosByName = [];
+        foreach ($altos as $alto) {
+            $altosByName[$this->baseName($alto)] ??= $alto;
+        }
+        unset($altosByName['']);
+        $pageNames = array_map([$this, 'baseName'], $pages);
+        $isNamedByPage = (bool) array_intersect_key($altosByName, array_flip($pageNames));
+        $target = $isNamedByPage
+            ? $altosByName[$pageNames[$pageIndex] ?? ''] ?? null
+            : $altos[$pageIndex] ?? null;
         if (!$target) {
             return null;
         }
         return is_readable($this->basePath . '/original/' . $target->filename())
             ? $target
             : null;
+    }
+
+    /**
+     * Get the base name of the source of a file resource, without extension.
+     */
+    protected function baseName(\IiifSearch\Stdlib\FileResource $resource): string
+    {
+        $source = (string) $resource->source();
+        return $source === ''
+            ? ''
+            : pathinfo(basename(strtok($source, '?')), PATHINFO_FILENAME);
     }
 
     /**
