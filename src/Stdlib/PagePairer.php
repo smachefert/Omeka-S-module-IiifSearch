@@ -227,8 +227,7 @@ class PagePairer
         }
         $images = [];
         foreach ($resources as $resource) {
-            $mediaType = (string) $resource->mediaType();
-            if (strtok($mediaType, '/') === 'image' && $resource->hasOriginal()) {
+            if ($resource->isCanvasImage()) {
                 $images[] = $resource;
             }
         }

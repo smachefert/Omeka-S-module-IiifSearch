@@ -63,7 +63,7 @@ class IiifSearchAnnotationUrl extends AbstractHelper
                 return false;
             }
             $hasPdf = $hasPdf || $mediaType === 'application/pdf';
-            $hasImage = $hasImage || (strtok($mediaType, '/') === 'image' && $resource->hasOriginal());
+            $hasImage = $hasImage || $resource->isCanvasImage();
         }
         return $hasImage && $hasPdf;
     }

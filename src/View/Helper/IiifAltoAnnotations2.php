@@ -52,8 +52,7 @@ class IiifAltoAnnotations2 extends AbstractHelper
         $itemFileResources = $view->plugin('itemFileResources');
         $imageMedias = [];
         foreach ($itemFileResources($item) as $resource) {
-            $mt = (string) $resource->mediaType();
-            if (strtok($mt, '/') === 'image' && $resource->hasOriginal()) {
+            if ($resource->isCanvasImage()) {
                 $imageMedias[] = $resource;
             }
         }

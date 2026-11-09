@@ -32,9 +32,7 @@ class ItemFileResources extends AbstractHelper
     {
         $images = [];
         foreach ($this->__invoke($item) as $resource) {
-            if (strtok((string) $resource->mediaType(), '/') === 'image'
-                && $resource->hasOriginal()
-            ) {
+            if ($resource->isCanvasImage()) {
                 $images[] = $resource;
             }
         }

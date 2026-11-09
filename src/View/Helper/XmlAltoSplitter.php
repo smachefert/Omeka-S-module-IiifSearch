@@ -25,6 +25,12 @@ use Omeka\Api\Representation\MediaRepresentation;
  */
 class XmlAltoSplitter extends AbstractHelper
 {
+    /**
+     * Version of the pairing, stored in the signature of the cached pairing so
+     * a pairing computed by a previous version is computed again.
+     */
+    const PAIRING_VERSION = 2;
+
     protected Logger $logger;
 
     protected DirectoryManager $directoryManager;
@@ -294,7 +300,7 @@ class XmlAltoSplitter extends AbstractHelper
         }
 
         $altosById = [];
-        $signature = [$this->pairingMode];
+        $signature = [self::PAIRING_VERSION, $this->pairingMode];
         foreach ($altos as $alto) {
             $altosById[(int) $alto->id()] = $alto;
             $filepath = $this->basePath . '/original/' . $alto->filename();

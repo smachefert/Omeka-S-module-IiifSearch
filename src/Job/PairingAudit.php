@@ -123,7 +123,7 @@ class PairingAudit extends AbstractJob
             }
             foreach ($resources as $resource) {
                 $mt = (string) $resource->mediaType();
-                if (strtok($mt, '/') === 'image' && $resource->hasOriginal()) {
+                if ($resource->isCanvasImage()) {
                     ++$imageCount;
                 }
                 if ((string) $resource->extension() === 'pdf'

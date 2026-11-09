@@ -100,9 +100,26 @@ class PageSource
         $this->sourceDir = self::extractDirResidue($rawSourceName);
     }
 
+    /**
+     * Get the path of the file from a source, that may be an url.
+     *
+     * The source of a remote iiif image is the url of its "info.json", where
+     * the last segment is the identifier, with slashes that may be encoded, for
+     * example "https://example.org/iiif/2/dir%2Fpage_001.jp2/info.json".
+     */
+    public static function sourcePath(string $name): string
+    {
+        if (!preg_match('~^https?://~i', $name)) {
+            return $name;
+        }
+        $path = (string) parse_url($name, PHP_URL_PATH);
+        $path = preg_replace('~/info\.json$~i', '', $path) ?? $path;
+        return rawurldecode(basename($path));
+    }
+
     public static function normalizeName(string $name): string
     {
-        $base = basename($name);
+        $base = basename(self::sourcePath($name));
         $base = function_exists('mb_strtolower')
             ? mb_strtolower($base, 'UTF-8')
             : strtolower($base);
@@ -131,7 +148,7 @@ class PageSource
      */
     public static function extractDirResidue(string $name): ?string
     {
-        $dir = ltrim((string) dirname($name), '.');
+        $dir = ltrim((string) dirname(self::sourcePath($name)), '.');
         if ($dir === '' || $dir === '/' || $dir === '.') {
             return null;
         }

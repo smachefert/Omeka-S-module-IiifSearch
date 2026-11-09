@@ -116,6 +116,23 @@ final class FileResource
         return method_exists($this->inner, 'hasOriginal') ? (bool) $this->inner->hasOriginal() : false;
     }
 
+    public function renderer(): ?string
+    {
+        return method_exists($this->inner, 'renderer') ? $this->inner->renderer() : null;
+    }
+
+    /**
+     * Check if the resource is an image displayed as a canvas of the manifest.
+     *
+     * A remote iiif image has no original file nor media type, but it is a
+     * canvas of the manifest built by the module Iiif Server.
+     */
+    public function isCanvasImage(): bool
+    {
+        return (strtok((string) $this->mediaType(), '/') === 'image' && $this->hasOriginal())
+            || $this->renderer() === 'iiif';
+    }
+
     public function hasThumbnails(): bool
     {
         return method_exists($this->inner, 'hasThumbnails') ? (bool) $this->inner->hasThumbnails() : false;
