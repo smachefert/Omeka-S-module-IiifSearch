@@ -13,6 +13,9 @@ See general end user documentation for [installing a module].
 
 This module requires the module [Common], that should be installed first.
 
+With big bases or on shared hosts, it is recommended to install the optional
+module [Job Queue] to avoid to overload the server when indexing data.
+
 The module can live alone, but module [IIIF Server](https://gitlab.com/Daniel-KM/Omeka-S-module-IiifServer) is required to be useful on your own install.
 The IIIF search service is automatically appended to IIIF manifests when an ocr text is available.
 
@@ -312,3 +315,4 @@ Contact
 [IiifSearch.zip]: https://gitlab.com/Daniel-KM/Omeka-S-module-IiifSearch/-/releases
 [Iiif Server]: https://gitlab.com/Daniel-KM/Omeka-S-module-IiifServer
 [Iiif Search response]: https://iiif.io/api/search/
+[Job Queue]: https://gitlab.com/Daniel-KM/Omeka-S-module-JobQueue
