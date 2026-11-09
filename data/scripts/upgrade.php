@@ -410,3 +410,14 @@ if (version_compare($oldVersion, '3.4.17', '<')) {
         'The invalid utf-8 characters and the malformed xml files are now repaired automatically, only when needed, so the option to fix them was removed. Each repaired file is logged, so it can be fixed.' // @translate
     ));
 }
+
+if (version_compare($oldVersion, '3.4.18', '<')) {
+    if (!$this->isModuleActive('JobQueue')) {
+        $message = new \Common\Stdlib\PsrMessage(
+            'The optional module {link}Job Queue{link_end} can be installed to avoid running the same background jobs several times in parallel and to limit the number of heavy jobs running at the same time.', // @translate
+            ['link' => '<a href="https://gitlab.com/Daniel-KM/Omeka-S-module-JobQueue" target="_blank" rel="noopener">', 'link_end' => '</a>']
+        );
+        $message->setEscapeHtml(false);
+        $messenger->addNotice($message);
+    }
+}
