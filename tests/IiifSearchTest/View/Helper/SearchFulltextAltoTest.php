@@ -147,4 +147,88 @@ class SearchFulltextAltoTest extends TestCase
         $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
         $this->assertSame([101, 102], $result['media_ids']);
     }
+
+    public function testAltoSearchHitsHaveContext(): void
+    {
+        $helper = $this->buildAltoHelper(['fox']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        // One hit by match, with the words before and after in its page.
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'fox',
+            'before' => 'The quick brown ',
+            'after' => null,
+        ], $result['hits'][0]);
+        $this->assertSame([
+            'hits' => [2],
+            'match' => 'fox',
+            'before' => 'Second page ',
+            'after' => null,
+        ], $result['hits'][1]);
+    }
+
+    public function testAltoSearchContextOfPartialWord(): void
+    {
+        $helper = $this->buildAltoHelper(['uic']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertCount(1, $result['hits']);
+        // The rest of the word is part of the context.
+        $this->assertSame('uic', $result['hits'][0]['match']);
+        $this->assertSame('The q', $result['hits'][0]['before']);
+        $this->assertSame('k brown fox', $result['hits'][0]['after']);
+    }
+
+    public function testContextIsLimitedToFiveWords(): void
+    {
+        $helper = $this->buildAltoHelper(['fox']);
+        $words = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm'];
+        $context = $this->callProtected($helper, 'contextOf', [$words, 6, 'g']);
+        $this->assertSame([
+            'match' => 'g',
+            'before' => 'b c d e f ',
+            'after' => ' h i j k l',
+        ], $context);
+    }
+
+    public function testAltoSpellingRulesMatchVariants(): void
+    {
+        $helper = $this->buildAltoHelper(['foks']);
+        $this->setProperty($helper, 'spellingRules', ['x' => 'ks']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame(2, $result['hit']);
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'fox',
+            'before' => 'The quick brown ',
+            'after' => null,
+        ], $result['hits'][0]);
+    }
+
+    public function testAltoSpellingRulesKeepPartialWords(): void
+    {
+        $helper = $this->buildAltoHelper(['uic']);
+        $this->setProperty($helper, 'spellingRules', ['x' => 'ks']);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame('uic', $result['hits'][0]['match']);
+        $this->assertSame('The q', $result['hits'][0]['before']);
+    }
+
+    public function testAltoWildcards(): void
+    {
+        $helper = $this->buildAltoHelper([preg_quote('qu*', '/')]);
+        $this->setProperty($helper, 'useWildcards', true);
+        $xml = $this->loadAltoXml();
+        $result = $this->callProtected($helper, 'searchFullTextAlto', [$xml]);
+        $this->assertSame([
+            'hits' => [1],
+            'match' => 'quick',
+            'before' => 'The ',
+            'after' => ' brown fox',
+        ], $result['hits'][0]);
+    }
 }
+

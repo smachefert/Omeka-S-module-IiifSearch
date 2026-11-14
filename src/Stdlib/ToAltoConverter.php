@@ -2,12 +2,13 @@
 
 namespace IiifSearch\Stdlib;
 
+use Common\Stdlib\FileLock;
 use DOMDocument;
 use XSLTProcessor;
 
 /**
- * Convert non-alto OCR sources (hocr, pdf2xml) into a canonical ALTO file,
- * persisted on disk so the downstream pipeline only has to consume alto.
+ * Convert non-alto OCR sources (hocr, page, pdf2xml, tei) into a canonical ALTO
+ * file, persisted on disk so the downstream pipeline only has to consume alto.
  *
  * The converted file is reused on subsequent runs as long as its mtime is
  * greater than or equal to the source mtime. The target directory is the caller
@@ -16,6 +17,15 @@ use XSLTProcessor;
 class ToAltoConverter
 {
     /**
+     * Provenance markers written into every alto file produced by the module.
+     * Used by {@see IiifSearch\Stdlib\AltoProvenance::isModuleAlto()} to safely
+     * distinguish module-generated alto medias (deletable) from native ones
+     * (must be preserved).
+     */
+    public const SOFTWARE_NAME = 'IiifSearch (Omeka S)';
+    public const SOFTWARE_CREATOR = 'Daniel Berthereau';
+
+    /**
      * @var string Absolute path to the directory holding the bundled XSLT.
      */
     protected $xslDir;
@@ -23,6 +33,139 @@ class ToAltoConverter
     public function __construct(?string $xslDir = null)
     {
         $this->xslDir = $xslDir ?: dirname(__DIR__, 2) . '/data/xsl';
+    }
+
+    /**
+     * Check if an alto file has at least one word with a position on a page.
+     */
+    public static function hasCoordinates(string $filepath): bool
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($filepath, null, LIBXML_NONET | LIBXML_PARSEHUGE)) {
+            return false;
+        }
+        $hasPageSize = false;
+        $result = false;
+        while (@$reader->read()) {
+            if ($reader->nodeType !== \XMLReader::ELEMENT) {
+                continue;
+            }
+            if ($reader->localName === 'Page') {
+                $hasPageSize = (float) $reader->getAttribute('WIDTH') > 0
+                    && (float) $reader->getAttribute('HEIGHT') > 0;
+            } elseif ($reader->localName === 'String'
+                && $hasPageSize
+                && (float) $reader->getAttribute('WIDTH') > 0
+                && (float) $reader->getAttribute('HEIGHT') > 0
+            ) {
+                $result = true;
+                break;
+            }
+        }
+        $reader->close();
+        return $result;
+    }
+
+    /**
+     * Get the file name of the source image of an alto file, like tesseract.
+     */
+    public static function sourceImageFilename(string $altoFilepath): ?string
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($altoFilepath, null, LIBXML_NONET)) {
+            return null;
+        }
+        $result = null;
+        while (@$reader->read()) {
+            if ($reader->nodeType === \XMLReader::ELEMENT && $reader->localName === 'fileName') {
+                $result = basename(trim($reader->readString())) ?: null;
+                break;
+            }
+            // The description is before the layout.
+            if ($reader->nodeType === \XMLReader::ELEMENT && $reader->localName === 'Layout') {
+                break;
+            }
+        }
+        $reader->close();
+        return $result;
+    }
+
+    /**
+     * Stamp an existing alto file in place with the module's provenance block.
+     * Used for alto produced outside the XSLT pipeline (tesseract, direct
+     * copy).
+     */
+    public function stampAltoFile(string $altoFilepath, ?string $version = null): bool
+    {
+        if (!is_readable($altoFilepath)) {
+            return false;
+        }
+        $dom = new DOMDocument();
+        $dom->preserveWhiteSpace = false;
+        $dom->formatOutput = true;
+        if (!@$dom->load($altoFilepath, LIBXML_NONET | LIBXML_NOBLANKS)) {
+            return false;
+        }
+        $this->stampProvenance($dom, $version);
+        return (bool) @$dom->save($altoFilepath);
+    }
+
+    /**
+     * Inject (or refresh) a Description/OCRProcessing block identifying the
+     * module as the producer of this alto document. Safe to call on alto
+     * already carrying the marker: the existing block is replaced.
+     */
+    protected function stampProvenance(DOMDocument $dom, ?string $version = null): void
+    {
+        $root = $dom->documentElement;
+        if (!$root) {
+            return;
+        }
+        $ns = $root->namespaceURI ?: 'http://www.loc.gov/standards/alto/ns-v4#';
+
+        $description = null;
+        foreach ($root->childNodes as $child) {
+            if ($child instanceof \DOMElement && $child->localName === 'Description') {
+                $description = $child;
+                break;
+            }
+        }
+        if (!$description) {
+            $description = $dom->createElementNS($ns, 'Description');
+            $root->insertBefore($description, $root->firstChild);
+        }
+
+        // Drop pre-existing OCRProcessing blocks emitted by this module so the
+        // file ends up with a single canonical marker; foreign blocks (other
+        // producers in a multi-step pipeline) are kept untouched.
+        $existing = [];
+        foreach ($description->childNodes as $node) {
+            if ($node instanceof \DOMElement && $node->localName === 'OCRProcessing') {
+                $existing[] = $node;
+            }
+        }
+        foreach ($existing as $node) {
+            $names = $node->getElementsByTagNameNS($ns, 'softwareName');
+            for ($i = 0; $i < $names->length; ++$i) {
+                if (trim((string) $names->item($i)->nodeValue) === self::SOFTWARE_NAME) {
+                    $description->removeChild($node);
+                    break;
+                }
+            }
+        }
+
+        $proc = $dom->createElementNS($ns, 'OCRProcessing');
+        $proc->setAttribute('ID', 'OCR_iiifsearch');
+        $step = $dom->createElementNS($ns, 'ocrProcessingStep');
+        $software = $dom->createElementNS($ns, 'processingSoftware');
+        $software->appendChild($dom->createElementNS($ns, 'softwareCreator', self::SOFTWARE_CREATOR));
+        $software->appendChild($dom->createElementNS($ns, 'softwareName', self::SOFTWARE_NAME));
+        if ($version !== null && $version !== '') {
+            $software->appendChild($dom->createElementNS($ns, 'softwareVersion', $version));
+        }
+        $step->appendChild($software);
+        $proc->appendChild($step);
+        $description->appendChild($proc);
     }
 
     /**
@@ -38,17 +181,40 @@ class ToAltoConverter
             return true;
         }
 
+        // The target may be read by the search during the conversion, so it is
+        // built in a temp file beside it, then renamed.
+        $fileLock = new FileLock();
+        $tempFilepath = $fileLock->tempFilepath($targetFilepath);
         switch ($classification) {
             case XmlMediaClassifier::TYPE_ALTO:
-                return @copy($sourceFilepath, $targetFilepath);
+                // Copy native alto, then stamp the target so downstream cleanup
+                // recognises the rewritten copy as module-produced. The
+                // original source on disk is untouched.
+                $result = @copy($sourceFilepath, $tempFilepath);
+                if ($result) {
+                    $this->stampAltoFile($tempFilepath);
+                }
+                break;
             case XmlMediaClassifier::TYPE_HOCR:
-                return $this->convertHocr($sourceFilepath, $targetFilepath);
+                $result = $this->convertHocr($sourceFilepath, $tempFilepath);
+                break;
+            case XmlMediaClassifier::TYPE_PAGE:
+                $result = $this->convertPage($sourceFilepath, $tempFilepath);
+                break;
             case XmlMediaClassifier::TYPE_PDF2XML:
-                return $this->convertPdf2xml($sourceFilepath, $targetFilepath);
+                $result = $this->convertPdf2xml($sourceFilepath, $tempFilepath);
+                break;
             case XmlMediaClassifier::TYPE_TEI:
-                return $this->convertTei($sourceFilepath, $targetFilepath);
+                $result = $this->convertTei($sourceFilepath, $tempFilepath);
+                break;
+            default:
+                return false;
         }
-        return false;
+        if (!$result) {
+            @unlink($tempFilepath);
+            return false;
+        }
+        return $fileLock->commit($tempFilepath, $targetFilepath);
     }
 
     protected function convertTei(string $sourceFilepath, string $targetFilepath): bool
@@ -91,6 +257,19 @@ class ToAltoConverter
         return $this->runXslt($dom, $this->xslDir . '/hocr_to_alto.xsl', $targetFilepath);
     }
 
+    protected function convertPage(string $sourceFilepath, string $targetFilepath): bool
+    {
+        libxml_use_internal_errors(true);
+        $dom = new DOMDocument();
+        $loaded = @$dom->load($sourceFilepath, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING | LIBXML_PARSEHUGE);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        if (!$loaded) {
+            return false;
+        }
+        return $this->runXslt($dom, $this->xslDir . '/page_to_alto.xsl', $targetFilepath);
+    }
+
     protected function convertPdf2xml(string $sourceFilepath, string $targetFilepath): bool
     {
         libxml_use_internal_errors(true);
@@ -122,6 +301,7 @@ class ToAltoConverter
         if (!$result) {
             return false;
         }
+        $this->stampProvenance($result);
         $result->formatOutput = true;
         return (bool) @$result->save($targetFilepath);
     }

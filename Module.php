@@ -2,10 +2,27 @@
 
 namespace IiifSearch;
 
-if (!class_exists('Common\TraitModule', false)) {
-    require_once file_exists(dirname(__DIR__) . '/Common/src/TraitModule.php')
-        ? dirname(__DIR__) . '/Common/src/TraitModule.php'
-        : dirname(__DIR__) . '/Common/TraitModule.php';
+// Common may be installed but not registered in autoloader, in particular
+// during upgrade. So dynamically register all classes of the module.
+if (!defined('COMMON_PSR4_FALLBACK')) {
+    foreach ([
+        OMEKA_PATH . '/modules/Common/src',
+        OMEKA_PATH . '/composer-addons/modules/Common/src',
+        dirname(__DIR__) . '/Common/src',
+    ] as $commonSrc) {
+        if (file_exists($commonSrc . '/TraitModule.php')) {
+            define('COMMON_PSR4_FALLBACK', $commonSrc);
+            spl_autoload_register(static function ($class): void {
+                if (str_starts_with($class, 'Common\\')) {
+                    $file = COMMON_PSR4_FALLBACK . '/' . strtr(substr($class, 7), '\\', '/') . '.php';
+                    if (file_exists($file)) {
+                        require_once $file;
+                    }
+                }
+            });
+            break;
+        }
+    }
 }
 
 use Common\Stdlib\PsrMessage;
@@ -15,6 +32,7 @@ use Laminas\EventManager\SharedEventManagerInterface;
 use Laminas\Mvc\Controller\AbstractController;
 use Laminas\Mvc\MvcEvent;
 use Laminas\View\Renderer\PhpRenderer;
+use Omeka\Api\Representation\ItemRepresentation;
 use Omeka\Module\AbstractModule;
 use Omeka\Stdlib\Message;
 
@@ -35,31 +53,6 @@ class Module extends AbstractModule
         // Re-encode decoded slashes in identifiers for search routes.
         $event->getApplication()->getEventManager()
             ->attach(MvcEvent::EVENT_ROUTE, [$this, 'reencodeIdentifierSlashes'], 1000);
-
-        $this->migratePairingSettings();
-    }
-
-    /**
-     * Map the legacy xml_image_match value onto iiifsearch_alto_pairing_mode on
-     * the first boot after upgrade. Only runs when the new setting is at its
-     * default ("auto") so manual choices are preserved. Idempotent via a
-     * one-shot flag.
-     */
-    protected function migratePairingSettings(): void
-    {
-        $services = $this->getServiceLocator();
-        $settings = $services->get('Omeka\Settings');
-        if ($settings->get('iiifsearch_pairing_migrated')) {
-            return;
-        }
-        $current = (string) $settings->get('iiifsearch_alto_pairing_mode', 'auto');
-        if ($current === 'auto') {
-            $legacy = (string) $settings->get('iiifsearch_xml_image_match', '');
-            if ($legacy === 'basename') {
-                $settings->set('iiifsearch_alto_pairing_mode', 'basename');
-            }
-        }
-        $settings->set('iiifsearch_pairing_migrated', true);
     }
 
 
@@ -94,12 +87,12 @@ class Module extends AbstractModule
         $path = $request->getUri()->getPath();
 
         // Quick check: only process iiif search paths.
-        if (strpos($path, '/iiif-search/') === false) {
+        if (strpos($path, '/iiif/search/') === false) {
             return;
         }
 
-        // Parse: /iiif-search/{identifier}[/search|/list/{name}]
-        if (!preg_match('#^(/iiif-search)(/[^?]*)$#', $path, $matches)) {
+        // Parse: /iiif/search/{identifier}[/search|/list/{name}]
+        if (!preg_match('#^(/iiif/search)(/[^?]*)$#', $path, $matches)) {
             return;
         }
 
@@ -118,6 +111,10 @@ class Module extends AbstractModule
             'search' => true,
             'autocomplete' => true,
             'list' => true,
+            'annotations' => true,
+            'alto' => true,
+            'alto.xml' => true,
+            'hocr' => true,
         ];
 
         // Scan from the right to find the first iiif keyword.
@@ -158,18 +155,18 @@ class Module extends AbstractModule
 
         $errors = [];
 
-        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.85')) {
+        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.96')) {
             $message = new \Omeka\Stdlib\Message(
                 $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-                'Common', '3.4.85'
+                'Common', '3.4.96'
             );
             $errors[] = (string) $message;
         }
 
-        if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.33')) {
+        if ($this->isModuleActive('IiifServer') && !$this->isModuleVersionAtLeast('IiifServer', '3.6.34')) {
             $message = new \Omeka\Stdlib\Message(
                 $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-                'IiifServer', '3.6.33'
+                'IiifServer', '3.6.34'
             );
             $errors[] = (string) $message;
         }
@@ -180,19 +177,73 @@ class Module extends AbstractModule
             );
         }
 
+        $this->uninstallObsoleteExtractOcr();
+    }
+
+    /**
+     * Uninstall the module Extract OCR, whose features are now in this module,
+     * so the two extractors do not run side by side.
+     *
+     * The module is uninstalled normally when possible. Else, for example when
+     * its files are missing or cannot be loaded, it is removed from the table
+     * of the modules directly.
+     */
+    protected function uninstallObsoleteExtractOcr(): void
+    {
+        $services = $this->getServiceLocator();
         $moduleManager = $services->get('Omeka\ModuleManager');
         $extractOcr = $moduleManager->getModule('ExtractOcr');
-        if ($extractOcr) {
-            $messenger = $services->get('ControllerPluginManager')->get('messenger');
-            try {
-                $moduleManager->deactivate($self);
-                $moduleManager->uninstall($self);
-                $messenger->addSuccess(new PsrMessage(
-                    'Module Extract OCR uninstalled: features are now in IIIF Search.' // @translate
-                ));
-            } catch (\Throwable $e) {
-            }
+        if (!$extractOcr
+            || $extractOcr->getState() === \Omeka\Module\Manager::STATE_NOT_INSTALLED
+        ) {
+            return;
         }
+
+        $entityManager = $services->get('Omeka\EntityManager');
+        $messenger = $services->get('ControllerPluginManager')->get('messenger');
+
+        $state = $extractOcr->getState();
+        try {
+            if ($state === \Omeka\Module\Manager::STATE_ACTIVE) {
+                $moduleManager->deactivate($extractOcr);
+            } elseif ($state === \Omeka\Module\Manager::STATE_NEEDS_UPGRADE) {
+                // Only an upgraded module can be uninstalled, but upgrading a
+                // module that is removed is useless, so align its version.
+                $entity = $entityManager->find(\Omeka\Entity\Module::class, 'ExtractOcr');
+                $entity->setVersion((string) $extractOcr->getIni('version'));
+                $entity->setIsActive(false);
+                $entityManager->flush();
+                $extractOcr->setState(\Omeka\Module\Manager::STATE_NOT_ACTIVE);
+            }
+            if ($extractOcr->getState() === \Omeka\Module\Manager::STATE_NOT_ACTIVE) {
+                $moduleManager->uninstall($extractOcr);
+            }
+        } catch (\Throwable $e) {
+            $services->get('Omeka\Logger')->warn(
+                'The module Extract OCR cannot be uninstalled normally, so it is removed from the database: {message}', // @translate
+                ['message' => $e->getMessage()]
+            );
+        }
+
+        // Remove the module directly when it is still installed. Its settings
+        // are kept, like its own uninstallation does: they are migrated by the
+        // upgrade of this module.
+        $connection = $services->get('Omeka\Connection');
+        if ($connection->fetchOne('SELECT 1 FROM `module` WHERE `id` = "ExtractOcr"')) {
+            $connection->executeStatement('DELETE FROM `module` WHERE `id` = "ExtractOcr"');
+            // Only this entity is detached: the upgrade of this module uses the
+            // entity manager too.
+            $entity = $entityManager->getUnitOfWork()
+                ->tryGetById('ExtractOcr', \Omeka\Entity\Module::class);
+            if ($entity) {
+                $entityManager->detach($entity);
+            }
+            $extractOcr->setState(\Omeka\Module\Manager::STATE_NOT_INSTALLED);
+        }
+
+        $messenger->addSuccess(new PsrMessage(
+            'The module Extract OCR was uninstalled: its features are now part of IIIF Search. Its directory can be removed from disk.' // @translate
+        ));
     }
 
     public function attachListeners(SharedEventManagerInterface $sharedEventManager): void
@@ -214,6 +265,23 @@ class Module extends AbstractModule
             'api.update.post',
             [$this, 'extractOcr']
         );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.create.post',
+            [$this, 'warnOcrAccessMismatch']
+        );
+        $sharedEventManager->attach(
+            \Omeka\Api\Adapter\ItemAdapter::class,
+            'api.update.post',
+            [$this, 'warnOcrAccessMismatch']
+        );
+
+        // Visibility of the extracted text according to the module Access.
+        $sharedEventManager->attach(
+            'Access',
+            'access.status.updated',
+            [$this, 'handleAccessStatusUpdated']
+        );
 
         // EasyAdmin batch job entries.
         $sharedEventManager->attach(
@@ -230,9 +298,13 @@ class Module extends AbstractModule
 
     public function getConfigForm(PhpRenderer $renderer)
     {
+        $this->appendConfigApplyAsset($renderer);
+
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
         $formManager = $services->get('FormElementManager');
+
+        $this->checkOcrTools();
 
         $this->initDataToPopulate($settings, 'config');
         $data = $this->prepareDataToPopulate($settings, 'config');
@@ -240,67 +312,23 @@ class Module extends AbstractModule
             return null;
         }
 
-        $form = $formManager->get(\IiifSearch\Form\ConfigForm::class);
-        $form->init();
-        $form->setData($data);
+        if ($this->invalidConfigForm) {
+            // Reuse the failed-submit form so its per-field error messages
+            // remain attached and render inline via formRow().
+            $form = $this->invalidConfigForm;
+        } else {
+            $form = $formManager->get(\IiifSearch\Form\ConfigForm::class);
+            $form->init();
+            $form->setData($data);
+        }
         $form->prepare();
 
-        $view = $renderer;
-        $translate = $view->plugin('translate');
-        $escape = $view->plugin('escapeHtml');
+        // Module navigation bar shared with IiifServer and ImageServer, then
+        // the tabs derived declaratively from the form option "element_tabs" by
+        // the formTabs helper of module Common.
+        $moduleNav = $renderer->moduleConfigNav(['IiifServer', 'IiifSearch', 'ImageServer'], 'IiifSearch');
 
-        // Dispatch elements to tabs using element_groups.
-        $elementGroups = $form->getOption('element_groups') ?: [];
-        $tabs = array_fill_keys(array_keys($elementGroups), '');
-        $ungrouped = '';
-
-        foreach ($form as $element) {
-            if ($element instanceof \Laminas\Form\FieldsetInterface) {
-                $group = $element->getOption('element_group');
-                if ($group && isset($tabs[$group])) {
-                    $tabs[$group] .= $view->formCollection($element);
-                }
-                continue;
-            }
-            $group = $element->getOption('element_group');
-            if ($group && isset($tabs[$group])) {
-                $tabs[$group] .= $view->formRow($element);
-            } else {
-                $ungrouped .= $view->formRow($element);
-            }
-        }
-
-        $firstGroup = array_key_first($elementGroups);
-        if ($firstGroup && $ungrouped !== '') {
-            $tabs[$firstGroup] = $ungrouped . $tabs[$firstGroup];
-        }
-
-        // Module navigation bar shared with IiifServer and ImageServer.
-        $iiifModules = ['IiifServer', 'IiifSearch', 'ImageServer'];
-        $moduleNav = $view->moduleConfigNav($iiifModules, 'IiifSearch');
-
-        // Build tabs.
-        $tabNav = '';
-        $tabContent = '';
-        $isFirst = true;
-        foreach ($elementGroups as $groupName => $groupLabel) {
-            if (empty($tabs[$groupName])) {
-                continue;
-            }
-            $activeClass = $isFirst ? ' class="active"' : '';
-            $sectionClass = $isFirst ? 'section active' : 'section';
-            $tabNav .= '<li' . $activeClass . '><a href="#iiifsearch-' . $groupName . '">'
-                . $escape($translate($groupLabel)) . '</a></li>';
-            $tabContent .= '<div id="iiifsearch-' . $groupName . '" class="' . $sectionClass . '">'
-                . $tabs[$groupName] . '</div>';
-            $isFirst = false;
-        }
-
-        return $moduleNav
-            . '<ul class="section-nav" style="list-style:none;padding:0;">'
-            . $tabNav
-            . '</ul>'
-            . $tabContent;
+        return $moduleNav . $renderer->formTabs($form);
     }
 
     public function handleIiifServerManifest(Event $event): void
@@ -328,15 +356,8 @@ class Module extends AbstractModule
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
         $resourceId = $resource->id();
         $simpleFilepath = null;
-        $localPaths = [
-            $basePath . '/iiif-search/' . $resourceId . '.tsv',
-            $basePath . '/alto/' . $resourceId . '.alto.xml',
-            $basePath . '/hocr/' . $resourceId . '.hocr.html',
-            $basePath . '/pdf2xml/' . $resourceId . '.xml',
-            // Old path before ExtractOcr 3.4.7.
-            $basePath . '/iiif-search/' . $resourceId . '.xml',
-        ];
-        foreach ($localPaths as $path) {
+        foreach (\IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES as $index) {
+            $path = $basePath . '/' . $index['dir'] . '/' . $resourceId . '.' . $index['extension'];
             if (file_exists($path)) {
                 $simpleFilepath = $path;
                 break;
@@ -364,6 +385,17 @@ class Module extends AbstractModule
             }
         }
 
+        // The ocr of a pdf that is not displayed does not match the canvases.
+        if ($services->get('ViewHelperManager')->get('iiifSearchAnnotationUrl')->isOcrOfHiddenPdf($resource)) {
+            return;
+        }
+
+        // In the manifest built for the visitors without rights on reserved
+        // medias (module Access), the search is useless when no page is free.
+        if ($event->getParam('accessFilter') === 'free' && !$this->hasFreeOcrPage($resource)) {
+            return;
+        }
+
         $plugins = $this->getServiceLocator()->get('ViewHelperManager');
         $urlHelper = $plugins->get('url');
         $identifier = $plugins->has('iiifCleanIdentifiers')
@@ -387,10 +419,19 @@ class Module extends AbstractModule
             return;
         }
 
-        $searchUrlV1 = $fixSlash($urlHelper('iiifsearch/search', ['id' => $identifier], ['force_canonical' => true]));
-        $searchUrlV2 = $fixSlash($urlHelper('iiifsearch/search-2', ['id' => $identifier], ['force_canonical' => true]));
-
+        // The targets of the results are the canvases of the manifest, so the
+        // version of the manifest is set in the url when it is not the default
+        // one. The url of the default manifest is unchanged.
         $isVersion2 = !is_object($manifest);
+        $routeParams = ['id' => $identifier];
+        $manifestVersion = $isVersion2 ? '2' : '3';
+        if ($manifestVersion !== (string) $settings->get('iiifserver_manifest_default_version', '2')) {
+            $routeParams['manifest'] = $manifestVersion;
+        }
+
+        $searchUrlV1 = $fixSlash($urlHelper('iiifsearch/search', $routeParams, ['force_canonical' => true]));
+        $searchUrlV2 = $fixSlash($urlHelper('iiifsearch/search-2', $routeParams, ['force_canonical' => true]));
+
         if ($isVersion2) {
             // Manifest IIIF Presentation 2 only carries Search v1 services.
             if (in_array('1', $versions, true)) {
@@ -439,43 +480,59 @@ class Module extends AbstractModule
     /**
      * Inject seeAlso (ALTO) and supplementing annotations on each canvas of an
      * item that owns a multipage ALTO XML media. Per-page resources are served
-     * by IiifSearch endpoints (/iiif-search/:id/alto/:n.xml and
-     * /iiif-search/:id/annotations/:n.json).
+     * by IiifSearch endpoints (/iiif/search/:id/alto/:n.xml and
+     * /iiif/search/:id/annotations/:n.json).
      */
     protected function handleIiifServerCanvas(Event $event): void
     {
         $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
-        if (!$settings->get('iiifsearch_alto_canvas_inject', true)) {
+
+        // Three independent toggles: bail out early when none is on.
+        $emitAlto = (bool) $settings->get('iiifsearch_canvas_seealso_alto', true);
+        $emitAnnotations = (bool) $settings->get('iiifsearch_canvas_annotations', true);
+        $emitHocr = (bool) $settings->get('iiifsearch_canvas_seealso_hocr', false);
+        if (!$emitAlto && !$emitAnnotations && !$emitHocr) {
             return;
         }
 
         $media = $event->getParam('resource');
-        if (!$media instanceof \Omeka\Api\Representation\MediaRepresentation) {
+        if (!$media instanceof \Omeka\Api\Representation\AbstractResourceEntityRepresentation
+            || !method_exists($media, 'item')
+        ) {
             return;
         }
         $item = $media->item();
+        if (!$item) {
+            return;
+        }
 
         $plugins = $services->get('ViewHelperManager');
         if (!$plugins->has('xmlAltoSplitter')) {
             return;
         }
         $splitter = $plugins->get('xmlAltoSplitter');
-        $altoMedia = $splitter->findMultipageAltoMedia($item);
-        if (!$altoMedia) {
+        if (!$splitter->hasAnyAlto($item)
+            || $plugins->get('iiifSearchAnnotationUrl')->isOcrOfHiddenPdf($item)
+        ) {
             return;
         }
-        // The ALTO media itself is not a canvas-bearing media.
-        if ($altoMedia->id() === $media->id()) {
+        // The ALTO resource itself (when stored as media/DO on the item) is not
+        // a canvas-bearing resource; skip it so its own canvas does not get a
+        // self-referential seeAlso.
+        if ($media->mediaType() === 'application/alto+xml') {
             return;
         }
 
-        $pageIndex = $this->canvasPageIndex($item, $media, $altoMedia);
+        // Index of the current canvas among non-ALTO file resources of the
+        // item; used positionally to point at a per-page ALTO/annotation page.
+        $pageIndex = $this->canvasPageIndex($item, $media);
         if ($pageIndex === null) {
             return;
         }
 
-        // Generate (and cache) the per-page ALTO; skip injection if missing.
+        // Resolve the page source; skip injection if none is available so we do
+        // not advertise dangling links.
         $altoPath = $splitter($item, $pageIndex);
         if (!$altoPath) {
             return;
@@ -490,49 +547,94 @@ class Module extends AbstractModule
             return $encodeSlash ? $url : strtr($url, ['%252F' => '/', '%2F' => '/']);
         };
 
-        $altoUrl = $fixSlash($urlHelper(
+        $altoUrl = $emitAlto ? $fixSlash($urlHelper(
             'iiifsearch/alto-page',
-            ['id' => $identifier, 'page' => $pageIndex],
+            ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
-        ));
-        $annotationsUrl = $fixSlash($urlHelper(
+        )) : null;
+        $annotationsUrl = $emitAnnotations ? $fixSlash($urlHelper(
             'iiifsearch/annotation-page',
-            ['id' => $identifier, 'page' => $pageIndex],
+            ['id' => $identifier, 'page' => $pageIndex + 1],
             ['force_canonical' => true]
-        ));
+        )) : null;
+
+        // hOCR seeAlso is emitted whenever an ALTO source is available for this
+        // page: the endpoint serves a native hOCR media when one is attached at
+        // the positional index, otherwise converts the per-page ALTO via the
+        // bundled alto_to_hocr.xsl stylesheet. The outer hasAnyAlto() check ran
+        // above already guarantees that some ALTO source exists for the item.
+        $hocrUrl = null;
+        if ($emitHocr) {
+            $hocrUrl = $fixSlash($urlHelper(
+                'iiifsearch/hocr-page',
+                ['id' => $identifier, 'page' => $pageIndex + 1],
+                ['force_canonical' => true]
+            ));
+        }
 
         $canvas = $event->getParam('canvas');
         $isVersion2 = !is_object($canvas);
 
         if ($isVersion2) {
-            $canvas['seeAlso'][] = [
-                '@id' => $altoUrl,
-                'format' => 'application/xml+alto',
-                'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
-                'label' => 'ALTO XML', // @translate
-            ];
+            if ($altoUrl) {
+                $canvas['seeAlso'][] = [
+                    '@id' => $altoUrl,
+                    'format' => 'application/xml+alto',
+                    'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
+                    'label' => 'ALTO XML', // @translate
+                ];
+            }
+            if ($hocrUrl) {
+                $canvas['seeAlso'][] = [
+                    '@id' => $hocrUrl,
+                    'format' => 'text/vnd.hocr+html',
+                    'label' => 'hOCR', // @translate
+                ];
+            }
+            // IIIF Presentation 2 carries OCR in otherContent, not annotations.
+            // The legacy listener never exposed v2 annotations either.
             $event->setParam('canvas', $canvas);
             return;
         }
 
-        $seeAlso = [
+        $seeAlsoAlto = $altoUrl ? [
             'id' => $altoUrl,
             'type' => 'Dataset',
             'format' => 'application/xml+alto',
             'profile' => 'http://www.loc.gov/standards/alto/v4/alto.xsd',
             'label' => ['none' => ['ALTO XML']],
-        ];
-        $annotationPage = [
+        ] : null;
+        $seeAlsoHocr = $hocrUrl ? [
+            'id' => $hocrUrl,
+            'type' => 'Dataset',
+            'format' => 'text/vnd.hocr+html',
+            'label' => ['none' => ['hOCR']],
+        ] : null;
+        $annotationPage = $annotationsUrl ? [
             'id' => $annotationsUrl,
             'type' => 'AnnotationPage',
-        ];
+        ] : null;
 
         if (method_exists($canvas, 'append')) {
-            $canvas->append('seeAlso', $seeAlso);
-            $canvas->append('annotations', $annotationPage);
+            if ($seeAlsoAlto) {
+                $canvas->append('seeAlso', $seeAlsoAlto);
+            }
+            if ($seeAlsoHocr) {
+                $canvas->append('seeAlso', $seeAlsoHocr);
+            }
+            if ($annotationPage) {
+                $canvas->append('annotations', $annotationPage);
+            }
         } else {
-            $canvas['seeAlso'][] = $seeAlso;
-            $canvas['annotations'][] = $annotationPage;
+            if ($seeAlsoAlto) {
+                $canvas['seeAlso'][] = $seeAlsoAlto;
+            }
+            if ($seeAlsoHocr) {
+                $canvas['seeAlso'][] = $seeAlsoHocr;
+            }
+            if ($annotationPage) {
+                $canvas['annotations'][] = $annotationPage;
+            }
         }
 
         $event->setParam('canvas', $canvas);
@@ -545,22 +647,165 @@ class Module extends AbstractModule
      * splitter "order" mapping. Other strategies are honored when the splitter
      * is configured for them.
      */
+    /**
+     * Apply the OCR policy (include / exclude Omeka queries) to a single item.
+     * Returns true when the item is eligible for OCR. Empty queries mean "no
+     * restriction".
+     *
+     * Settings consumed:
+     *  - iiifsearch_extract_query_include (URL-encoded query string)
+     *  - iiifsearch_extract_query_exclude (URL-encoded query string)
+     */
+    public function itemMatchesOcrPolicy(int $itemId, $settings = null): bool
+    {
+        if ($itemId <= 0) {
+            return false;
+        }
+        $services = $this->getServiceLocator();
+        $settings = $settings ?: $services->get('Omeka\Settings');
+        $api = $services->get('Omeka\ApiManager');
+
+        $include = (string) $settings->get('iiifsearch_extract_query_include', '');
+        if ($include !== '') {
+            $q = [];
+            parse_str($include, $q);
+            if ($q) {
+                $q['id'] = $itemId;
+                $hits = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getTotalResults();
+                if (!$hits) {
+                    return false;
+                }
+            }
+        }
+        $exclude = (string) $settings->get('iiifsearch_extract_query_exclude', '');
+        if ($exclude !== '') {
+            $q = [];
+            parse_str($exclude, $q);
+            if ($q) {
+                $q['id'] = $itemId;
+                $hits = $api->search('items', $q, ['initialize' => false, 'returnScalar' => 'id'])->getTotalResults();
+                if ($hits) {
+                    return false;
+                }
+            }
+        }
+        return true;
+    }
+
     protected function canvasPageIndex(
         \Omeka\Api\Representation\ItemRepresentation $item,
-        \Omeka\Api\Representation\MediaRepresentation $media,
-        \Omeka\Api\Representation\MediaRepresentation $altoMedia
+        \Omeka\Api\Representation\AbstractResourceEntityRepresentation $media
     ): ?int {
+        $services = $this->getServiceLocator();
+        $helpers = $services->get('ViewHelperManager');
+        $resources = $helpers->has('itemFileResources')
+            ? $helpers->get('itemFileResources')($item)
+            : null;
+        if ($resources === null) {
+            $resources = [];
+            foreach ($item->media() as $m) {
+                $resources[] = $m;
+            }
+        }
         $i = 0;
-        foreach ($item->media() as $m) {
-            if ($m->id() === $altoMedia->id()) {
+        foreach ($resources as $r) {
+            $type = method_exists($r, 'mediaType') ? $r->mediaType() : null;
+            if ($type === 'application/alto+xml') {
                 continue;
             }
-            if ($m->id() === $media->id()) {
+            $id = method_exists($r, 'id') ? $r->id() : $r->inner()->id();
+            if ($id === $media->id()) {
                 return $i;
             }
             $i++;
         }
         return null;
+    }
+
+    /**
+     * Probe the optional command-line tools the OCR pipeline relies on and
+     * surface their availability in the admin via the messenger.
+     *
+     *  - poppler-utils (pdftotext, pdftohtml): required to extract OCR from
+     *    text-bearing PDFs.
+     *  - tesseract: required to OCR images of pages that do not ship with a
+     *    text layer (book scans, microfilm captures, etc.).
+     *  - ocrmypdf: optional add-on that re-OCRs PDFs without a text layer
+     *    before pdftohtml is invoked.
+     *
+     * The probe is cached 1 h in iiifsearch_audit_ocr_tools so each config form
+     * open does not fork four shell processes.
+     */
+    protected function checkOcrTools(): void
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        $messenger = $services->get('ControllerPluginManager')->get('messenger');
+
+        $cacheKey = 'iiifsearch_audit_ocr_tools';
+        $cached = $settings->get($cacheKey);
+        if (!is_array($cached)
+            || !isset($cached['at'])
+            || (time() - (int) $cached['at']) >= 3600
+        ) {
+            $tools = [];
+            $cli = $services->get('Omeka\Cli');
+            foreach (['pdftotext', 'pdftohtml', 'tesseract', 'ocrmypdf', 'gs', 'img2pdf'] as $tool) {
+                // Cli::getCommandPath() returns the resolved path when the tool
+                // is on PATH, false otherwise. It goes through Omeka's strategy
+                // resolver, which honours disable_functions=shell_exec by
+                // switching to proc_open (so the audit keeps working on
+                // hardened php.ini).
+                $path = $cli->getCommandPath($tool);
+                $tools[$tool] = $path ?: null;
+            }
+            $cached = ['at' => time(), 'tools' => $tools];
+            $settings->set($cacheKey, $cached);
+        }
+        $tools = (array) ($cached['tools'] ?? []);
+
+        $present = [];
+        $missing = [];
+        foreach ($tools as $tool => $path) {
+            if ($path) {
+                $present[] = $tool . ' (' . $path . ')';
+            } else {
+                $missing[] = $tool;
+            }
+        }
+
+        if ($present) {
+            $messenger->addSuccess(new PsrMessage(
+                'OCR tools available: {tools}.', // @translate
+                ['tools' => implode(', ', $present)]
+            ));
+        }
+        $missingRequired = array_intersect($missing, ['pdftotext', 'pdftohtml']);
+        if ($missingRequired) {
+            $messenger->addError(new PsrMessage(
+                'Missing required OCR tools: {tools}. Install package poppler-utils.', // @translate
+                ['tools' => implode(', ', $missingRequired)]
+            ));
+        }
+        // List only the features lost by the missing tools, not all features.
+        $optionalTools = [
+            'tesseract' => 'Extract text from page images without a text layer', // @translate
+            'ocrmypdf' => 'Rebuild a pdf with an embedded text layer', // @translate
+            'gs' => 'Rebuild a pdf with an embedded text layer and concatenate mono-page pdf', // @translate
+            'img2pdf' => 'Build a searchable pdf for items with images only', // @translate
+        ];
+        $missingOptional = array_intersect_key($optionalTools, array_flip($missing));
+        if ($missingOptional) {
+            $translator = $services->get('MvcTranslator');
+            $list = [];
+            foreach ($missingOptional as $tool => $feature) {
+                $list[] = $tool . ' (' . $translator->translate($feature) . ')';
+            }
+            $messenger->addWarning(new PsrMessage(
+                'Optional OCR tools not installed, so these features are unavailable: {tools}.', // @translate
+                ['tools' => implode('; ', $list)]
+            ));
+        }
     }
 
     protected function postInstall(): void
@@ -569,13 +814,16 @@ class Module extends AbstractModule
         $services = $this->getServiceLocator();
         $logger = $services->get('Omeka\Logger');
 
-        // Soft requirement: OCR extraction features need poppler-utils.
-        if ((int) shell_exec('hash pdftotext 2>&- || echo 1')) {
+        // Soft requirement: OCR extraction features need poppler-utils. Probe
+        // via Omeka's Cli so disable_functions=shell_exec hosts still get a
+        // meaningful answer (Cli falls back to proc_open).
+        $cli = $services->get('Omeka\Cli');
+        if (!$cli->getCommandPath('pdftotext')) {
             $logger->warn(new Message(
                 'The command-line utility pdftotext is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
             ));
         }
-        if ((int) shell_exec('hash pdftohtml 2>&- || echo 1')) {
+        if (!$cli->getCommandPath('pdftohtml')) {
             $logger->warn(new Message(
                 'The command-line utility pdftohtml is not available; OCR extraction will be disabled until package poppler-utils is installed.' // @translate
             ));
@@ -583,7 +831,7 @@ class Module extends AbstractModule
 
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-        foreach (['temp', 'iiif-search', 'alto', 'pdf2xml'] as $sub) {
+        foreach (['temp', 'iiif-search', 'iiif-search-audit', 'alto', 'hocr', 'pdf2xml'] as $sub) {
             if (!$this->checkDestinationDir($basePath . '/' . $sub)) {
                 $logger->warn(new Message(
                     'The directory "%s" is not writeable; OCR extraction features may not work.', // @translate
@@ -594,16 +842,23 @@ class Module extends AbstractModule
 
         $this->allowFileFormats();
 
-        // Default OCR file types and pdf content store.
+        // Default OCR destinations and pdf content store. The four per-format
+        // destination lists are set independently so a partial admin override
+        // is preserved.
         $settings = $services->get('Omeka\Settings');
-        if (!$settings->get('iiifsearch_extract_types_files')) {
-            $settings->set('iiifsearch_extract_types_files', [
-                'text/tab-separated-values;by-word',
-                'application/alto+xml',
-            ]);
+        $defaults = [
+            'iiifsearch_extract_dests_tsv' => ['file'],
+            'iiifsearch_extract_dests_tsv_by_word' => ['file'],
+            'iiifsearch_extract_dests_alto' => ['file'],
+            'iiifsearch_extract_dests_pdf2xml' => [],
+        ];
+        foreach ($defaults as $key => $value) {
+            if ($settings->get($key) === null) {
+                $settings->set($key, $value);
+            }
         }
         if (!$settings->get('iiifsearch_extract_content_store')) {
-            $settings->set('iiifsearch_extract_content_store', ['media_pdf']);
+            $settings->set('iiifsearch_extract_content_store', ['pdf']);
         }
     }
 
@@ -617,37 +872,123 @@ class Module extends AbstractModule
         }
 
         $params = $controller->getRequest()->getPost();
-        $extractParams = $params['iiifsearch_extract'] ?? [];
-        if (empty($extractParams['process'])
-            || $extractParams['process'] !== $controller->translate('Process')
+        $services = $this->getServiceLocator();
+        $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
+
+        $cleanupParams = $params['iiifsearch_cleanup'] ?? [];
+        if (!empty($cleanupParams['cleanup'])
+            && $cleanupParams['cleanup'] === $controller->translate('Clean up')
         ) {
+            $cleanupArgs = [
+                'targets' => (array) ($cleanupParams['targets'] ?? []),
+                // Chained extract: CleanupMedia dispatches the follow-up
+                // ExtractOcr job at the end of its own perform(), so the two
+                // jobs run sequentially even when the queue worker would
+                // otherwise pull them concurrently.
+                'rerun_extract' => !empty($cleanupParams['rerun_extract']),
+            ];
+            $cleanupJob = $dispatcher->dispatch(\IiifSearch\Job\CleanupMedia::class, $cleanupArgs);
+            $message = $this->buildJobLinkMessage(
+                $controller,
+                !empty($cleanupParams['rerun_extract'])
+                    ? 'Cleaning up legacy module-created medias in background; the OCR re-extraction job will be dispatched automatically when this one ends (job %1$s#%2$s%3$s, %4$slogs%3$s).' // @translate
+                    : 'Cleaning up legacy module-created medias in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
+                $cleanupJob->getId()
+            );
+            $controller->messenger()->addSuccess($message);
+            $this->redirectToConfigFormOnApply($controller);
             return true;
         }
 
-        $services = $this->getServiceLocator();
+        $cleanupOcrFilesParams = $params['iiifsearch_cleanup_ocr_files'] ?? [];
+        if (!empty($cleanupOcrFilesParams['cleanup_ocr_files'])
+            && $cleanupOcrFilesParams['cleanup_ocr_files'] === $controller->translate('Clean up OCR files')
+        ) {
+            $job = $dispatcher->dispatch(\IiifSearch\Job\CleanupOcrFiles::class, []);
+            $message = $this->buildJobLinkMessage(
+                $controller,
+                'Cleaning up OCR files of excluded items in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
+                $job->getId()
+            );
+            $controller->messenger()->addSuccess($message);
+            $this->redirectToConfigFormOnApply($controller);
+            return true;
+        }
+
+        $extractParams = $params['iiifsearch_bulk']
+            ?? $params['iiifsearch_extract']
+            ?? [];
+        if (empty($extractParams['process'])
+            || $extractParams['process'] !== $controller->translate('Process')
+        ) {
+            $this->redirectToConfigFormOnApply($controller);
+            return true;
+        }
+
         $args = [
             'mode' => $extractParams['mode'] ?? 'all',
-            'base_uri' => $this->getBaseUri(),
+            // 'item_ids' is kept available as an alternate selector for other
+            // entry points (api.create.post, easyAdmin batch, CLI scripts).
             'item_ids' => $extractParams['item_ids'] ?? '',
+            'query' => $extractParams['query'] ?? '',
         ];
-        $dispatcher = $services->get(\Omeka\Job\Dispatcher::class);
         $job = $dispatcher->dispatch(\IiifSearch\Job\ExtractOcr::class, $args);
 
-        $message = new Message(
+        $message = $this->buildJobLinkMessage(
+            $controller,
             'Creating Extract OCR files in background (job %1$s#%2$s%3$s, %4$slogs%3$s).', // @translate
-            sprintf(
-                '<a href="%s">',
-                htmlspecialchars($controller->url()->fromRoute('admin/id', ['controller' => 'job', 'id' => $job->getId()]))
-            ),
-            $job->getId(),
+            $job->getId()
+        );
+        $controller->messenger()->addSuccess($message);
+        $this->redirectToConfigFormOnApply($controller);
+        return true;
+    }
+
+    /**
+     * Build a translatable message with HTML links to the job page and its log
+     * (Log module if present, otherwise the core job log).
+     */
+    protected function buildJobLinkMessage(AbstractController $controller, string $template, int $jobId): Message
+    {
+        $jobUrl = $controller->url()->fromRoute('admin/id', [
+            'controller' => 'job', 'id' => $jobId,
+        ]);
+        $logUrl = class_exists('Log\Module', false)
+            ? $controller->url()->fromRoute('admin/default', ['controller' => 'log'], ['query' => ['job_id' => $jobId]])
+            : $controller->url()->fromRoute('admin/id', ['controller' => 'job', 'action' => 'log', 'id' => $jobId]);
+        $message = new Message(
+            $template,
+            sprintf('<a href="%s">', htmlspecialchars($jobUrl)),
+            $jobId,
             '</a>',
-            class_exists('Log\Module', false)
-                ? sprintf('<a href="%1$s">', $controller->url()->fromRoute('admin/default', ['controller' => 'log'], ['query' => ['job_id' => $job->getId()]]))
-                : sprintf('<a href="%1$s" target="_blank">', $controller->url()->fromRoute('admin/id', ['controller' => 'job', 'action' => 'log', 'id' => $job->getId()]))
+            sprintf('<a href="%s"%s>', htmlspecialchars($logUrl), class_exists('Log\Module', false) ? '' : ' target="_blank" rel="noopener noreferrer"')
         );
         $message->setEscapeHtml(false);
-        $controller->messenger()->addSuccess($message);
-        return true;
+        return $message;
+    }
+
+    /**
+     * Check if the ocr of a page is free, so readable by anybody.
+     *
+     * The ocr follows the image of the page, or the item when there is no
+     * image, like the plugin isAllowedOcr.
+     */
+    protected function hasFreeOcrPage(ItemRepresentation $item): bool
+    {
+        $plugins = $this->getServiceLocator()->get('ControllerPluginManager');
+        if (!$plugins->has('accessStatus')) {
+            return true;
+        }
+        $accessStatus = $plugins->get('accessStatus');
+        $images = $this->getServiceLocator()->get('ViewHelperManager')->get('itemFileResources')->images($item);
+        $resources = $images ? array_map(fn ($image) => $image->inner(), $images) : [$item];
+        foreach ($resources as $resource) {
+            $status = $accessStatus($resource);
+            if (!$status || $status->getLevel() === \Access\Entity\AccessStatus::FREE) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**
@@ -655,6 +996,130 @@ class Module extends AbstractModule
      *
      * Deduplicates dispatches in batches via Common\DeferredJobDispatch.
      */
+    /**
+     * Warn the admin when the alto of a page is more open than its image.
+     */
+    /**
+     * Update the visibility of the extracted text when the access changes.
+     */
+    public function handleAccessStatusUpdated(Event $event): void
+    {
+        $services = $this->getServiceLocator();
+        $settings = $services->get('Omeka\Settings');
+        if ($settings->get('iiifsearch_extract_content_visibility') !== 'access') {
+            return;
+        }
+
+        $term = $settings->get('iiifsearch_extract_content_property');
+        $propertyId = $term ? $services->get('Common\EasyMeta')->propertyId($term) : null;
+        if (!$propertyId) {
+            return;
+        }
+
+        $services->get(\IiifSearch\Stdlib\ContentVisibility::class)
+            ->update($propertyId, $event->getParam('resource_ids'));
+    }
+
+    public function warnOcrAccessMismatch(Event $event): void
+    {
+        $services = $this->getServiceLocator();
+        if (!$services->get('Omeka\Status')->isAdminRequest()) {
+            return;
+        }
+
+        $viewHelpers = $services->get('ViewHelperManager');
+        if (!$viewHelpers->has('accessLevel')) {
+            return;
+        }
+
+        /** @var \Omeka\Entity\Item $item */
+        $item = $event->getParam('response')->getContent();
+        $itemRepresentation = $services->get('Omeka\ApiAdapterManager')->get('items')->getRepresentation($item);
+        $mismatches = $viewHelpers->get('iiifSearchAnnotationUrl')->accessMismatches($itemRepresentation);
+        if (!$mismatches) {
+            return;
+        }
+
+        $pages = [];
+        foreach ($mismatches as $page => $levels) {
+            $pages[] = sprintf('%d (%s / %s)', $page, $levels['alto'], $levels['image']);
+        }
+        $services->get('ControllerPluginManager')->get('messenger')->addWarning(new PsrMessage(
+            'The alto of some pages of item #{item_id} is more open than their image, so their text is readable by visitors who cannot see the image: pages {pages} (alto / image).', // @translate
+            ['item_id' => $item->getId(), 'pages' => implode(', ', $pages)]
+        ));
+    }
+
+    /**
+     * Check if each image of an item has its alto, and only them.
+     *
+     * @return bool|null Null when the images have no alto.
+     *
+     * @see \IiifSearch\Job\ExtractOcr::generateAltoFromImagesViaTesseract()
+     */
+    protected function hasUpToDateImageAltos(\Omeka\Entity\Item $item, string $basePath): ?bool
+    {
+        $altoPaths = glob(sprintf('%s/alto/%d-page-*.alto.xml', $basePath, $item->getId())) ?: [];
+        if (!$altoPaths) {
+            return null;
+        }
+        $page = 0;
+        foreach ($item->getMedia() as $media) {
+            if (strtok((string) $media->getMediaType(), '/') !== 'image' || !$media->hasOriginal()) {
+                continue;
+            }
+            ++$page;
+            $altoPath = sprintf('%s/alto/%d-page-%03d.alto.xml', $basePath, $item->getId(), $page);
+            if (!file_exists($altoPath)
+                || \IiifSearch\Stdlib\ToAltoConverter::sourceImageFilename($altoPath) !== $media->getFilename()
+            ) {
+                return false;
+            }
+        }
+        return count($altoPaths) === $page;
+    }
+
+    /**
+     * Check if a tei has zones with coordinates, so it can be used as ocr.
+     */
+    protected function teiHasCoordinates(string $filepath): bool
+    {
+        $content = is_readable($filepath) ? (string) file_get_contents($filepath) : '';
+        return (bool) preg_match('~<(?:\w+:)?zone\b[^>]*\b(?:ulx|points)\s*=~', $content);
+    }
+
+    /**
+     * Check if the table of contents of a tei should be stored in the item.
+     *
+     * @see \IiifSearch\Job\ExtractOcr::storeTeiStructure()
+     */
+    protected function isTeiStructureToStore(\Omeka\Entity\Item $item, $settings, string $basePath): bool
+    {
+        $term = $settings->get('iiifsearch_tei_structure_property')
+            ?? $this->getServiceLocator()->get('Config')['iiifsearch']['config']['iiifsearch_tei_structure_property'];
+        if (!$settings->get('iiifsearch_tei_structure_store') || !$term) {
+            return false;
+        }
+        // The structure is cached when it is extracted, even when empty.
+        $cachePath = sprintf('%s/iiif-search/%d.toc.json', $basePath, $item->getId());
+        if (!is_readable($cachePath)) {
+            return true;
+        }
+        $structure = json_decode((string) file_get_contents($cachePath), true)['structure'] ?? null;
+        if (!$structure) {
+            return false;
+        }
+        foreach ($item->getValues() as $value) {
+            $property = $value->getProperty();
+            if ($property->getVocabulary()->getPrefix() . ':' . $property->getLocalName() === $term
+                && trim((string) $value->getValue()) === $structure
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
     public function extractOcr(Event $event): void
     {
         $services = $this->getServiceLocator();
@@ -662,110 +1127,164 @@ class Module extends AbstractModule
         /** @var \Omeka\Entity\Item $item */
         $item = $response->getContent();
 
-        $extensions = [
-            \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'alto.xml',
-            \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'xml',
-            \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'tsv',
-            \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'tsv',
-        ];
         $settings = $services->get('Omeka\Settings');
-        $targetTypesFiles = $settings->get('iiifsearch_extract_types_files') ?: [];
-        $targetTypesFiles = array_intersect($targetTypesFiles, array_flip($extensions));
-        $targetTypesMedia = $settings->get('iiifsearch_extract_types_media') ?: [];
-        $targetTypesMedia = array_intersect($targetTypesMedia, array_flip($extensions));
+        $formatToSetting = [
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'iiifsearch_extract_dests_tsv',
+            \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => 'iiifsearch_extract_dests_tsv_by_word',
+            \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => 'iiifsearch_extract_dests_alto',
+            \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => 'iiifsearch_extract_dests_pdf2xml',
+        ];
+        $targetTypesFiles = [];
+        $targetTypesMedia = [];
+        foreach ($formatToSetting as $format => $key) {
+            $dests = (array) ($settings->get($key) ?: []);
+            if (in_array('file', $dests, true)) {
+                $targetTypesFiles[] = $format;
+            }
+            if (in_array('media', $dests, true) || in_array('digital_object', $dests, true)) {
+                $targetTypesMedia[] = $format;
+            }
+        }
         $targetContentStore = $settings->get('iiifsearch_extract_content_store') ?: [];
-        $targetContentStore = array_intersect($targetContentStore, ['item', 'media_pdf', 'media_extracted']);
+        $targetContentStore = array_intersect($targetContentStore, ['item', 'pdf', 'extracted']);
         if (!$targetTypesFiles && !$targetTypesMedia && !$targetContentStore) {
             return;
         }
 
-        $hasPdf = false;
+        // Per-item policy: include / exclude Omeka queries. An item with images
+        // that does not match the OCR policy (paintings, photographs, 3D
+        // objects, etc.) must not trigger an extraction.
+        if (!$this->itemMatchesOcrPolicy($item->getId(), $settings)) {
+            return;
+        }
+
+        // The job processes a pdf, a xml with an ocr (alto, hocr, page,
+        // pdf2xml, or tei with coordinates), or the images when they are
+        // ocerized. A tei is processed too when its table of contents is
+        // stored, but a xml that is not an ocr (ead, mets, tei without
+        // coordinates) produces no search file, so it would be processed at
+        // each save.
+        $xmlMediaTypes = [
+            'application/alto+xml',
+            'application/tei+xml',
+            'application/vnd.pdf2xml+xml',
+            'application/xml',
+            'text/vnd.hocr+html',
+            'text/xml',
+        ];
+        $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
+        $ocrImages = (bool) $settings->get('iiifsearch_extract_ocr_images');
+        $pdfMedia = null;
+        $hasSource = false;
+        $hasTei = false;
+        $classifier = new \IiifSearch\Stdlib\XmlMediaClassifier();
         /** @var \Omeka\Entity\Media $media */
         foreach ($item->getMedia() as $media) {
-            $mediaType = $media->getMediaType();
-            $extension = strtolower((string) $media->getExtension());
-            if ($mediaType === 'application/pdf' && $extension === 'pdf') {
-                $hasPdf = true;
+            $mediaType = (string) $media->getMediaType();
+            if ($mediaType === 'application/pdf'
+                && strtolower((string) $media->getExtension()) === 'pdf'
+            ) {
+                $pdfMedia = $media;
+                $hasSource = true;
+                break;
+            }
+            if ($ocrImages && strtok($mediaType, '/') === 'image') {
+                $hasSource = true;
+            } elseif (in_array($mediaType, $xmlMediaTypes, true) && $media->hasOriginal()) {
+                $filepath = $basePath . '/original/' . $media->getFilename();
+                $type = $classifier->classifyFile($filepath);
+                if ($type === \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_TEI) {
+                    $hasTei = true;
+                    $hasSource = $hasSource || $this->teiHasCoordinates($filepath);
+                } elseif (in_array($type, [
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_ALTO,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_HOCR,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_PAGE,
+                    \IiifSearch\Stdlib\XmlMediaClassifier::TYPE_PDF2XML,
+                ], true)) {
+                    $hasSource = true;
+                }
+            }
+        }
+        if (!$hasSource) {
+            if ($hasTei && $this->isTeiStructureToStore($item, $settings, $basePath)) {
+                $this->dispatchExtractOcr($item->getId());
+            }
+            return;
+        }
+        if (!$pdfMedia) {
+            $targetContentStore = array_diff($targetContentStore, ['pdf']);
+        }
+
+        // Check the outputs with the names used by the job.
+        $itemId = $item->getId();
+        // Images without text have an alto without words, but no search file.
+        // When the images changed (added, removed, reordered), the ocr files
+        // are outdated.
+        $imageAltos = !$pdfMedia && $ocrImages ? $this->hasUpToDateImageAltos($item, $basePath) : null;
+        $imagesOcerized = $imageAltos === true && !array_filter(
+            glob(sprintf('%s/alto/%d-page-*.alto.xml', $basePath, $item->getId())) ?: [],
+            [\IiifSearch\Stdlib\ToAltoConverter::class, 'hasCoordinates']
+        );
+        $missing = $imageAltos === false;
+        foreach ($missing ? [] : $targetTypesFiles as $format) {
+            $index = \IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES[$format];
+            $dirPath = $basePath . '/' . $index['dir'] . '/' . $itemId;
+            $exists = $imagesOcerized
+                || file_exists($dirPath . '.' . $index['extension'])
+                // Alto may be stored by page, for example via tesseract.
+                || ($format === \IiifSearch\Job\ExtractOcr::FORMAT_ALTO && glob($dirPath . '-*.alto.xml'));
+            if (!$exists) {
+                $missing = true;
                 break;
             }
         }
-        if (!$hasPdf) {
-            return;
-        }
 
-        $source = (string) $media->getSource();
-        $filename = (string) parse_url($source, PHP_URL_PATH);
-        $targetFilenameNoExtension = strlen($filename)
-            ? basename($filename, '.pdf')
-            : $media->id() . '-' . $media->getStorageId();
-        if (!$targetFilenameNoExtension) {
-            return;
-        }
-
-        $suffixFilenames = [
-            'alto.xml' => '.alto',
-            'xml' => '',
-            'tsv' => '',
-        ];
-        $shortExtensions = [
-            'alto.xml' => 'xml',
-            'xml' => 'xml',
-            'tsv' => 'tsv',
-        ];
-        $dirPaths = [
-            'alto.xml' => 'alto',
-            'pdf2xml' => 'pdf2xml',
-            'tsv' => 'iiif-search',
-            'xml' => 'pdf2xml',
-        ];
-
-        $existingFiles = array_fill_keys($targetTypesFiles, false);
-        if ($targetTypesFiles) {
-            $basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
-            foreach ($targetTypesFiles as $targetTypeFile) {
-                $targetExtension = $extensions[$targetTypeFile];
-                $targetDirPath = $dirPaths[$targetExtension];
-                $localSearchFilepath = $basePath . '/' . $targetDirPath . '/' . $item->getId() . '.' . $targetExtension;
-                if (file_exists($localSearchFilepath)) {
-                    $existingFiles[$targetTypeFile] = true;
+        if (!$missing && $targetTypesMedia) {
+            $suffixes = [
+                \IiifSearch\Job\ExtractOcr::FORMAT_ALTO => '.alto',
+                \IiifSearch\Job\ExtractOcr::FORMAT_PDF2XML => '.pdf2xml',
+                \IiifSearch\Job\ExtractOcr::FORMAT_TSV => '.full',
+                \IiifSearch\Job\ExtractOcr::FORMAT_TSV_BY_WORD => '.by-word',
+            ];
+            $sourceBase = $pdfMedia
+                ? basename((string) $pdfMedia->getSource(), '.pdf')
+                : 'item-' . $itemId;
+            foreach ($targetTypesMedia as $format) {
+                $index = \IiifSearch\View\Helper\IiifSearch::SUPPORTED_INDEXES[$format];
+                $filename = $sourceBase . '.' . $itemId . $suffixes[$format] . '.' . $index['short_extension'];
+                if (!$this->getMediaFromFilename($itemId, $filename, $index['short_extension'], $index['media_type'])) {
+                    $missing = true;
+                    break;
                 }
             }
         }
 
-        $existingMedias = array_fill_keys($targetTypesMedia, false);
-        if ($targetTypesMedia) {
-            foreach ($targetTypesMedia as $targetMediaType) {
-                $targetExtension = $extensions[$targetMediaType];
-                $targetFilename = $targetFilenameNoExtension . '.' . $targetExtension;
-                if ($this->getMediaFromFilename($item->getId(), $targetFilename . $suffixFilenames[$targetExtension], $shortExtensions[$targetExtension], $targetMediaType)) {
-                    $existingMedias[$targetMediaType] = true;
-                }
-            }
-        }
-
-        if (count(array_filter($existingFiles)) === count($existingFiles)
-            && count(array_filter($existingMedias)) === count($existingMedias)
-            && !count($targetContentStore)
-        ) {
+        if (!$missing && !$targetContentStore) {
             return;
         }
 
-        $baseUri = $this->getBaseUri();
+        $this->dispatchExtractOcr($item->getId());
+    }
+
+    protected function dispatchExtractOcr(int $itemId): void
+    {
+        $services = $this->getServiceLocator();
         if ($services->has('Common\DeferredJobDispatch')) {
             $services->get('Common\DeferredJobDispatch')->defer(
                 \IiifSearch\Job\ExtractOcr::class,
                 'iiifsearch_extract_ocr',
-                ['item_ids' => $item->getId()],
-                function (string $key, array $allParams) use ($baseUri) {
+                ['item_ids' => $itemId],
+                function (string $key, array $allParams) {
                     $ids = [];
                     foreach ($allParams as $p) {
                         $ids[] = $p['item_ids'];
                     }
                     return [
                         'mode' => 'all',
-                        'base_uri' => $baseUri,
                         'item_ids' => implode(' ', array_unique($ids)),
                         'manual' => true,
+                        'reuse_image_alto' => true,
                     ];
                 }
             );
@@ -774,9 +1293,9 @@ class Module extends AbstractModule
                 \IiifSearch\Job\ExtractOcr::class,
                 [
                     'mode' => 'all',
-                    'base_uri' => $baseUri,
-                    'item_ids' => (string) $item->getId(),
+                    'item_ids' => (string) $itemId,
                     'manual' => true,
+                    'reuse_image_alto' => true,
                 ]
             );
         }
@@ -791,6 +1310,18 @@ class Module extends AbstractModule
         $valueOptions = $process->getValueOptions();
         $valueOptions['iiifsearch_extract'] = 'IIIF Search: Extract ocr from files'; // @translate
         $process->setValueOptions($valueOptions);
+
+        if (method_exists($form, 'addTaskSubjects')) {
+            $form->addTaskSubjects([
+                'iiifsearch_extract' => [
+                    'name' => 'IIIF Search: OCR extraction', // @translate
+                    'description' => 'Extract the OCR text from files for IIIF Search.', // @translate
+                    'actions' => [
+                        'iiifsearch_extract' => 'Extract', // @translate
+                    ],
+                ],
+            ]);
+        }
 
         $fieldset
             ->add([
@@ -839,9 +1370,7 @@ class Module extends AbstractModule
         if ($process === 'iiifsearch_extract') {
             $params = $event->getParam('params');
             $event->setParam('job', \IiifSearch\Job\ExtractOcr::class);
-            $args = $params['module_tasks']['iiifsearch_extract'] ?? [];
-            $args['base_uri'] = $this->getBaseUri();
-            $event->setParam('args', $args);
+            $event->setParam('args', $params['module_tasks']['iiifsearch_extract'] ?? []);
         }
     }
 
@@ -889,34 +1418,17 @@ class Module extends AbstractModule
         return null;
     }
 
-    protected function getBaseUri(): string
-    {
-        $services = $this->getServiceLocator();
-        $config = $services->get('Config');
-        $baseUri = $config['file_store']['local']['base_uri'] ?? null;
-        if (!$baseUri) {
-            $helpers = $services->get('ViewHelperManager');
-            $serverUrlHelper = $helpers->get('serverUrl');
-            $basePathHelper = $helpers->get('basePath');
-            $baseUri = $serverUrlHelper($basePathHelper('files'));
-            if ($baseUri === 'http:///files' || $baseUri === 'https:///files') {
-                $t = $services->get('MvcTranslator');
-                throw new \Omeka\Mvc\Exception\RuntimeException(
-                    $t->translate('The base uri is not set (key [file_store][local][base_uri]) in the config file of Omeka "config/local.config.php". It must be set for now in order to process background jobs.') // @translate
-                );
-            }
-        }
-        return $baseUri;
-    }
-
+    /**
+     * Create the directory when needed and deny its direct web access.
+     *
+     * The ocr files (alto, hocr, pdf2xml, tsv) are derivative files that are
+     * never medias, so they have no storage id and the module Access cannot
+     * check their rights. They are served only through the controller of the
+     * module, that checks the rights of the user page by page.
+     */
     protected function checkDestinationDir(string $dirPath): ?string
     {
-        if (file_exists($dirPath)) {
-            if (!is_dir($dirPath) || !is_readable($dirPath) || !is_writeable($dirPath)) {
-                return null;
-            }
-            return $dirPath;
-        }
-        return @mkdir($dirPath, 0775, true) ? $dirPath : null;
+        return $this->getServiceLocator()->get('Common\DirectoryManager')
+            ->checkDestinationDir($dirPath, true);
     }
 }

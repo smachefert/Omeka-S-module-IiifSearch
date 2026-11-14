@@ -33,28 +33,14 @@ class XmlAltoSingle extends AbstractHelper
      */
     protected $basePath;
 
-    /**
-     * @var string
-     */
-    protected $xmlImageMatch;
-
-    /**
-     * @var string
-     */
-    protected $xmlFixMode;
-
     public function __construct(
         Logger $logger,
         FixUtf8 $fixUtf8,
-        string $basePath,
-        string $xmlImageMatch,
-        string $xmlFixMode
+        string $basePath
     ) {
         $this->logger = $logger;
         $this->fixUtf8 = $fixUtf8;
         $this->basePath = $basePath;
-        $this->xmlImageMatch = $xmlImageMatch;
-        $this->xmlFixMode = $xmlFixMode;
     }
 
     /**
@@ -105,28 +91,29 @@ class XmlAltoSingle extends AbstractHelper
     protected function mediaData(ItemRepresentation $item): array
     {
         $classifier = new XmlMediaClassifier();
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
         $mediaData = [];
-        foreach ($item->media() as $media) {
-            if (!$media->hasOriginal() || !$media->size()) {
+        foreach ($itemFileResources($item) as $resource) {
+            if (!$resource->hasOriginal() || !$resource->size()) {
                 continue;
             }
-            $filename = $media->filename();
+            $filename = $resource->filename();
             $filepath = $this->basePath . '/original/' . $filename;
             $ready = file_exists($filepath) && is_readable($filepath) && filesize($filepath);
             if (!$ready) {
                 continue;
             }
-            $mediaType = $media->mediaType();
+            $mediaType = $resource->mediaType();
             if (!$mediaType) {
                 continue;
             }
-            $extension = $media->extension();
-            // Accept either the canonical alto mime or any xml-like media whose
-            // content sniffs as alto (common case: mime is application/xml
-            // because Omeka did not recognize the dialect).
+            $extension = $resource->extension();
+            // Accept either the canonical alto mime or any xml-like resource
+            // whose content sniffs as alto (common case: mime is
+            // application/xml because Omeka did not recognize the dialect).
             $isAlto = $mediaType === 'application/alto+xml';
             if (!$isAlto
-                && $classifier->isXmlLikeMedia($media)
+                && $classifier->isXmlLikeMedia($resource)
                 && $classifier->classifyFile($filepath) === XmlMediaClassifier::TYPE_ALTO
             ) {
                 $isAlto = true;
@@ -135,17 +122,17 @@ class XmlAltoSingle extends AbstractHelper
                 continue;
             }
             $mainType = strtok($mediaType, '/');
-            $mediaId = $media->id();
+            $mediaId = $resource->id();
             $mediaData[$mediaId] = [
                 'id' => $mediaId,
-                'media' => $media,
-                'source' => $media->source(),
+                'media' => $resource->inner(),
+                'source' => $resource->source(),
                 'filename' => $filename,
                 'filepath' => $filepath,
                 'mediatype' => $mediaType,
                 'maintype' => $mainType,
                 'extension' => $extension,
-                'size' => $media->size(),
+                'size' => $resource->size(),
             ];
         }
 
@@ -178,15 +165,16 @@ class XmlAltoSingle extends AbstractHelper
             $ps->sourceImageFileName = $hintReader->readImageHint($entry['filepath'], 'alto');
             $sources[] = $ps;
         }
-        $pairer = new PagePairer($this->basePath);
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $pairer = new PagePairer($this->basePath, $itemFileResources);
         $pairing = $pairer->pair($item, $sources);
         if ($pairing->method === PairingResult::METHOD_SEQUENTIAL) {
             return $mediaData;
         }
         $imagePositions = [];
         $i = 0;
-        foreach ($item->media() as $media) {
-            $imagePositions[(int) $media->id()] = $i++;
+        foreach ($itemFileResources($item) as $resource) {
+            $imagePositions[(int) $resource->id()] = $i++;
         }
         $byPair = [];
         $unpaired = [];
@@ -219,20 +207,39 @@ class XmlAltoSingle extends AbstractHelper
             return null;
         }
 
-        $xmlContent = file_get_contents($filepath);
+        // The path can come from a media filename that no longer exists on disk
+        // (ArchiveRepertory rename, manual deletion, broken backup).
+        // file_get_contents() would otherwise return false and downstream
+        // fixers / SimpleXML throw a TypeError, surfacing as a 500.
+        if (!is_readable($filepath)) {
+            $this->logger->warn(new Message(
+                'XML ALTO file "%1$s" is missing or unreadable (media #%2$d).', // @translate
+                $filepath, $resourceId ?: 0
+            ));
+            return null;
+        }
+        $xmlContent = @file_get_contents($filepath);
+        if ($xmlContent === false || $xmlContent === '') {
+            $this->logger->warn(new Message(
+                'XML ALTO file "%1$s" is empty or unreadable (media #%2$d).', // @translate
+                $filepath, $resourceId ?: 0
+            ));
+            return null;
+        }
+
+        // Fix windows-1252 bytes in a xml declared as utf-8. Skipped when the
+        // content is valid, because the regex is slow.
+        if (!mb_check_encoding($xmlContent, 'UTF-8')) {
+            $this->logger->warn(new Message(
+                'Invalid utf-8 characters fixed in the xml of file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
+            $xmlContent = $this->fixUtf8->__invoke($xmlContent);
+        }
 
         try {
-            if ($this->xmlFixMode === 'dom') {
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } elseif ($this->xmlFixMode === 'regex') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
-            } elseif ($this->xmlFixMode === 'all') {
-                $xmlContent = $this->fixUtf8->__invoke($xmlContent);
-                $currentXml = $this->fixXmlDom($xmlContent);
-            } else {
-                $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET);
-            }
+            $currentXml = @simplexml_load_string($xmlContent, null, LIBXML_NONET)
+                ?: $this->repairXml($xmlContent, $filepath);
         } catch (Exception $e) {
             $this->logger->err(new Message(
                 'Error: XML content is incorrect for media #%d.', // @translate
@@ -250,6 +257,21 @@ class XmlAltoSingle extends AbstractHelper
         }
 
         return $currentXml;
+    }
+
+    /**
+     * Repair a malformed xml and log it, so the file can be fixed.
+     */
+    protected function repairXml(string $xmlContent, string $filepath): ?SimpleXMLElement
+    {
+        $xml = $this->fixXmlDom($xmlContent);
+        if ($xml) {
+            $this->logger->warn(new Message(
+                'Malformed xml repaired in file "%s": the file should be fixed.', // @translate
+                $filepath
+            ));
+        }
+        return $xml;
     }
 
     /**
@@ -284,18 +306,23 @@ class XmlAltoSingle extends AbstractHelper
         $altoLayoutDom = null;
 
         $first = true;
+        $leadingEmptyPages = 0;
         foreach ($mediaData as $fileData) {
             $currentXml = $this->loadXmlFromFilepath($fileData['filepath'], $fileData['id'] ?? null);
             if (!$currentXml) {
-                $this->logger->err(new Message(
-                    'Error: Cannot get XML content from media #%d.', // @translate
-                    $fileData['id']
-                ));
-                if (!$alto) {
-                    return null;
+                // A null filepath is a page without xml, not an error.
+                if ($fileData['filepath']) {
+                    $this->logger->err(new Message(
+                        'Error: Cannot get XML content from media #%d.', // @translate
+                        $fileData['id']
+                    ));
                 }
                 // Insert an empty page to keep page indexes.
-                $altoLayout->addChild('Page');
+                if ($alto) {
+                    $altoLayout->addChild('Page');
+                } else {
+                    ++$leadingEmptyPages;
+                }
                 continue;
             }
 
@@ -310,6 +337,11 @@ class XmlAltoSingle extends AbstractHelper
                 $currentXmlFirstPage = $altoLayout->Page;
                 if (!$currentXmlFirstPage || !$currentXmlFirstPage->count()) {
                     $altoLayout->addChild('Page');
+                }
+                // Prepend the empty pages of the leading pages without xml.
+                $firstPageDom = dom_import_simplexml($altoLayout->Page[0]);
+                for ($i = 0; $i < $leadingEmptyPages; ++$i) {
+                    $altoLayoutDom->insertBefore(dom_import_simplexml($altoLayout->addChild('Page')), $firstPageDom);
                 }
                 continue;
             }

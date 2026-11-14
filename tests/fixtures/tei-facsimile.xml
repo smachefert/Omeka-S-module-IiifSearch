@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<TEI xmlns="http://www.tei-c.org/ns/1.0">
+  <teiHeader>
+    <fileDesc>
+      <titleStmt><title>Sample with facsimile</title></titleStmt>
+      <publicationStmt><p>Test fixture built on the facsimile model of the TEI Guidelines (chapter 11).</p></publicationStmt>
+      <sourceDesc><p>Born digital.</p></sourceDesc>
+    </fileDesc>
+  </teiHeader>
+  <facsimile>
+    <surface xml:id="s1"><graphic url="images/p001.jpg"/></surface>
+    <surface xml:id="s2"><graphic url="images/p002.jpg"/></surface>
+    <surface xml:id="s3" source="p003.tif"/>
+    <surface xml:id="s4"><graphic xml:id="g4" url="images/p004.jpg"/></surface>
+    <surface xml:id="s5"><graphic url="images/p005.jpg"/></surface>
+  </facsimile>
+  <text>
+    <front>
+      <div type="titlePage">
+        <pb n="i" facs="#s1"/>
+        <p>Title page, without head: not a section.</p>
+      </div>
+    </front>
+    <body>
+      <div type="chapter">
+        <pb n="1" facs="#s2"/>
+        <head>Chapter I, of the beginning<note>A note that is not part of the label.</note></head>
+        <p>Text.</p>
+        <div type="section">
+          <head>First<lb/>section</head>
+          <p>Text.</p>
+        </div>
+        <div type="section">
+          <pb n="2" facs="#s3"/>
+          <head>Second section</head>
+          <p>Text.</p>
+        </div>
+      </div>
+      <div type="chapter">
+        <head>Chapter II</head>
+        <p>Starts in the middle of the page 2.</p>
+        <pb n="3" facs="#g4"/>
+        <p>Text.</p>
+        <pb n="4" facs="#s5"/>
+        <div type="section"><head>Last section</head><p>Starts in the middle of the page 4.</p></div>
+      </div>
+    </body>
+  </text>
+</TEI>

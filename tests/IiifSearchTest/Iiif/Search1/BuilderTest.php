@@ -107,4 +107,39 @@ class BuilderTest extends TestCase
             $resourceContent['@id']
         );
     }
+
+    public function testBuildAddsContextToHits(): void
+    {
+        $pivot = [
+            'baseResultUrl' => 'http://example.com/annotation/',
+            'baseCanvasUrl' => 'http://example.com/canvas/p',
+            'totalHit' => 1,
+            'matches' => [$this->sampleMatch()],
+            'pageHits' => [['hits' => [1], 'match' => 'fox', 'before' => 'The quick brown ', 'after' => ' jumps']],
+        ];
+
+        $content = (new Builder())->build($pivot, 'http://example.com/search?q=fox')->getContent();
+        $hit = $content['hits'][0]->getContent();
+
+        $this->assertSame('fox', $hit['match']);
+        $this->assertSame('The quick brown ', $hit['before']);
+        $this->assertSame(' jumps', $hit['after']);
+    }
+
+    public function testBuildOmitsEmptyContext(): void
+    {
+        $pivot = [
+            'baseResultUrl' => 'http://example.com/annotation/',
+            'baseCanvasUrl' => 'http://example.com/canvas/p',
+            'totalHit' => 1,
+            'matches' => [$this->sampleMatch()],
+            'pageHits' => [['hits' => [1], 'match' => 'fox', 'before' => null]],
+        ];
+
+        $content = (new Builder())->build($pivot, 'http://example.com/search?q=fox')->getContent();
+        $hit = $content['hits'][0]->getContent();
+
+        $this->assertArrayNotHasKey('before', $hit);
+        $this->assertArrayNotHasKey('after', $hit);
+    }
 }

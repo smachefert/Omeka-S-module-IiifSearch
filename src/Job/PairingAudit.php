@@ -34,7 +34,8 @@ class PairingAudit extends AbstractJob
         $itemIdsArg = (string) $this->getArg('item_ids');
 
         $auditDir = $basePath . '/iiif-search-audit';
-        if (!is_dir($auditDir) && !@mkdir($auditDir, 0775, true)) {
+        $directoryManager = $services->get('Common\DirectoryManager');
+        if (!$directoryManager->checkDestinationDir($auditDir, true)) {
             $logger->err(new Message(
                 'Cannot create audit directory "%s".', // @translate
                 $auditDir
@@ -50,16 +51,16 @@ class PairingAudit extends AbstractJob
             ));
             return;
         }
-        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'image_count', 'method', 'coverage', 'warnings']);
+        fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'page_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '');
 
         $sql = <<<'SQL'
             SELECT DISTINCT `item_id`
             FROM `media`
-            WHERE (`media_type` IN (:pdf_media_type) AND `extension` = :pdf_extension)
+            WHERE ((`media_type` IN (:pdf_media_type) AND `extension` = :pdf_extension)
                 OR `media_type` LIKE 'image/%'
                 OR `media_type` LIKE 'application/%xml%'
                 OR `media_type` LIKE 'text/xml%'
-                OR `media_type` = 'text/html'
+                OR `media_type` = 'text/html')
             SQL;
         $bind = [
             'pdf_media_type' => ['application/pdf', 'text/pdf'],
@@ -79,7 +80,12 @@ class PairingAudit extends AbstractJob
         $itemIds = $connection->executeQuery($sql, $bind, $types)->fetchFirstColumn();
 
         $classifier = new XmlMediaClassifier();
-        $pairer = new PagePairer($basePath);
+        $viewHelpers = $services->get('ViewHelperManager');
+        $itemFileResources = $viewHelpers->has('itemFileResources')
+            ? $viewHelpers->get('itemFileResources')
+            : null;
+        $pairer = new PagePairer($basePath, $itemFileResources);
+        $annotationUrl = $viewHelpers->get('iiifSearchAnnotationUrl');
 
         $total = count($itemIds);
         $logger->notice(new Message(
@@ -104,25 +110,36 @@ class PairingAudit extends AbstractJob
             $pdfCount = 0;
             $altoCount = 0;
             $hocrCount = 0;
+            $pageCount = 0;
             $imageCount = 0;
             $altoMedias = [];
-            foreach ($item->media() as $media) {
-                $mt = (string) $media->mediaType();
-                if (strtok($mt, '/') === 'image' && $media->hasOriginal()) {
+            if ($itemFileResources) {
+                $resources = ($itemFileResources)($item);
+            } else {
+                $resources = [];
+                foreach ($item->media() as $media) {
+                    $resources[] = new \IiifSearch\Stdlib\FileResource($media, $item);
+                }
+            }
+            foreach ($resources as $resource) {
+                $mt = (string) $resource->mediaType();
+                if ($resource->isCanvasImage()) {
                     ++$imageCount;
                 }
-                if ((string) $media->extension() === 'pdf'
+                if ((string) $resource->extension() === 'pdf'
                     && ($mt === 'application/pdf' || $mt === 'text/pdf')
                 ) {
                     ++$pdfCount;
                 }
-                if ($classifier->isXmlLikeMedia($media)) {
-                    $cls = $classifier->classifyMedia($media, $basePath);
+                if ($classifier->isXmlLikeMedia($resource)) {
+                    $cls = $classifier->classifyMedia($resource, $basePath);
                     if ($cls === XmlMediaClassifier::TYPE_ALTO) {
                         ++$altoCount;
-                        $altoMedias[] = $media;
+                        $altoMedias[] = $resource->inner();
                     } elseif ($cls === XmlMediaClassifier::TYPE_HOCR) {
                         ++$hocrCount;
+                    } elseif ($cls === XmlMediaClassifier::TYPE_PAGE) {
+                        ++$pageCount;
                     }
                 }
             }
@@ -149,16 +166,23 @@ class PairingAudit extends AbstractJob
                 $warnings = implode(' | ', $pairing->warnings);
             }
 
+            $access = [];
+            foreach ($annotationUrl->accessMismatches($item) as $page => $levels) {
+                $access[] = sprintf('p%d: alto %s < image %s', $page, $levels['alto'], $levels['image']);
+            }
+
             fputcsv($fp, [
                 (int) $id,
                 $pdfCount,
                 $altoCount,
                 $hocrCount,
+                $pageCount,
                 $imageCount,
                 $method,
                 $coverage,
                 $warnings,
-            ]);
+                implode(' | ', $access),
+            ], ',', '"', '');
         }
         fclose($fp);
 

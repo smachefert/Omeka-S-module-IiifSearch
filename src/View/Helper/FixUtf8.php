@@ -2,22 +2,10 @@
 
 namespace IiifSearch\View\Helper;
 
-use Laminas\Log\Logger;
 use Laminas\View\Helper\AbstractHelper;
 
 class FixUtf8 extends AbstractHelper
 {
-    /**
-     * @var \Laminas\Log\Logger
-     */
-    protected $logger;
-
-    public function __construct(
-        Logger $logger
-    ) {
-        $this->logger = $logger;
-    }
-
     /**
      * Some utf-8 files, generally edited under Windows, should be cleaned.
      *
@@ -79,15 +67,6 @@ class FixUtf8 extends AbstractHelper
             }
         };
 
-        // Log invalid files.
-        $count = 0;
-        $result = preg_replace_callback($regex, $utf8replacer, $string, -1, $count);
-        if ($count && $string !== $result) {
-            $this->logger->warn(
-                'Warning: some files contain invalid unicode characters and cannot be searched quickly.' // @translate
-            );
-        }
-
-        return $result;
+        return preg_replace_callback($regex, $utf8replacer, $string) ?? $string;
     }
 }
