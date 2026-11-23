@@ -155,10 +155,10 @@ class Module extends AbstractModule
 
         $errors = [];
 
-        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.96')) {
+        if (!method_exists($this, 'checkModuleActiveVersion') || !$this->checkModuleActiveVersion('Common', '3.4.97')) {
             $message = new \Omeka\Stdlib\Message(
                 $translator->translate('The module %1$s should be upgraded to version %2$s or later.'), // @translate
-                'Common', '3.4.96'
+                'Common', '3.4.97'
             );
             $errors[] = (string) $message;
         }
@@ -1408,24 +1408,17 @@ class Module extends AbstractModule
      */
     protected function allowFileFormats(): void
     {
-        $settings = $this->getServiceLocator()->get('Omeka\Settings');
-
-        $extensionWhitelist = $settings->get('extension_whitelist', []);
-        $extensions = ['tsv', 'xml'];
-        $extensionWhitelist = array_unique(array_merge($extensionWhitelist, $extensions));
-        $settings->set('extension_whitelist', $extensionWhitelist);
-
-        $mediaTypeWhitelist = $settings->get('media_type_whitelist', []);
-        $xmlMediaTypes = [
+        $this->allowMediaTypes([
             'application/xml',
             'text/xml',
             'application/alto+xml',
             'application/vnd.pdf2xml+xml',
             'application/x-empty',
             'text/tab-separated-values',
-        ];
-        $mediaTypeWhitelist = array_unique(array_merge($mediaTypeWhitelist, $xmlMediaTypes));
-        $settings->set('media_type_whitelist', $mediaTypeWhitelist);
+        ], [
+            'tsv',
+            'xml',
+        ]);
     }
 
     /**
