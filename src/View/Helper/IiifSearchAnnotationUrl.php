@@ -46,6 +46,10 @@ class IiifSearchAnnotationUrl extends AbstractHelper
      * pdf is a file to download, but the ocr is extracted from the pdf, so the
      * pages of the ocr are not the canvases. An ocr file attached to the item
      * (alto, hocr, pdf2xml, tsv) is related to the images.
+     *
+     * The ocr of the pdf is kept when the pdf is the scan of the images: same
+     * number of pages and same page ratios. The coordinates are then scaled to
+     * the images.
      */
     public function isOcrOfHiddenPdf(ItemRepresentation $item): bool
     {
@@ -65,7 +69,61 @@ class IiifSearchAnnotationUrl extends AbstractHelper
             $hasPdf = $hasPdf || $mediaType === 'application/pdf';
             $hasImage = $hasImage || $resource->isCanvasImage();
         }
-        return $hasImage && $hasPdf;
+        return $hasImage
+            && $hasPdf
+            && !$this->isPdfOfImages($item);
+    }
+
+    /**
+     * Are the pages of the extracted alto the images of the item?
+     */
+    public function isPdfOfImages(ItemRepresentation $item): bool
+    {
+        $path = $this->getView()->plugin('xmlAltoSplitter')->consolidatedPath($item);
+        if (!$path) {
+            return false;
+        }
+        $pages = $this->altoPageSizes($path);
+        $images = $this->getView()->plugin('itemFileResources')->images($item);
+        if (!$pages || count($pages) !== count($images)) {
+            return false;
+        }
+        foreach ($images as $index => $image) {
+            $media = $image->media();
+            $size = $media ? ($media->mediaData()['dimensions']['original'] ?? []) : [];
+            $width = (float) ($size['width'] ?? 0);
+            $height = (float) ($size['height'] ?? 0);
+            // Without the size of the image, the number of pages is enough.
+            if (!$width || !$height) {
+                continue;
+            }
+            [$pageWidth, $pageHeight] = $pages[$index];
+            if (!$pageWidth || !$pageHeight
+                || abs(($width / $height) / ($pageWidth / $pageHeight) - 1) > 0.02
+            ) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * @return array<int, array{0: float, 1: float}> Width and height by page.
+     */
+    protected function altoPageSizes(string $path): array
+    {
+        $reader = new \XMLReader();
+        if (!@$reader->open($path)) {
+            return [];
+        }
+        $sizes = [];
+        while (@$reader->read()) {
+            if ($reader->nodeType === \XMLReader::ELEMENT && $reader->localName === 'Page') {
+                $sizes[] = [(float) $reader->getAttribute('WIDTH'), (float) $reader->getAttribute('HEIGHT')];
+            }
+        }
+        $reader->close();
+        return $sizes;
     }
 
     /**
