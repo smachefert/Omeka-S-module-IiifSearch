@@ -31,6 +31,15 @@ class OcrFileTest extends AbstractHttpControllerTestCase
         parent::tearDown();
     }
 
+    public function testIngesterIsNotListedInItemForm(): void
+    {
+        // The ingester is internal: it is not listed in the forms, but it is
+        // still available for the api.
+        $ingesters = $this->getApplicationServiceLocator()->get('Omeka\Media\Ingester\Manager');
+        $this->assertNotContains('iiifsearch_ocr', $ingesters->getRegisteredNames());
+        $this->assertTrue($ingesters->has('iiifsearch_ocr'));
+    }
+
     public function testTempFileIsAttached(): void
     {
         $tempFile = $this->getApplicationServiceLocator()->get('Omeka\File\TempFileFactory')->build();
