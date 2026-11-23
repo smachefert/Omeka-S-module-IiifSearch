@@ -36,20 +36,18 @@ class PairingAudit extends AbstractJob
         $auditDir = $basePath . '/iiif-search-audit';
         $directoryManager = $services->get('Common\DirectoryManager');
         if (!$directoryManager->checkDestinationDir($auditDir, true)) {
-            $logger->err(new Message(
-                'Cannot create audit directory "%s".', // @translate
-                $auditDir
-            ));
-            return;
+            throw new \Common\Job\Exception\RuntimeException(
+                'Cannot create audit directory "{dir}".', // @translate
+                ['dir' => $auditDir]
+            );
         }
         $csvPath = $auditDir . '/' . date('Ymd_His') . '.csv';
         $fp = @fopen($csvPath, 'w');
         if (!$fp) {
-            $logger->err(new Message(
-                'Cannot open audit file "%s" for writing.', // @translate
-                $csvPath
-            ));
-            return;
+            throw new \Common\Job\Exception\RuntimeException(
+                'Cannot open audit file "{file}" for writing.', // @translate
+                ['file' => $csvPath]
+            );
         }
         fputcsv($fp, ['item_id', 'pdf_count', 'alto_count', 'hocr_count', 'page_count', 'image_count', 'method', 'coverage', 'warnings', 'access'], ',', '"', '');
 

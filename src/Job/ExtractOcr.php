@@ -2,6 +2,7 @@
 
 namespace IiifSearch\Job;
 
+use Common\Job\Exception\RuntimeException;
 use Common\Stdlib\FileLock;
 use DateTime;
 use DOMDocument;
@@ -250,19 +251,15 @@ class ExtractOcr extends AbstractJob
         $this->basePath = $services->get('Config')['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
 
         if (!$this->cli->getCommandPath('pdftotext')) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(
-                'The command-line utility pdftotext is not available. Install the package poppler-utils.' //@translate
+            throw new RuntimeException(
+                'The command-line utility pdftotext is not available. Install the package poppler-utils.' // @translate
             );
-            return;
         }
 
         if (!$this->cli->getCommandPath('pdftohtml')) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(
-                'The command-line utility pdftohtml is not available. Install the package poppler-utils.' //@translate
+            throw new RuntimeException(
+                'The command-line utility pdftohtml is not available. Install the package poppler-utils.' // @translate
             );
-            return;
         }
 
         // Clean and reorder media types to extract tsv, then pdf2xml then alto
@@ -353,21 +350,15 @@ class ExtractOcr extends AbstractJob
         if ((in_array(self::FORMAT_ALTO, $targetTypesFiles) || in_array(self::FORMAT_ALTO, $targetTypesMedia))
             && !class_exists('XSLTProcessor', false)
         ) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(
+            throw new RuntimeException(
                 'The php extension "xml" or "xsl" is required to extract text as xml alto.' // @translate
             );
-            return;
         }
 
         foreach ($targetTypesFiles as $format) {
             if (!$this->checkDestinationDir($this->basePath . '/' . $dirPaths[$format])) {
-               $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
+                throw new RuntimeException('The directory is not writeable.'); // @translate
             }
-        }
-        if ($this->job->getStatus() === \Omeka\Entity\Job::STATUS_ERROR) {
-            $this->logger->err('The directory is not writeable.'); // @translate
-            return;
         }
 
         $mode = $this->getArg('mode') ?: 'all';
@@ -643,12 +634,10 @@ class ExtractOcr extends AbstractJob
                 $totalToProcess
             ));
         } else {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(new Message(
-                'Mode of extraction "%s" is not managed.', // @translate
-                $mode
-            ));
-            return;
+            throw new RuntimeException(
+                'Mode of extraction "{mode}" is not managed.', // @translate
+                ['mode' => $mode]
+            );
         }
 
         // TODO Currently, the process create the files via a loop by media type. Restructure it to do it one time by item.
@@ -740,11 +729,14 @@ class ExtractOcr extends AbstractJob
 
         foreach ($targetItemIds as $itemId) {
             if (!$this->entityManager->isOpen()) {
-                $this->logger->err(new Message(
-                    'EntityManager closed before item #%1$d, aborting.', // @translate
-                    $itemId
-                ));
-                return;
+                foreach ($this->ocrPdfs as $ocrResult) {
+                    $ocrResult['tempFile'] && $ocrResult['tempFile']->delete();
+                }
+                $this->ocrPdfs = [];
+                throw new RuntimeException(
+                    'EntityManager closed before item #{item_id}, aborting.', // @translate
+                    ['item_id' => $itemId]
+                );
             }
             try {
             if ($this->shouldStop()) {

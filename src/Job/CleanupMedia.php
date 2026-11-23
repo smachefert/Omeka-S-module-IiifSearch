@@ -81,11 +81,9 @@ class CleanupMedia extends AbstractJob
         if ($this->getArg('rerun_extract')
             && !$services->get('Omeka\Cli')->getCommandPath('pdftotext')
         ) {
-            $this->job->setStatus(\Omeka\Entity\Job::STATUS_ERROR);
-            $this->logger->err(new Message(
+            throw new \Common\Job\Exception\RuntimeException(
                 'The cleanup is followed by a new extraction, but the command-line utility pdftotext is not available, so the ocr cannot be rebuilt and nothing is deleted. Install the package poppler-utils or run the cleanup without the new extraction.' // @translate
-            ));
-            return;
+            );
         }
 
         $totalChecked = 0;
@@ -173,6 +171,12 @@ class CleanupMedia extends AbstractJob
             'Cleanup done: %1$d medias checked, %2$d deleted, %3$d skipped (not module-created), %4$d errors.', // @translate
             $totalChecked, $totalDeleted, $totalSkipped, $totalErrors
         ));
+        if ($totalErrors && !$totalDeleted) {
+            throw new \Common\Job\Exception\RuntimeException(
+                'Cleanup failed: none of the {count} medias could be deleted.', // @translate
+                ['count' => $totalErrors]
+            );
+        }
         if ($totalKept) {
             $this->logger->warn(new Message(
                 '%d medias were kept, because their item has no ocr file yet under files/iiif-search/ or files/alto/, so they are the only source of its search. Run the job Extract OCR in mode "missing" with the destination "file" (it requires pdftotext), then run the cleanup again.', // @translate
