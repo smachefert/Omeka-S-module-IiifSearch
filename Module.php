@@ -266,6 +266,11 @@ class Module extends AbstractModule
             [$this, 'extractOcr']
         );
         $sharedEventManager->attach(
+            \Omeka\Api\Adapter\MediaAdapter::class,
+            'api.create.post',
+            [$this, 'extractOcrOfMedia']
+        );
+        $sharedEventManager->attach(
             \Omeka\Api\Adapter\ItemAdapter::class,
             'api.create.post',
             [$this, 'warnOcrAccessMismatch']
@@ -1122,11 +1127,29 @@ class Module extends AbstractModule
 
     public function extractOcr(Event $event): void
     {
-        $services = $this->getServiceLocator();
-        $response = $event->getParams()['response'];
-        /** @var \Omeka\Entity\Item $item */
-        $item = $response->getContent();
+        $this->extractOcrOfItem($event->getParam('response')->getContent());
+    }
 
+    /**
+     * Extract the ocr of a media added alone, for example via the api.
+     */
+    public function extractOcrOfMedia(Event $event): void
+    {
+        /** @var \Omeka\Entity\Media $media */
+        $media = $event->getParam('response')->getContent();
+        // The outputs of the extraction are not a source.
+        if (!$media || $media->getIngester() === 'iiifsearch_ocr') {
+            return;
+        }
+        $item = $media->getItem();
+        if ($item) {
+            $this->extractOcrOfItem($item);
+        }
+    }
+
+    protected function extractOcrOfItem(\Omeka\Entity\Item $item): void
+    {
+        $services = $this->getServiceLocator();
         $settings = $services->get('Omeka\Settings');
         $formatToSetting = [
             \IiifSearch\Job\ExtractOcr::FORMAT_TSV => 'iiifsearch_extract_dests_tsv',
