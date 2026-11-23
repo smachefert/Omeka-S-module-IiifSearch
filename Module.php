@@ -254,6 +254,12 @@ class Module extends AbstractModule
             [$this, 'handleIiifServerManifest']
         );
 
+        $sharedEventManager->attach(
+            \Omeka\Media\Ingester\Manager::class,
+            'service.registered_names',
+            [$this, 'handleMediaIngesterRegisteredNames']
+        );
+
         // OCR extraction (formerly module ExtractOcr).
         $sharedEventManager->attach(
             \Omeka\Api\Adapter\ItemAdapter::class,
@@ -1453,5 +1459,18 @@ class Module extends AbstractModule
     {
         return $this->getServiceLocator()->get('Common\DirectoryManager')
             ->checkDestinationDir($dirPath, true);
+    }
+
+    /**
+     * Avoid to display ingester in item edit, because it's an internal one.
+     */
+    public function handleMediaIngesterRegisteredNames(Event $event): void
+    {
+        $names = $event->getParam('registered_names');
+        $key = array_search('iiifsearch_ocr', $names);
+        if ($key !== false) {
+            unset($names[$key]);
+            $event->setParam('registered_names', $names);
+        }
     }
 }
