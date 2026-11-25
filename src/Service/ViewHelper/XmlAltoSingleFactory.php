@@ -12,14 +12,11 @@ class XmlAltoSingleFactory
         $config = $services->get('Config');
         $basePath = $config['file_store']['local']['base_path'] ?: (OMEKA_PATH . '/files');
         $helpers = $services->get('ViewHelperManager');
-        $settings = $services->get('Omeka\Settings');
 
         return new XmlAltoSingle(
             $services->get('Omeka\Logger'),
             $helpers->get('fixUtf8'),
-            $basePath,
-            $settings->get('iiifsearch_xml_image_match', 'order'),
-            $settings->get('iiifsearch_xml_fix_mode', 'no')
+            $basePath
         );
     }
 }

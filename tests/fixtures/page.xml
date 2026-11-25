@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+    Synthetic PAGE file for tests: reading order different from the document
+    order, a region outside the reading order, a line without words, a word
+    with several text equivs, a word without text and negative coordinates.
+-->
+<PcGts xmlns="http://schema.primaresearch.org/PAGE/gts/pagecontent/2019-07-15">
+  <Metadata>
+    <Creator>IiifSearch tests</Creator>
+    <Created>2026-10-18T00:00:00</Created>
+    <LastChange>2026-10-18T00:00:00</LastChange>
+  </Metadata>
+  <Page imageFilename="p001.jpg" imageWidth="1000" imageHeight="800">
+    <ReadingOrder>
+      <OrderedGroup id="ro_1">
+        <RegionRefIndexed index="1" regionRef="r1"/>
+        <RegionRefIndexed index="0" regionRef="r2"/>
+      </OrderedGroup>
+    </ReadingOrder>
+    <TextRegion id="r1">
+      <Coords points="100,100 500,100 500,160 100,160"/>
+      <TextLine id="r1l1">
+        <Coords points="100,100 500,100 500,160 100,160"/>
+        <Baseline points="100,150 500,150"/>
+        <Word id="r1l1w1">
+          <Coords points="110,105 250,102 252,155 108,158"/>
+          <TextEquiv index="2"><Unicode>second</Unicode></TextEquiv>
+          <TextEquiv index="1" conf="0.95"><Unicode>Hello</Unicode></TextEquiv>
+        </Word>
+        <Word id="r1l1w2">
+          <Coords points="260,105 300,105 300,155 260,155"/>
+          <TextEquiv><Unicode> </Unicode></TextEquiv>
+        </Word>
+        <Word id="r1l1w3">
+          <Coords points="310,104 490,101 495,157 312,159"/>
+          <TextEquiv><Unicode>world</Unicode></TextEquiv>
+        </Word>
+        <TextEquiv><Unicode>Hello world</Unicode></TextEquiv>
+      </TextLine>
+    </TextRegion>
+    <TextRegion id="r2">
+      <Coords points="-5,200 300,200 300,240 -5,240"/>
+      <TextLine id="r2l1">
+        <Coords points="-5,200 150,195 295,200 295,240 -5,240"/>
+        <TextEquiv conf="0.8"><Unicode>Lorem ipsum dolor</Unicode></TextEquiv>
+      </TextLine>
+      <TextLine id="r2l2">
+        <Coords points="0,250 300,250 300,290 0,290"/>
+        <TextEquiv><Unicode/></TextEquiv>
+      </TextLine>
+    </TextRegion>
+    <TableRegion id="t1">
+      <Coords points="100,400 900,400 900,700 100,700"/>
+      <TextRegion id="t1c1">
+        <Coords points="100,400 500,400 500,450 100,450"/>
+        <TextLine id="t1c1l1">
+          <Coords points="100,400 500,400 500,450 100,450"/>
+          <Word id="t1c1l1w1">
+            <Coords points="120,405 220,405 220,445 120,445"/>
+            <TextEquiv><Unicode>Cell</Unicode></TextEquiv>
+          </Word>
+        </TextLine>
+      </TextRegion>
+    </TableRegion>
+  </Page>
+</PcGts>

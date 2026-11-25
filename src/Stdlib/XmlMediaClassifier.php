@@ -9,7 +9,7 @@ use Omeka\Api\Representation\MediaRepresentation;
  *
  * Required because Omeka media_type for OCR uploads is usually application/xml
  * or text/xml (rarely application/alto+xml), and the file extension is usually
- * .xml whether the payload is alto, mets, pdf2xml or another xml dialect.
+ * .xml whether the payload is alto, mets, page, pdf2xml or another xml dialect.
  * Extension or mime alone are not discriminating; only content inspection is.
  */
 class XmlMediaClassifier
@@ -19,6 +19,7 @@ class XmlMediaClassifier
     const TYPE_HOCR = 'hocr';
     const TYPE_PDF2XML = 'pdf2xml';
     const TYPE_TEI = 'tei';
+    const TYPE_PAGE = 'page';
     const TYPE_OTHER = 'other';
     const TYPE_UNKNOWN = 'unknown';
 
@@ -66,6 +67,12 @@ class XmlMediaClassifier
         ) {
             return self::TYPE_HOCR;
         }
+        // PAGE (PRImA), output of laypa, Loghi, Transkribus, eScriptorium, etc.
+        // The root is the same in all versions (2009 to 2019), only the
+        // namespace changes.
+        if (preg_match('~<(?:[\w-]+:)?PcGts\b~', $head)) {
+            return self::TYPE_PAGE;
+        }
         if (preg_match('~<(?:[\w-]+:)?alto\b~i', $head)) {
             return self::TYPE_ALTO;
         }
@@ -81,7 +88,10 @@ class XmlMediaClassifier
         return self::TYPE_OTHER;
     }
 
-    public function classifyMedia(MediaRepresentation $media, string $basePath): string
+    /**
+     * @param MediaRepresentation|FileResource $media
+     */
+    public function classifyMedia($media, string $basePath): string
     {
         $mediaId = (int) $media->id();
         if ($mediaId && isset($this->cache[$mediaId])) {
@@ -113,7 +123,10 @@ class XmlMediaClassifier
      * extension and mime, before content inspection. Avoids sniffing every
      * media of an item.
      */
-    public function isXmlLikeMedia(MediaRepresentation $media): bool
+    /**
+     * @param MediaRepresentation|FileResource $media
+     */
+    public function isXmlLikeMedia($media): bool
     {
         $mime = strtolower((string) $media->mediaType());
         if (isset(self::PRECISE_MIMES[$mime])) {

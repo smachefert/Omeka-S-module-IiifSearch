@@ -5,20 +5,30 @@ namespace IiifSearch\Controller;
 use Laminas\Http\Response;
 use Laminas\Mvc\Controller\AbstractActionController;
 use Laminas\View\Model\JsonModel;
+use Omeka\Api\Representation\ItemRepresentation;
 
 class SearchController extends AbstractActionController
 {
+    /**
+     * Redirect the old route /iiif-search/ to /iiif/search/.
+     */
+    public function legacyAction()
+    {
+        $uri = $this->getRequest()->getUri();
+        $path = preg_replace('#/iiif-search(?=/|$)#', '/iiif/search', (string) $uri->getPath(), 1);
+        $query = (string) $uri->getQuery();
+        return $this->redirect()
+            ->toUrl($path . ($query === '' ? '' : '?' . $query))
+            ->setStatusCode(Response::STATUS_CODE_301);
+    }
+
     public function indexAction()
     {
         // TODO The output must be a valid json iiif response.
 
         $id = $this->params('id');
         if (empty($id)) {
-            $this->getResponse()->setStatusCode(Response::STATUS_CODE_400);
-            return new JsonModel([
-                'status' => 'error',
-                'message' => $this->translate('Missing or empty query.'), // @translate
-            ]);
+            return $this->errorResponse(Response::STATUS_CODE_400, 'Missing identifier.'); // @translate
         }
 
         $q = (string) $this->params()->fromQuery('q');
@@ -64,14 +74,56 @@ class SearchController extends AbstractActionController
         return $this->jsonLd($searchResponse);
     }
 
+    /**
+     * Serve a IIIF Presentation 2 AnnotationList built from a single ALTO page,
+     * suitable for canvas otherContent in v2 manifests.
+     */
     public function annotationListAction()
     {
-        // TODO Implement annotation-list action.
-        $this->getResponse()->setStatusCode(Response::STATUS_CODE_501);
-        return new JsonModel([
-            'status' => 'error',
-            'message' => $this->translate('Direct request to annotation-list is not implemented.'), // @translate
-        ]);
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        // Route param :name accepts both "p1" and bare digits; normalize.
+        $name = (string) $this->params('name');
+        $pageIndex = ltrim($name, 'p');
+        if ($pageIndex === '' || !ctype_digit($pageIndex)) {
+            return $this->errorResponse(Response::STATUS_CODE_400, 'Invalid page name.'); // @translate
+        }
+        $pageIndex = (int) $pageIndex;
+        // v2 canvas naming convention "p1" is 1-based; normalize to 0-based for
+        // the ALTO splitter and downstream helpers.
+        if (strpos($name, 'p') === 0) {
+            $pageIndex = max(0, $pageIndex - 1);
+        }
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
+        $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
+        $path = $splitter($item, $pageIndex);
+        if (!$path || !is_readable($path)) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+
+        $mtime = (int) filemtime($path);
+        $etag = $this->buildEtag('annot2', $item->id(), $pageIndex, $mtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+            return $notModified;
+        }
+
+        $annotations = $this->viewHelpers()->get('iiifAltoAnnotations2');
+        $list = $annotations($item, $pageIndex, $path);
+        if (!$list) {
+            return $this->errorResponse(Response::STATUS_CODE_500, 'Unable to build annotation list.'); // @translate
+        }
+
+        $response = $this->getResponse();
+        $this->addCacheHeaders($response->getHeaders(), $etag, $mtime, 3600);
+
+        return $this->jsonLd($list);
     }
 
     public function index2Action()
@@ -102,6 +154,76 @@ class SearchController extends AbstractActionController
     }
 
     /**
+     * Redirect to the image info of the first page of the item.
+     *
+     * Some Mirador plugins request the search service as an image service, so
+     * the request fails without this route.
+     */
+    public function searchInfoAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $viewHelpers = $this->viewHelpers();
+        $images = $viewHelpers->get('itemFileResources')->images($item);
+        $image = $images ? reset($images)->inner() : null;
+        if (!$image || !$viewHelpers->has('iiifMediaUrl')) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No image available.'); // @translate
+        }
+
+        $url = $viewHelpers->get('iiifMediaUrl')->__invoke($image, 'imageserver/info');
+        if (!$url) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No image available.'); // @translate
+        }
+
+        return $this->redirect()->toUrl($url);
+    }
+
+    /**
+     * Serve the consolidated alto of the item, only when all its pages are
+     * readable.
+     */
+    public function altoAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $path = $this->viewHelpers()->get('xmlAltoSplitter')->consolidatedPath($item);
+        if (!$path) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO available.'); // @translate
+        }
+
+        // The file gathers all pages, so a single denied page denies it.
+        $countPages = max($this->viewHelpers()->get('iiifSearchAnnotationUrl')->countWholeAltoPages($item), 1);
+        $pageIndex = 0;
+        while ($pageIndex < $countPages - 1 && $this->isAllowedOcr($item, $pageIndex)) {
+            ++$pageIndex;
+        }
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
+        $mtime = (int) filemtime($path);
+        $etag = $this->buildEtag('alto-full', $item->id(), $mtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+            return $notModified;
+        }
+
+        $content = $this->altoContent($path);
+        $response = $this->getResponse();
+        $headers = $response->getHeaders();
+        $headers->addHeaderLine('Content-Type', 'application/xml+alto; charset=utf-8');
+        $headers->addHeaderLine('Content-Length', (string) strlen($content));
+        $this->addCacheHeaders($headers, $etag, $mtime, 3600);
+        $response->setContent($content);
+        return $response;
+    }
+
+    /**
      * Serve a single page extracted from a multipage ALTO XML document.
      */
     public function altoPageAction()
@@ -111,7 +233,17 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
         }
 
-        $pageIndex = (int) $this->params('page');
+        // Public page numbering is 1-based; internal index is 0-based.
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {
@@ -124,13 +256,140 @@ class SearchController extends AbstractActionController
             return $notModified;
         }
 
+        $content = $this->altoContent($path);
         $response = $this->getResponse();
         $headers = $response->getHeaders();
         $headers->addHeaderLine('Content-Type', 'application/xml+alto; charset=utf-8');
-        $headers->addHeaderLine('Content-Length', (string) filesize($path));
+        $headers->addHeaderLine('Content-Length', (string) strlen($content));
         $this->addCacheHeaders($headers, $etag, $mtime, 3600);
-        $response->setContent((string) file_get_contents($path));
+        $response->setContent($content);
         return $response;
+    }
+
+    /**
+     * Serve a single page of hOCR.
+     *
+     * Resolution cascade:
+     *  1. Native hOCR media attached to the item at the positional index N-1.
+     *  2. Per-page ALTO (resolved by xmlAltoSplitter) converted on the fly
+     *     via the alto_to_hocr.xsl stylesheet.
+     *  3. 404.
+     */
+    public function hocrPageAction()
+    {
+        $item = $this->resolveItem();
+        if (!$item) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
+        }
+
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No hOCR page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
+        $services = $this->getEvent()->getApplication()->getServiceManager();
+        $config = $services->get('Config');
+        $basePath = $config['file_store']['local']['base_path']
+            ?: (OMEKA_PATH . '/files');
+
+        // 1. Native hOCR media at the matching positional index.
+        $itemFileResources = $this->viewHelpers()->get('itemFileResources');
+        $hocrs = [];
+        foreach ($itemFileResources($item) as $resource) {
+            if ((string) $resource->mediaType() === 'text/vnd.hocr+html') {
+                $hocrs[] = $resource;
+            }
+        }
+        $target = $hocrs[$pageIndex] ?? null;
+        if ($target) {
+            $filename = (string) $target->filename();
+            $path = $filename !== '' ? $basePath . '/original/' . $filename : '';
+            if ($path !== '' && is_readable($path)) {
+                $mtime = (int) filemtime($path);
+                $etag = $this->buildEtag('hocr', $item->id(), $pageIndex, $mtime);
+                if ($notModified = $this->respondNotModifiedIfMatch($etag, $mtime)) {
+                    return $notModified;
+                }
+                $response = $this->getResponse();
+                $headers = $response->getHeaders();
+                $headers->addHeaderLine('Content-Type', 'text/vnd.hocr+html; charset=utf-8');
+                $headers->addHeaderLine('Content-Length', (string) filesize($path));
+                $this->addCacheHeaders($headers, $etag, $mtime, 3600);
+                $response->setContent((string) @file_get_contents($path));
+                return $response;
+            }
+        }
+
+        // 2. Convert from the per-page ALTO via XSLT.
+        $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
+        $altoPath = $splitter($item, $pageIndex);
+        if (!$altoPath || !is_readable($altoPath)) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No hOCR page available.'); // @translate
+        }
+
+        $altoMtime = (int) filemtime($altoPath);
+        $etag = $this->buildEtag('hocr-alto', $item->id(), $pageIndex, $altoMtime);
+        if ($notModified = $this->respondNotModifiedIfMatch($etag, $altoMtime)) {
+            return $notModified;
+        }
+        $hocrContent = $this->renderHocrFromAlto($altoPath);
+        if ($hocrContent === null) {
+            return $this->errorResponse(Response::STATUS_CODE_500, 'Failed to render hOCR from ALTO.'); // @translate
+        }
+
+        $response = $this->getResponse();
+        $headers = $response->getHeaders();
+        $headers->addHeaderLine('Content-Type', 'text/vnd.hocr+html; charset=utf-8');
+        $headers->addHeaderLine('Content-Length', (string) strlen($hocrContent));
+        $this->addCacheHeaders($headers, $etag, $altoMtime, 3600);
+        $response->setContent($hocrContent);
+        return $response;
+    }
+
+    /**
+     * Apply the bundled alto_to_hocr.xsl stylesheet to the given ALTO file and
+     * return the resulting hOCR HTML, or null on failure.
+     */
+    protected function renderHocrFromAlto(string $altoPath): ?string
+    {
+        $xsltPath = dirname(__DIR__, 2) . '/data/xsl/alto_to_hocr.xsl';
+        if (!is_readable($xsltPath)) {
+            return null;
+        }
+        $altoContent = $this->altoContent($altoPath);
+        if ($altoContent === '') {
+            return null;
+        }
+        libxml_use_internal_errors(true);
+        $dom = new \DOMDocument();
+        $loaded = @$dom->loadXML($altoContent, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING);
+        if (!$loaded) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $xsl = new \DOMDocument();
+        if (!@$xsl->load($xsltPath, LIBXML_NONET)) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $proc = new \XSLTProcessor();
+        $proc->setSecurityPrefs(XSL_SECPREF_CREATE_DIRECTORY | XSL_SECPREF_WRITE_FILE | XSL_SECPREF_READ_NETWORK | XSL_SECPREF_WRITE_NETWORK);
+        if (!@$proc->importStyleSheet($xsl)) {
+            libxml_clear_errors();
+            libxml_use_internal_errors(false);
+            return null;
+        }
+        $out = @$proc->transformToXml($dom);
+        libxml_clear_errors();
+        libxml_use_internal_errors(false);
+        return $out === false ? null : $out;
     }
 
     /**
@@ -144,7 +403,17 @@ class SearchController extends AbstractActionController
             return $this->errorResponse(Response::STATUS_CODE_404, 'Resource not found.'); // @translate
         }
 
-        $pageIndex = (int) $this->params('page');
+        // Public page numbering is 1-based; internal index is 0-based.
+        $pageNumber = (int) $this->params('page');
+        if ($pageNumber < 1) {
+            return $this->errorResponse(Response::STATUS_CODE_404, 'No ALTO page available.'); // @translate
+        }
+        $pageIndex = $pageNumber - 1;
+
+        if ($denied = $this->denyUnlessAllowedOcr($item, $pageIndex)) {
+            return $denied;
+        }
+
         $splitter = $this->viewHelpers()->get('xmlAltoSplitter');
         $path = $splitter($item, $pageIndex);
         if (!$path || !is_readable($path)) {
@@ -169,6 +438,20 @@ class SearchController extends AbstractActionController
         return $this->jsonLd($page);
     }
 
+    /**
+     * Get the content of an alto file, with invalid utf-8 characters fixed.
+     *
+     * Some ocr tools write the file name in windows-1252 in a xml declared as
+     * utf-8, so the clients cannot parse it.
+     */
+    protected function altoContent(string $path): string
+    {
+        $content = (string) file_get_contents($path);
+        return mb_check_encoding($content, 'UTF-8')
+            ? $content
+            : (string) $this->viewHelpers()->get('fixUtf8')($content);
+    }
+
     protected function resolveItem(): ?\Omeka\Api\Representation\ItemRepresentation
     {
         $id = $this->params('id');
@@ -189,6 +472,24 @@ class SearchController extends AbstractActionController
             }
         }
         return null;
+    }
+
+    /**
+     * The OCR of a page follows the access level of the file it belongs to,
+     * checked by the plugin isAllowedOcr. The header is the one set by the
+     * module Access, so a supervision tool can check a single header on the
+     * whole chain.
+     *
+     * @return \Laminas\View\Model\JsonModel|null Null when the page is allowed.
+     */
+    protected function denyUnlessAllowedOcr(ItemRepresentation $item, int $pageIndex): ?JsonModel
+    {
+        $allowed = $this->isAllowedOcr($item, $pageIndex);
+        $this->getResponse()->getHeaders()
+            ->addHeaderLine('Omeka-S-Access-Status: ' . ($allowed ? 'allowed' : 'denied'));
+        return $allowed
+            ? null
+            : $this->errorResponse(Response::STATUS_CODE_403, 'Access to the transcription of this page is restricted.'); // @translate
     }
 
     protected function errorResponse(int $code, string $message): JsonModel

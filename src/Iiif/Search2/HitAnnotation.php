@@ -7,11 +7,11 @@ use IiifSearch\Iiif\AbstractSimpleType;
 /**
  * IIIF Content Search 2.0 — Hit annotation (motivation contextualizing).
  *
- * Wraps before/match/after as a single Annotation whose body is a list of
- * TextualBody parts (purpose: describing | tagging | describing) and whose
- * target is the id (or list of ids) of the main highlighted Annotation(s).
+ * The target is a SpecificResource (or a list of them) whose source is the id
+ * of a highlighted annotation and whose TextQuoteSelector contains the match
+ * ("exact") and its context ("prefix" and "suffix").
  *
- * @link https://iiif.io/api/search/2.0/#search-hits
+ * @link https://iiif.io/api/search/2.0/#match-context
  */
 class HitAnnotation extends AbstractSimpleType
 {
@@ -27,7 +27,7 @@ class HitAnnotation extends AbstractSimpleType
         'id' => self::REQUIRED,
         'type' => self::REQUIRED,
         'motivation' => self::REQUIRED,
-        'body' => self::REQUIRED,
+        'body' => self::OPTIONAL,
         'target' => self::REQUIRED,
     ];
 

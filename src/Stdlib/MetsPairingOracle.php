@@ -3,7 +3,6 @@
 namespace IiifSearch\Stdlib;
 
 use Omeka\Api\Representation\ItemRepresentation;
-use Omeka\Api\Representation\MediaRepresentation;
 use SimpleXMLElement;
 
 /**
@@ -29,7 +28,7 @@ class MetsPairingOracle
 
     /**
      * @param PageSource[] $sources
-     * @param MediaRepresentation[] $images
+     * @param FileResource[] $images
      */
     public function pair(SimpleXMLElement $mets, array $sources, array $images): ?PairingResult
     {

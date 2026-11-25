@@ -53,41 +53,48 @@ class AnnotationPageTest extends TestCase
         ]);
         $hit = new HitAnnotation([
             'id' => 'http://example.com/iiif-search/1/search/2/hit/0',
-            'body' => [
-                ['type' => 'TextualBody', 'purpose' => 'describing', 'value' => 'A quick '],
-                ['type' => 'TextualBody', 'purpose' => 'tagging', 'value' => 'fox'],
-                ['type' => 'TextualBody', 'purpose' => 'describing', 'value' => ' jumps.'],
+            'target' => [
+                'type' => 'SpecificResource',
+                'source' => 'http://example.com/iiif-search/1/search/2/annotation/0',
+                'selector' => [[
+                    'type' => 'TextQuoteSelector',
+                    'prefix' => 'A quick ',
+                    'exact' => 'fox',
+                    'suffix' => ' jumps.',
+                ]],
             ],
-            'target' => 'http://example.com/iiif-search/1/search/2/annotation/0',
         ]);
         $partOf = new AnnotationCollection([
             'id' => 'http://example.com/iiif-search/1/search/2',
             'label' => ['en' => ['Search results']],
-            'total' => 2,
+            'total' => 1,
         ]);
 
         $page = new AnnotationPage();
         $page->initOptions(['requestUri' => 'http://example.com/iiif-search/1/search/2?q=fox']);
-        $page['items'] = [$annotation, $hit];
+        $page['items'] = [$annotation];
+        $page['annotations'] = [['type' => 'AnnotationPage', 'items' => [$hit]]];
         $page['partOf'] = $partOf;
 
         $json = json_encode($page, JSON_UNESCAPED_SLASHES);
         $decoded = json_decode($json, true);
 
         $this->assertSame('AnnotationPage', $decoded['type']);
-        $this->assertCount(2, $decoded['items']);
+        $this->assertCount(1, $decoded['items']);
         $this->assertSame('Annotation', $decoded['items'][0]['type']);
         $this->assertSame('highlighting', $decoded['items'][0]['motivation']);
         $this->assertSame('SpecificResource', $decoded['items'][0]['target']['type']);
         $this->assertSame('FragmentSelector', $decoded['items'][0]['target']['selector']['type']);
         $this->assertSame('xywh=10,20,30,40', $decoded['items'][0]['target']['selector']['value']);
 
-        $this->assertSame('contextualizing', $decoded['items'][1]['motivation']);
-        $this->assertCount(3, $decoded['items'][1]['body']);
-        $this->assertSame('tagging', $decoded['items'][1]['body'][1]['purpose']);
+        $hitContent = $decoded['annotations'][0]['items'][0];
+        $this->assertSame('contextualizing', $hitContent['motivation']);
+        $this->assertArrayNotHasKey('body', $hitContent);
+        $this->assertSame('TextQuoteSelector', $hitContent['target']['selector'][0]['type']);
+        $this->assertSame('fox', $hitContent['target']['selector'][0]['exact']);
 
         $this->assertSame('AnnotationCollection', $decoded['partOf']['type']);
-        $this->assertSame(2, $decoded['partOf']['total']);
+        $this->assertSame(1, $decoded['partOf']['total']);
     }
 
     public function testIgnoredDefaultsToEmptyArray(): void

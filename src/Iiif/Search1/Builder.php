@@ -16,7 +16,8 @@ namespace IiifSearch\Iiif\Search1;
  *         ...
  *     ],
  *     'pageHits' => [
- *         ['hits'=>[hitNumbers...], 'match'=>string], ...
+ *         ['hits'=>[hitNumbers...], 'match'=>string,
+ *          'before'=>?string, 'after'=>?string], ...
  *     ],
  * ]
  */
@@ -60,6 +61,9 @@ class Builder
             $hit = new SearchHit();
             $hit['annotations'] = $annotationIds;
             $hit['match'] = (string) ($pageHit['match'] ?? '');
+            // Null values are removed from the output.
+            $hit['before'] = isset($pageHit['before']) && $pageHit['before'] !== '' ? (string) $pageHit['before'] : null;
+            $hit['after'] = isset($pageHit['after']) && $pageHit['after'] !== '' ? (string) $pageHit['after'] : null;
             $hits[] = $hit;
         }
 

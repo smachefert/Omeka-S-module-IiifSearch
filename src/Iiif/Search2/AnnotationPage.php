@@ -20,6 +20,7 @@ class AnnotationPage extends AbstractSimpleType
         'type' => 'AnnotationPage',
         'ignored' => [],
         'items' => [],
+        'annotations' => null,
         'partOf' => null,
     ];
 
@@ -29,6 +30,7 @@ class AnnotationPage extends AbstractSimpleType
         'type' => self::REQUIRED,
         'ignored' => self::OPTIONAL,
         'items' => self::REQUIRED,
+        'annotations' => self::OPTIONAL,
         'partOf' => self::OPTIONAL,
     ];
 

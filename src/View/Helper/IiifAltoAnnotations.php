@@ -2,9 +2,9 @@
 
 namespace IiifSearch\View\Helper;
 
+use IiifSearch\Stdlib\XmlRepair;
 use Laminas\View\Helper\AbstractHelper;
 use Omeka\Api\Representation\ItemRepresentation;
-use SimpleXMLElement;
 
 /**
  * Build a IIIF Presentation 3 AnnotationPage with motivation "supplementing"
@@ -26,7 +26,7 @@ class IiifAltoAnnotations extends AbstractHelper
             return null;
         }
 
-        $xml = @simplexml_load_file($altoPath, SimpleXMLElement::class, LIBXML_NONET | LIBXML_NOBLANKS);
+        $xml = XmlRepair::loadFile($altoPath, LIBXML_NONET | LIBXML_NOBLANKS);
         if (!$xml) {
             return null;
         }
@@ -46,29 +46,60 @@ class IiifAltoAnnotations extends AbstractHelper
         $iiifUrl = $view->plugin('iiifUrl');
         $serverUrl = $view->plugin('serverUrl');
 
-        $canvasBase = $iiifUrl($item, 'iiifserver/uri', null, ['type' => 'canvas']) . '/p' . ($page + 1);
+        // An AnnotationPage is referenced only by a manifest v3, so the targets are
+        // the canvases of this version, whatever the default version.
+        $manifestVersion = '3';
+        $canvasBase = $iiifUrl($item, 'iiifserver/uri', $manifestVersion, ['type' => 'canvas']) . '/p' . ($page + 1);
         $pageId = $serverUrl(true);
 
         // Compute scale between ALTO page coordinates and canvas pixels.
         $altoWidth = (float) $altoPage['WIDTH'];
         $altoHeight = (float) $altoPage['HEIGHT'];
-        $media = $item->media()[$page] ?? null;
-        if (!$media) {
-            return null;
-        }
-        $canvasWidth = (int) ($media->mediaData()['width'] ?? 0);
-        $canvasHeight = (int) ($media->mediaData()['height'] ?? 0);
-        // Fall back to thumbnail dimensions if width/height not stored.
-        if (!$canvasWidth || !$canvasHeight) {
-            try {
-                $size = @getimagesize($media->originalUrl());
-                if ($size) {
-                    $canvasWidth = (int) $size[0];
-                    $canvasHeight = (int) $size[1];
-                }
-            } catch (\Throwable $e) {
-                // Ignore.
+        // Pick the page-th image media rather than the page-th media of any
+        // type: items with attached ALTOs / PDFs interleaved with images would
+        // otherwise index into a non-image entry and lose the canvas
+        // dimensions. ALTO ordering itself is fixed upstream by XmlAltoSingle.
+        $itemFileResources = $this->getView()->plugin('itemFileResources');
+        $imageMedias = [];
+        foreach ($itemFileResources($item) as $resource) {
+            if ($resource->isCanvasImage()) {
+                $imageMedias[] = $resource;
             }
+        }
+        // An item without page image (a single pdf, for example) keeps the
+        // coordinates of the alto page, so the scale is 1, except when the size
+        // of the pages of the pdf is available.
+        $resource = $imageMedias[$page] ?? null;
+        $canvasWidth = 0;
+        $canvasHeight = 0;
+        if ($resource && $view->getHelperPluginManager()->has('mediaDimension')) {
+            try {
+                $dim = $view->plugin('mediaDimension')($resource, 'original');
+                $canvasWidth = (int) ($dim['width'] ?? 0);
+                $canvasHeight = (int) ($dim['height'] ?? 0);
+            } catch (\Throwable $e) {
+                // Fall through to mediaData inspection below.
+            }
+        }
+        if ($resource && (!$canvasWidth || !$canvasHeight)) {
+            $mediaData = $resource->mediaData() ?: [];
+            $canvasWidth = $canvasWidth ?: (int) ($mediaData['dimensions']['original']['width']
+                ?? $mediaData['width'] ?? 0);
+            $canvasHeight = $canvasHeight ?: (int) ($mediaData['dimensions']['original']['height']
+                ?? $mediaData['height'] ?? 0);
+        }
+        // The pages of a pdf may be the canvases, with the size of the page in
+        // points, like the search (see module IiifServer).
+        if (!$resource && $view->getHelperPluginManager()->has('pdfPageSizes')) {
+            $pdfPageSizes = $view->plugin('pdfPageSizes');
+            $pageSizes = [];
+            foreach ($itemFileResources($item) as $fileResource) {
+                if ($fileResource->mediaType() === 'application/pdf') {
+                    $pageSizes = array_merge($pageSizes, $pdfPageSizes($fileResource->inner()));
+                }
+            }
+            $canvasWidth = (int) ($pageSizes[$page]['width'] ?? 0);
+            $canvasHeight = (int) ($pageSizes[$page]['height'] ?? 0);
         }
         $scaleX = ($altoWidth > 0 && $canvasWidth > 0) ? $canvasWidth / $altoWidth : 1.0;
         $scaleY = ($altoHeight > 0 && $canvasHeight > 0) ? $canvasHeight / $altoHeight : 1.0;
